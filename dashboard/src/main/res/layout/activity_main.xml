@@ -122,6 +122,15 @@
                 android:layout_width="match_parent"
                 android:layout_marginTop="10dp"
                 android:text="Use my location" />
+
+            <Button
+                android:id="@+id/weather_app_button"
+                style="@style/ButtonOutline"
+                android:layout_width="match_parent"
+                android:layout_marginTop="10dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="Weather tap opens: choose an app" />
         </LinearLayout>
 
         <LinearLayout style="@style/Card">

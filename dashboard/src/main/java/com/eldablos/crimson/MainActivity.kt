@@ -25,6 +25,7 @@ class MainActivity : Activity() {
     private lateinit var stepsPill: TextView
     private lateinit var calendarPill: TextView
     private lateinit var opacityPill: TextView
+    private lateinit var weatherAppButton: Button
 
     private enum class Status { ON, PARTIAL, OFF }
 
@@ -42,6 +43,8 @@ class MainActivity : Activity() {
 
         findViewById<Button>(R.id.search_button).setOnClickListener { searchCity() }
         findViewById<Button>(R.id.my_location_button).setOnClickListener { useMyLocation() }
+        weatherAppButton = findViewById(R.id.weather_app_button)
+        weatherAppButton.setOnClickListener { pickWeatherApp() }
         findViewById<Button>(R.id.steps_button).setOnClickListener {
             requestPermissions(arrayOf(Steps.PERMISSION_READ, Steps.PERMISSION_BACKGROUND), REQ_STEPS)
         }
@@ -71,6 +74,11 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onPostCreate(savedInstanceState: Bundle?) {
+        super.onPostCreate(savedInstanceState)
+        if (intent.getBooleanExtra(EXTRA_PICK_WEATHER_APP, false)) pickWeatherApp()
+    }
+
     override fun onResume() {
         super.onResume()
         render()
@@ -90,6 +98,7 @@ class MainActivity : Activity() {
         val place = DashboardStore.place(this)
         placeText.text = place?.let { "Showing weather for ${it.name}" } ?: "Search for your town, or use your location."
         setPill(weatherPill, if (place != null) Status.ON else Status.OFF)
+        weatherAppButton.text = "Weather tap opens: ${weatherAppName() ?: "choose an app"}"
 
         val steps = when {
             !Steps.hasPermission(this) -> Status.OFF
@@ -175,6 +184,40 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun weatherAppName(): String? {
+        val saved = DashboardStore.weatherApp(this)?.let { android.content.ComponentName.unflattenFromString(it) }
+            ?: return null
+        return OpenAppActivity.launcherApps(this)
+            .firstOrNull { it.activityInfo.packageName == saved.packageName && it.activityInfo.name == saved.className }
+            ?.let { OpenAppActivity.appLabel(packageManager, it) }
+    }
+
+    /** Lists every app, weather apps first, and saves the one picked for the widget's weather tap. */
+    private fun pickWeatherApp() {
+        val apps = OpenAppActivity.launcherApps(this)
+            .map { it to OpenAppActivity.appLabel(packageManager, it) }
+            .sortedWith(
+                compareByDescending<Pair<android.content.pm.ResolveInfo, String>> { (info, label) ->
+                    label.contains("weather", ignoreCase = true) ||
+                        info.activityInfo.packageName.contains("weather", ignoreCase = true) ||
+                        info.activityInfo.packageName == "com.sec.android.daemonapp"
+                }.thenBy { it.second.lowercase() }
+            )
+        if (apps.isEmpty()) {
+            toast("Couldn't list your apps")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Which app should the weather open?")
+            .setItems(apps.map { it.second }.toTypedArray()) { _, i ->
+                val info = apps[i].first.activityInfo
+                DashboardStore.setWeatherApp(this, android.content.ComponentName(info.packageName, info.name).flattenToString())
+                render()
+                toast("Weather tap now opens ${apps[i].second}")
+            }
+            .show()
+    }
+
     private fun setPlace(place: Place) {
         DashboardStore.setPlace(this, place)
         render()
@@ -209,6 +252,7 @@ class MainActivity : Activity() {
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
     companion object {
+        const val EXTRA_PICK_WEATHER_APP = "pick_weather_app"
         private const val REQ_STEPS = 1
         private const val REQ_CALENDAR = 2
         private const val REQ_LOCATION = 3

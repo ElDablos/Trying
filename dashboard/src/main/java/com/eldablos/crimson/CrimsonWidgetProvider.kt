@@ -142,10 +142,10 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.weather_desc, condition.label)
                 views.setTextViewText(R.id.weather_place, "↑${weather.high}° ↓${weather.low}° · $town")
             }
-            // Tap for the Weather app, opened via a trampoline because Samsung Weather ignores direct launches.
+            // Tap for the weather app the user picked (or one we can find), via a trampoline activity.
             views.setOnClickPendingIntent(
                 R.id.weather_row,
-                activity(context, 4, OpenAppActivity.intent(context, "Weather", WEATHER_APPS, Intent.CATEGORY_APP_WEATHER)),
+                activity(context, 4, OpenAppActivity.intent(context, "Weather", WEATHER_APPS)),
             )
         }
 

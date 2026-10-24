@@ -17,7 +17,8 @@ It matches the [Gothic Crimson theme](../theme/gothic-crimson/README.md).
 1. On your phone, open this repo's **Releases** page and download `CrimsonWidget.apk` from **Latest builds**.
 2. Open the APK and install it. Android asks you to allow installs from your browser the first time.
 3. Open **Crimson Widget** and set up:
-   - **Weather**: search for your town, or tap **Use my location**.
+   - **Weather**: search for your town, or tap **Use my location**. Then tap **Weather tap opens…** and
+     pick your weather app (on Samsung phones, **Weather**).
    - **Steps**: tap **Connect steps**, and allow both **Steps** and **Access data in the background**.
      Samsung Health also has to share steps: in Samsung Health, open the menu → **Settings → Health Connect**
      and allow it to write steps.

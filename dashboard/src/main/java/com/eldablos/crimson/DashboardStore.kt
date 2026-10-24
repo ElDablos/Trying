@@ -81,6 +81,13 @@ object DashboardStore {
         prefs(context).edit().putInt("opacity", percent.coerceIn(0, 100)).apply()
     }
 
+    /** The app the widget's weather tap opens, as a flattened component name, if the user picked one. */
+    fun weatherApp(context: Context): String? = prefs(context).getString("weather_app", null)
+
+    fun setWeatherApp(context: Context, component: String) {
+        prefs(context).edit().putString("weather_app", component).apply()
+    }
+
     fun goal(context: Context): Int = prefs(context).getInt("goal", DEFAULT_GOAL)
 
     fun setGoal(context: Context, goal: Int) {

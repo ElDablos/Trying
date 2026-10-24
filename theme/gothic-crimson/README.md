@@ -1,4 +1,4 @@
-# Gothic Crimson — a dark red theme for the Galaxy S26
+# Gothic Crimson — a dark red theme for the Galaxy S26 Ultra
 
 ![Preview](preview.png)
 
@@ -12,7 +12,7 @@ Near-black backgrounds, blood-red accents, cathedral spires and rose windows.
 | `wallpapers/gothic-crimson-rose-window.jpg` | Lock screen: glowing rose window, with space at the top for the clock |
 | `wallpapers/gothic-crimson-void.jpg` | Almost pure black with one glowing arch. Easy on the battery with the AMOLED screen |
 
-The wallpapers are 1440×3120, sized for the S26 Ultra. They also scale down cleanly on the S26 and S26+.
+The wallpapers are 1440×3120, the S26 Ultra's full QHD+ resolution, so they show pixel for pixel. In **Settings → Display → Screen resolution**, pick **QHD+** to get the sharpest picture.
 
 ## Colour palette
 

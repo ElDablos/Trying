@@ -1,6 +1,5 @@
 // Builds the Gothic Crimson wallpapers as SVG strings.
-// Rendered to PNG by render.js. Canvas is 1440x3120 (Galaxy S26 Ultra);
-// the S26 and S26+ scale it down cleanly.
+// Rendered to JPEG by render.js. Canvas is 1440x3120, the Galaxy S26 Ultra's QHD+ resolution.
 
 const W = 1440;
 const H = 3120;

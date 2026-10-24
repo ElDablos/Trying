@@ -1,0 +1,164 @@
+package com.eldablos.crimson
+
+import android.Manifest
+import android.app.Activity
+import android.app.AlertDialog
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import android.content.pm.PackageManager
+import android.location.Geocoder
+import android.location.LocationManager
+import android.os.Bundle
+import android.widget.Button
+import android.widget.EditText
+import android.widget.TextView
+import android.widget.Toast
+
+class MainActivity : Activity() {
+    private lateinit var placeText: TextView
+    private lateinit var stepsStatus: TextView
+    private lateinit var calendarStatus: TextView
+    private lateinit var cityInput: EditText
+    private lateinit var goalInput: EditText
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        placeText = findViewById(R.id.place_text)
+        stepsStatus = findViewById(R.id.steps_status)
+        calendarStatus = findViewById(R.id.calendar_status)
+        cityInput = findViewById(R.id.city_input)
+        goalInput = findViewById(R.id.goal_input)
+
+        findViewById<Button>(R.id.search_button).setOnClickListener { searchCity() }
+        findViewById<Button>(R.id.my_location_button).setOnClickListener { useMyLocation() }
+        findViewById<Button>(R.id.steps_button).setOnClickListener {
+            requestPermissions(arrayOf(Steps.PERMISSION_READ, Steps.PERMISSION_BACKGROUND), REQ_STEPS)
+        }
+        findViewById<Button>(R.id.calendar_button).setOnClickListener {
+            requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR), REQ_CALENDAR)
+        }
+        findViewById<Button>(R.id.goal_button).setOnClickListener { saveGoal() }
+        findViewById<Button>(R.id.add_widget_button).setOnClickListener { pinWidget() }
+        goalInput.setText(DashboardStore.goal(this).toString())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        render()
+        refreshWidget()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_LOCATION && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            useMyLocation()
+        }
+        render()
+        refreshWidget()
+    }
+
+    private fun render() {
+        placeText.text = DashboardStore.place(this)?.let { "Weather for: ${it.name}" } ?: "No location set yet"
+        stepsStatus.text = when {
+            !Steps.hasPermission(this) -> "Not connected"
+            !Steps.hasBackgroundPermission(this) ->
+                "Connected, but only updates while this app is open. Allow \"access data in the background\" in Health Connect."
+            else -> "Connected"
+        }
+        calendarStatus.text = if (NextEvent.hasPermission(this)) "Allowed" else "Not allowed"
+    }
+
+    private fun searchCity() {
+        val query = cityInput.text.toString().trim()
+        if (query.isEmpty()) return
+        Thread {
+            val results = try {
+                Weather.searchPlaces(query)
+            } catch (e: Exception) {
+                null
+            }
+            runOnUiThread {
+                when {
+                    results == null -> toast("Couldn't search. Check your internet connection.")
+                    results.isEmpty() -> toast("No places found for \"$query\"")
+                    else -> AlertDialog.Builder(this)
+                        .setTitle("Pick your place")
+                        .setItems(results.map { it.name }.toTypedArray()) { _, i -> setPlace(results[i]) }
+                        .show()
+                }
+            }
+        }.start()
+    }
+
+    private fun useMyLocation() {
+        if (checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION), REQ_LOCATION)
+            return
+        }
+        val lm = getSystemService(LocationManager::class.java)
+        val provider = listOf(LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
+            .firstOrNull { lm.isProviderEnabled(it) }
+        if (provider == null) {
+            toast("Turn on Location in quick settings, then try again")
+            return
+        }
+        toast("Finding you…")
+        lm.getCurrentLocation(provider, null, mainExecutor) { location ->
+            if (location == null) {
+                toast("Couldn't get your location. Try searching for your town instead.")
+                return@getCurrentLocation
+            }
+            Geocoder(this, java.util.Locale.getDefault()).getFromLocation(location.latitude, location.longitude, 1, object : Geocoder.GeocodeListener {
+                override fun onGeocode(addresses: MutableList<android.location.Address>) {
+                    val a = addresses.firstOrNull()
+                    val name = a?.locality ?: a?.subAdminArea ?: "My location"
+                    runOnUiThread { setPlace(Place(name, location.latitude, location.longitude)) }
+                }
+
+                override fun onError(errorMessage: String?) {
+                    runOnUiThread { setPlace(Place("My location", location.latitude, location.longitude)) }
+                }
+            })
+        }
+    }
+
+    private fun setPlace(place: Place) {
+        DashboardStore.setPlace(this, place)
+        render()
+        refreshWidget()
+    }
+
+    private fun saveGoal() {
+        val goal = goalInput.text.toString().toIntOrNull()
+        if (goal == null || goal <= 0) {
+            toast("Enter a number of steps, like 10000")
+            return
+        }
+        DashboardStore.setGoal(this, goal)
+        toast("Goal saved")
+        CrimsonWidgetProvider.refreshAll(this)
+    }
+
+    private fun refreshWidget() {
+        val context = applicationContext
+        Thread { RefreshJob.refresh(context) }.start()
+    }
+
+    private fun pinWidget() {
+        val manager = AppWidgetManager.getInstance(this)
+        if (manager.isRequestPinAppWidgetSupported) {
+            manager.requestPinAppWidget(ComponentName(this, CrimsonWidgetProvider::class.java), null, null)
+        } else {
+            toast("Long-press your home screen → Widgets → Crimson Widget")
+        }
+    }
+
+    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
+
+    companion object {
+        private const val REQ_STEPS = 1
+        private const val REQ_CALENDAR = 2
+        private const val REQ_LOCATION = 3
+    }
+}

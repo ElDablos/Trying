@@ -12,7 +12,7 @@ You don't need the Galaxy Wearable app open.
 ## Install
 
 1. On your phone, open this repo's **Releases** page and download `BudsBattery.apk` from
-   **Buds Battery (latest build)**. You can also grab it from the latest run on the **Actions** tab.
+   **Latest builds**. You can also grab it from the latest run on the **Actions** tab.
 2. Open the APK. Android will ask you to allow installs from your browser or file manager the first time.
 3. Open **Buds Battery**, allow Bluetooth access, pick your buds and tap **Connect**.
 4. Tap **Add widget to home screen**, or long-press the home screen → Widgets → Buds Battery.
@@ -48,3 +48,8 @@ You don't need the Galaxy Wearable app open.
 ```
 
 Every push to GitHub builds the APK automatically (`.github/workflows/build.yml`).
+
+## Also in this repo
+
+- [Crimson Widget](dashboard/README.md): a dark red home-screen widget with a clock (tap for alarms), weather, steps and your next event.
+- [Gothic Crimson theme](theme/gothic-crimson/README.md): matching wallpapers and colours for the Galaxy S26 Ultra.

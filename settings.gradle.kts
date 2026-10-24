@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "BudsBattery"
 include(":app")
+include(":dashboard")

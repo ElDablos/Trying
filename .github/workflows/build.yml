@@ -23,20 +23,29 @@ jobs:
       - name: Test and build
         run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
 
-      - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk BudsBattery.apk
+      - name: Rename APKs
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk BudsBattery.apk
+          cp dashboard/build/outputs/apk/debug/dashboard-debug.apk CrimsonWidget.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: BudsBattery-apk
           path: BudsBattery.apk
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CrimsonWidget-apk
+          path: CrimsonWidget.apk
+
       # A fixed download link you can open straight from your phone.
       - name: Publish latest build
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-build
-          name: Buds Battery (latest build)
+          name: Latest builds
           target_commitish: ${{ github.sha }}
           prerelease: true
-          files: BudsBattery.apk
+          files: |
+            BudsBattery.apk
+            CrimsonWidget.apk

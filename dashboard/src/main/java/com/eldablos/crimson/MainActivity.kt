@@ -20,6 +20,11 @@ class MainActivity : Activity() {
     private lateinit var calendarStatus: TextView
     private lateinit var cityInput: EditText
     private lateinit var goalInput: EditText
+    private lateinit var weatherPill: TextView
+    private lateinit var stepsPill: TextView
+    private lateinit var calendarPill: TextView
+
+    private enum class Status { ON, PARTIAL, OFF }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,6 +34,9 @@ class MainActivity : Activity() {
         calendarStatus = findViewById(R.id.calendar_status)
         cityInput = findViewById(R.id.city_input)
         goalInput = findViewById(R.id.goal_input)
+        weatherPill = findViewById(R.id.weather_pill)
+        stepsPill = findViewById(R.id.steps_pill)
+        calendarPill = findViewById(R.id.calendar_pill)
 
         findViewById<Button>(R.id.search_button).setOnClickListener { searchCity() }
         findViewById<Button>(R.id.my_location_button).setOnClickListener { useMyLocation() }
@@ -59,14 +67,38 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
-        placeText.text = DashboardStore.place(this)?.let { "Weather for: ${it.name}" } ?: "No location set yet"
-        stepsStatus.text = when {
-            !Steps.hasPermission(this) -> "Not connected"
-            !Steps.hasBackgroundPermission(this) ->
-                "Connected, but only updates while this app is open. Allow \"access data in the background\" in Health Connect."
-            else -> "Connected"
+        val place = DashboardStore.place(this)
+        placeText.text = place?.let { "Showing weather for ${it.name}" } ?: "Search for your town, or use your location."
+        setPill(weatherPill, if (place != null) Status.ON else Status.OFF)
+
+        val steps = when {
+            !Steps.hasPermission(this) -> Status.OFF
+            !Steps.hasBackgroundPermission(this) -> Status.PARTIAL
+            else -> Status.ON
         }
-        calendarStatus.text = if (CalendarMonth.hasPermission(this)) "Allowed: days with events get a red dot" else "Not allowed. The calendar still works, just without event dots."
+        stepsStatus.text = when (steps) {
+            Status.OFF -> "Show today's steps from Samsung Health on the widget."
+            Status.PARTIAL ->
+                "Steps only update while this app is open. Tap below and allow \"Access data in the background\"."
+            Status.ON -> "Your steps update on the widget every 15 minutes."
+        }
+        setPill(stepsPill, steps)
+
+        val calendar = CalendarMonth.hasPermission(this)
+        calendarStatus.text = if (calendar) "Days with events get a red dot on the widget."
+        else "The calendar works without this. Allow it to see red dots on days with events."
+        setPill(calendarPill, if (calendar) Status.ON else Status.OFF)
+    }
+
+    private fun setPill(pill: TextView, status: Status) {
+        val (text, background, color) = when (status) {
+            Status.ON -> Triple("On", R.drawable.pill_on, R.color.bone)
+            Status.PARTIAL -> Triple("Partly", R.drawable.pill_warn, R.color.crimson)
+            Status.OFF -> Triple("Off", R.drawable.pill_off, R.color.dust)
+        }
+        pill.text = text
+        pill.setBackgroundResource(background)
+        pill.setTextColor(getColor(color))
     }
 
     private fun searchCity() {

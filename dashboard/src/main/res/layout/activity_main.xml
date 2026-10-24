@@ -2,171 +2,239 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/void_black"
+    android:background="@drawable/screen_background"
     android:fitsSystemWindows="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:paddingStart="20dp"
+        android:paddingTop="28dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="32dp">
+
+        <!-- Title -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="serif"
+            android:gravity="center"
+            android:letterSpacing="0.35"
+            android:text="CRIMSON"
+            android:textColor="@color/crimson"
+            android:textSize="34sp"
+            android:textStyle="bold" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="sans-serif-light"
-            android:text="@string/app_name"
-            android:textColor="@color/bone"
-            android:textSize="30sp" />
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="Set things up here, then add the widget to your home screen. Tap the clock on the widget to open your alarms."
+            android:gravity="center"
+            android:letterSpacing="0.6"
+            android:text="WIDGET"
             android:textColor="@color/dust"
+            android:textSize="12sp" />
+
+        <!-- Live clock, like the widget -->
+        <TextClock
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:fontFamily="sans-serif-thin"
+            android:format12Hour="h:mm"
+            android:format24Hour="HH:mm"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            android:textColor="@color/bone"
+            android:textSize="84sp" />
+
+        <TextClock
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="sans-serif-medium"
+            android:format12Hour="EEEE d MMMM"
+            android:format24Hour="EEEE d MMMM"
+            android:gravity="center"
+            android:letterSpacing="0.2"
+            android:textAllCaps="true"
+            android:textColor="@color/crimson"
             android:textSize="13sp" />
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:letterSpacing="0.12"
-            android:text="Weather"
-            android:textAllCaps="true"
-            android:textColor="@color/crimson"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-        <TextView
-            android:id="@+id/place_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text=""
-            android:textColor="@color/bone"
-            android:textSize="15sp" />
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
 
-            <EditText
-                android:id="@+id/city_input"
-                android:layout_width="0dp"
+        <ImageView
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="4dp"
+            android:scaleType="fitXY"
+            android:src="@drawable/divider_horizontal" />
+
+        <LinearLayout style="@style/Card">
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="Town or city"
-                android:inputType="textCapWords"
-                android:maxLines="1"
-                android:textColor="@color/bone"
-                android:textColorHint="@color/dust" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
+                <ImageView
+                    style="@style/CardIcon"
+                    android:src="@drawable/ic_weather_cloud" />
+
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="Weather" />
+
+                <TextView
+                    android:id="@+id/weather_pill"
+                    style="@style/Pill"
+                    android:background="@drawable/pill_off"
+                    android:text="Off"
+                    android:textColor="@color/dust" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/place_text"
+                style="@style/BodyText" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/city_input"
+                    style="@style/Input"
+                    android:hint="Town or city"
+                    android:imeOptions="actionDone"
+                    android:inputType="textCapWords" />
+
+                <Button
+                    android:id="@+id/search_button"
+                    style="@style/ButtonPrimary"
+                    android:layout_width="wrap_content"
+                    android:text="Search" />
+            </LinearLayout>
             <Button
-                android:id="@+id/search_button"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Search" />
+                android:id="@+id/my_location_button"
+                style="@style/ButtonOutline"
+                android:layout_width="match_parent"
+                android:layout_marginTop="10dp"
+                android:text="Use my location" />
         </LinearLayout>
-        <Button
-            android:id="@+id/my_location_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Use my location" />
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:letterSpacing="0.12"
-            android:text="Steps"
-            android:textAllCaps="true"
-            android:textColor="@color/crimson"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-        <TextView
-            android:id="@+id/steps_status"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text=""
-            android:textColor="@color/bone"
-            android:textSize="15sp" />
-        <Button
-            android:id="@+id/steps_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Connect steps" />
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="Steps come from Health Connect. In Samsung Health, open the menu → Settings → Health Connect, and let it share steps."
-            android:textColor="@color/dust"
-            android:textSize="13sp" />
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
 
-            <EditText
-                android:id="@+id/goal_input"
-                android:layout_width="0dp"
+        <LinearLayout style="@style/Card">
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="Daily goal"
-                android:inputType="number"
-                android:maxLines="1"
-                android:textColor="@color/bone"
-                android:textColorHint="@color/dust" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
+                <ImageView
+                    style="@style/CardIcon"
+                    android:src="@drawable/ic_steps" />
+
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="Steps" />
+
+                <TextView
+                    android:id="@+id/steps_pill"
+                    style="@style/Pill"
+                    android:background="@drawable/pill_off"
+                    android:text="Off"
+                    android:textColor="@color/dust" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/steps_status"
+                style="@style/BodyText" />
             <Button
-                android:id="@+id/goal_button"
-                android:layout_width="wrap_content"
+                android:id="@+id/steps_button"
+                style="@style/ButtonPrimary"
+                android:layout_width="match_parent"
+                android:layout_marginTop="14dp"
+                android:text="Connect steps" />
+            <TextView
+                style="@style/NoteText"
+                android:text="Steps come from Health Connect. In Samsung Health, open the menu → Settings → Health Connect, and let it share steps." />
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Save goal" />
+                android:layout_marginTop="14dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/goal_input"
+                    style="@style/Input"
+                    android:hint="Daily goal"
+                    android:imeOptions="actionDone"
+                    android:inputType="number" />
+
+                <Button
+                    android:id="@+id/goal_button"
+                    style="@style/ButtonPrimary"
+                    android:layout_width="wrap_content"
+                    android:text="Save" />
+            </LinearLayout>
         </LinearLayout>
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:letterSpacing="0.12"
-            android:text="Calendar"
-            android:textAllCaps="true"
-            android:textColor="@color/crimson"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-        <TextView
-            android:id="@+id/calendar_status"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text=""
-            android:textColor="@color/bone"
-            android:textSize="15sp" />
-        <Button
-            android:id="@+id/calendar_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Allow calendar" />
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:letterSpacing="0.12"
-            android:text="Widget"
-            android:textAllCaps="true"
-            android:textColor="@color/crimson"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+
+        <LinearLayout style="@style/Card">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    style="@style/CardIcon"
+                    android:src="@drawable/ic_event" />
+
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="Calendar" />
+
+                <TextView
+                    android:id="@+id/calendar_pill"
+                    style="@style/Pill"
+                    android:background="@drawable/pill_off"
+                    android:text="Off"
+                    android:textColor="@color/dust" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/calendar_status"
+                style="@style/BodyText" />
+            <Button
+                android:id="@+id/calendar_button"
+                style="@style/ButtonPrimary"
+                android:layout_width="match_parent"
+                android:layout_marginTop="14dp"
+                android:text="Allow calendar" />
+        </LinearLayout>
+
         <Button
             android:id="@+id/add_widget_button"
+            style="@style/ButtonPrimary"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="24dp"
+            android:letterSpacing="0.15"
+            android:text="ADD WIDGET TO HOME SCREEN"
+            android:textSize="14sp" />
+
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Add widget to home screen" />
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:lineSpacingExtra="4dp"
+            android:text="On the widget, tap the clock for alarms, the weather to refresh,\nand ‹ › to change month."
+            android:textColor="@color/dust"
+            android:textSize="12sp" />
     </LinearLayout>
 </ScrollView>

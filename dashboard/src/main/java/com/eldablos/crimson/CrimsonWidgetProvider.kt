@@ -12,6 +12,13 @@ import android.provider.CalendarContract
 import android.text.format.DateFormat
 import android.view.View
 import android.widget.RemoteViews
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.time.temporal.WeekFields
 import java.util.Locale
 
 class CrimsonWidgetProvider : AppWidgetProvider() {
@@ -32,9 +39,17 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             ACTION_REFRESH -> refreshInBackground(context)
+            ACTION_PREV_MONTH -> changeMonth(context, DashboardStore.monthOffset(context) - 1)
+            ACTION_NEXT_MONTH -> changeMonth(context, DashboardStore.monthOffset(context) + 1)
+            ACTION_THIS_MONTH -> changeMonth(context, 0)
             AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED -> refreshAll(context)
             else -> super.onReceive(context, intent)
         }
+    }
+
+    private fun changeMonth(context: Context, offset: Int) {
+        DashboardStore.setMonthOffset(context, offset)
+        refreshAll(context)
     }
 
     private fun refreshInBackground(context: Context) {
@@ -50,6 +65,10 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
 
     companion object {
         private const val ACTION_REFRESH = "com.eldablos.crimson.REFRESH"
+        private const val ACTION_PREV_MONTH = "com.eldablos.crimson.PREV_MONTH"
+        private const val ACTION_NEXT_MONTH = "com.eldablos.crimson.NEXT_MONTH"
+        private const val ACTION_THIS_MONTH = "com.eldablos.crimson.THIS_MONTH"
+        private const val DAY_REQUEST_CODE_BASE = 100
 
         fun refreshAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context) ?: return
@@ -76,7 +95,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
 
             bindWeather(context, views)
             bindSteps(context, views, locale)
-            bindEvent(context, views, now, is24h, locale)
+            bindCalendar(context, views, now.toLocalDate(), locale)
             return views
         }
 
@@ -88,38 +107,29 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.weather_temp, "--°")
                 views.setTextViewText(R.id.weather_desc, "Tap to set your location")
                 views.setTextViewText(R.id.weather_place, "")
-                views.setViewVisibility(R.id.weather_range, View.GONE)
                 views.setOnClickPendingIntent(R.id.weather_row, openApp(context, 3))
                 return
             }
-            views.setTextViewText(R.id.weather_place, place.name.substringBefore(","))
+            val town = place.name.substringBefore(",")
             if (weather == null) {
                 views.setImageViewResource(R.id.weather_icon, R.drawable.ic_weather_cloud)
                 views.setTextViewText(R.id.weather_temp, "--°")
                 views.setTextViewText(R.id.weather_desc, "Loading…")
-                views.setViewVisibility(R.id.weather_range, View.GONE)
+                views.setTextViewText(R.id.weather_place, town)
             } else {
                 val condition = Weather.describe(weather.code, weather.isDay)
                 views.setImageViewResource(R.id.weather_icon, iconFor(condition.icon))
                 views.setTextViewText(R.id.weather_temp, "${weather.temp}°")
                 views.setTextViewText(R.id.weather_desc, condition.label)
-                views.setTextViewText(R.id.weather_range, "↑${weather.high}°  ↓${weather.low}°")
-                views.setViewVisibility(R.id.weather_range, View.VISIBLE)
+                views.setTextViewText(R.id.weather_place, "↑${weather.high}° ↓${weather.low}° · $town")
             }
             // Tap the weather to refresh everything now.
-            views.setOnClickPendingIntent(
-                R.id.weather_row,
-                PendingIntent.getBroadcast(
-                    context, 4,
-                    Intent(context, CrimsonWidgetProvider::class.java).setAction(ACTION_REFRESH),
-                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-                ),
-            )
+            views.setOnClickPendingIntent(R.id.weather_row, broadcast(context, ACTION_REFRESH, 4))
         }
 
         private fun bindSteps(context: Context, views: RemoteViews, locale: Locale) {
             if (!Steps.hasPermission(context)) {
-                views.setTextViewText(R.id.steps_text, "Tap to show your steps")
+                views.setTextViewText(R.id.steps_text, "Tap to add steps")
                 views.setTextViewText(R.id.steps_goal, "")
                 views.setProgressBar(R.id.steps_bar, 100, 0, false)
                 views.setOnClickPendingIntent(R.id.steps_row, openApp(context, 5))
@@ -128,30 +138,85 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             val goal = DashboardStore.goal(context)
             val steps = DashboardStore.steps(context)
             views.setTextViewText(R.id.steps_text, if (steps == null) "-- steps" else "${Format.number(steps, locale)} steps")
-            views.setTextViewText(R.id.steps_goal, "of ${Format.number(goal.toLong(), locale)}")
-            views.setProgressBar(R.id.steps_bar, 100, Format.stepsPercent(steps ?: 0, goal), false)
+            val percent = Format.stepsPercent(steps ?: 0, goal)
+            views.setTextViewText(R.id.steps_goal, "$percent% of ${Format.number(goal.toLong(), locale)}")
+            views.setProgressBar(R.id.steps_bar, 100, percent, false)
             val health = context.packageManager.getLaunchIntentForPackage(Steps.SAMSUNG_HEALTH)
             views.setOnClickPendingIntent(R.id.steps_row, if (health != null) activity(context, 5, health) else openApp(context, 5))
         }
 
-        private fun bindEvent(
-            context: Context, views: RemoteViews, now: java.time.ZonedDateTime, is24h: Boolean, locale: Locale,
-        ) {
-            if (!NextEvent.hasPermission(context)) {
-                views.setTextViewText(R.id.event_text, "Tap to show your next event")
-                views.setOnClickPendingIntent(R.id.event_row, openApp(context, 6))
-                return
-            }
-            val event = NextEvent.find(context)
+        private fun bindCalendar(context: Context, views: RemoteViews, today: LocalDate, locale: Locale) {
+            val month = YearMonth.from(today).plusMonths(DashboardStore.monthOffset(context).toLong())
+            val firstDay = WeekFields.of(locale).firstDayOfWeek
+            val events = CalendarMonth.eventDays(context, month)
+
             views.setTextViewText(
-                R.id.event_text,
-                if (event != null) Format.event(event, now, is24h, locale) else "Nothing in the next two weeks",
+                R.id.month_title,
+                month.format(DateTimeFormatter.ofPattern(if (month.year == today.year) "MMMM" else "MMMM yyyy", locale))
+                    .uppercase(locale),
             )
-            views.setOnClickPendingIntent(
-                R.id.event_row,
-                activity(context, 6, calendarAt(event?.begin ?: System.currentTimeMillis())),
-            )
+            views.setOnClickPendingIntent(R.id.month_prev, broadcast(context, ACTION_PREV_MONTH, 20))
+            views.setOnClickPendingIntent(R.id.month_next, broadcast(context, ACTION_NEXT_MONTH, 21))
+            views.setOnClickPendingIntent(R.id.month_title, broadcast(context, ACTION_THIS_MONTH, 22))
+
+            CalendarMonth.weekdays(firstDay).forEachIndexed { i, dow ->
+                val id = viewId(context, "dow_$i")
+                views.setTextViewText(id, dow.getDisplayName(TextStyle.NARROW, locale))
+                views.setTextColor(id, context.getColor(if (dow == DayOfWeek.SUNDAY) R.color.crimson else R.color.dust))
+            }
+
+            val cells = CalendarMonth.grid(month, firstDay)
+            for (week in 0 until 6) {
+                // Keep the sixth row's space so the widget doesn't jump in size between months.
+                val used = (0 until 7).any { cells[week * 7 + it] != null }
+                views.setViewVisibility(viewId(context, "week_$week"), if (used) View.VISIBLE else View.INVISIBLE)
+            }
+            cells.forEachIndexed { i, date ->
+                val id = viewId(context, "day_$i")
+                if (date == null) {
+                    views.setTextViewText(id, "")
+                    views.setInt(id, "setBackgroundResource", R.drawable.day_none)
+                    views.setOnClickPendingIntent(id, null)
+                    return@forEachIndexed
+                }
+                val isToday = date == today
+                views.setTextViewText(id, date.dayOfMonth.toString())
+                views.setInt(
+                    id, "setBackgroundResource",
+                    when {
+                        isToday -> R.drawable.day_today
+                        date in events -> R.drawable.day_event
+                        else -> R.drawable.day_none
+                    },
+                )
+                views.setTextColor(
+                    id,
+                    context.getColor(
+                        when {
+                            isToday -> R.color.bone
+                            date.dayOfWeek == DayOfWeek.SUNDAY -> R.color.crimson
+                            date.isBefore(today) -> R.color.dust
+                            else -> R.color.bone
+                        },
+                    ),
+                )
+                // Tap a day to open it in the calendar app.
+                val noon = date.atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                views.setOnClickPendingIntent(id, activity(context, DAY_REQUEST_CODE_BASE + i, calendarAt(noon)))
+            }
         }
+
+        private val viewIds = HashMap<String, Int>()
+
+        private fun viewId(context: Context, name: String): Int =
+            viewIds.getOrPut(name) { context.resources.getIdentifier(name, "id", context.packageName) }
+
+        private fun broadcast(context: Context, action: String, requestCode: Int): PendingIntent =
+            PendingIntent.getBroadcast(
+                context, requestCode,
+                Intent(context, CrimsonWidgetProvider::class.java).setAction(action),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
 
         private fun iconFor(icon: WeatherIcon) = when (icon) {
             WeatherIcon.SUN -> R.drawable.ic_weather_sun

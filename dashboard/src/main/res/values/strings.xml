@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Crimson Widget</string>
-    <string name="widget_description">Clock, alarm, weather, steps and your next event</string>
+    <string name="widget_description">Clock, alarm, weather, steps and a month calendar</string>
 </resources>

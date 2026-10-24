@@ -66,6 +66,13 @@ object DashboardStore {
             .apply()
     }
 
+    /** Months away from the current one that the widget's calendar is showing. */
+    fun monthOffset(context: Context): Int = prefs(context).getInt("month_offset", 0)
+
+    fun setMonthOffset(context: Context, offset: Int) {
+        prefs(context).edit().putInt("month_offset", offset).apply()
+    }
+
     fun goal(context: Context): Int = prefs(context).getInt("goal", DEFAULT_GOAL)
 
     fun setGoal(context: Context, goal: Int) {

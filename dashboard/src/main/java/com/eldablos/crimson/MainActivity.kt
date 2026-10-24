@@ -66,7 +66,7 @@ class MainActivity : Activity() {
                 "Connected, but only updates while this app is open. Allow \"access data in the background\" in Health Connect."
             else -> "Connected"
         }
-        calendarStatus.text = if (NextEvent.hasPermission(this)) "Allowed" else "Not allowed"
+        calendarStatus.text = if (CalendarMonth.hasPermission(this)) "Allowed: days with events get a red dot" else "Not allowed. The calendar still works, just without event dots."
     }
 
     private fun searchCity() {

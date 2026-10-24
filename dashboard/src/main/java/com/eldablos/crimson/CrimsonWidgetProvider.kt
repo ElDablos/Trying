@@ -169,9 +169,9 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
 
             val cells = CalendarMonth.grid(month, firstDay)
             for (week in 0 until 6) {
-                // Keep the sixth row's space so the widget doesn't jump in size between months.
+                // Rows share the height, so hiding an unused sixth row spreads the others out.
                 val used = (0 until 7).any { cells[week * 7 + it] != null }
-                views.setViewVisibility(viewId(context, "week_$week"), if (used) View.VISIBLE else View.INVISIBLE)
+                views.setViewVisibility(viewId(context, "week_$week"), if (used) View.VISIBLE else View.GONE)
             }
             cells.forEachIndexed { i, date ->
                 val id = viewId(context, "day_$i")

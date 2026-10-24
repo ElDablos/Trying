@@ -297,7 +297,7 @@
             android:layout_marginTop="16dp"
             android:gravity="center"
             android:lineSpacingExtra="4dp"
-            android:text="On the widget, tap the clock for alarms, the weather to refresh,\nand ‹ › to change month."
+            android:text="On the widget, tap the clock for alarms, the date for your calendar,\nthe weather for the weather app, and ‹ › to change month."
             android:textColor="@color/dust"
             android:textSize="12sp" />
     </LinearLayout>

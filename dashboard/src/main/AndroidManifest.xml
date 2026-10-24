@@ -8,8 +8,21 @@
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 
+    <!-- Apps the widget opens on tap. Android 11+ hides other apps unless they're listed here. -->
     <queries>
         <package android:name="com.sec.android.app.shealth" />
+        <package android:name="com.sec.android.app.clockpackage" />
+        <package android:name="com.samsung.android.calendar" />
+        <package android:name="com.sec.android.daemonapp" />
+        <package android:name="com.google.android.deskclock" />
+        <package android:name="com.google.android.calendar" />
+        <intent>
+            <action android:name="android.intent.action.SHOW_ALARMS" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="content" android:host="com.android.calendar" />
+        </intent>
     </queries>
 
     <application

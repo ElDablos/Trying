@@ -38,6 +38,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
+            ACTION_NOTHING -> Unit
             ACTION_REFRESH -> refreshInBackground(context)
             ACTION_PREV_MONTH -> changeMonth(context, DashboardStore.monthOffset(context) - 1)
             ACTION_NEXT_MONTH -> changeMonth(context, DashboardStore.monthOffset(context) + 1)
@@ -64,7 +65,11 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        private const val ACTION_NOTHING = "com.eldablos.crimson.NOTHING"
         private const val ACTION_REFRESH = "com.eldablos.crimson.REFRESH"
+        private const val SAMSUNG_CLOCK = "com.sec.android.app.clockpackage"
+        private const val SAMSUNG_CALENDAR = "com.samsung.android.calendar"
+        private const val SAMSUNG_WEATHER = "com.sec.android.daemonapp"
         private const val ACTION_PREV_MONTH = "com.eldablos.crimson.PREV_MONTH"
         private const val ACTION_NEXT_MONTH = "com.eldablos.crimson.NEXT_MONTH"
         private const val ACTION_THIS_MONTH = "com.eldablos.crimson.THIS_MONTH"
@@ -84,8 +89,19 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
 
             views.setInt(R.id.widget_bg, "setImageAlpha", DashboardStore.opacity(context) * 255 / 100)
 
-            // Clock: tap for alarms.
-            views.setOnClickPendingIntent(R.id.clock_area, activity(context, 1, Intent(AlarmClock.ACTION_SHOW_ALARMS)))
+            // Taps on gaps do nothing, so a near-miss never opens this app.
+            views.setOnClickPendingIntent(R.id.widget_root, broadcast(context, ACTION_NOTHING, 30))
+
+            // Clock: tap for the alarm list.
+            views.setOnClickPendingIntent(
+                R.id.clock_area,
+                openOrNothing(
+                    context, 1,
+                    Intent(AlarmClock.ACTION_SHOW_ALARMS).setPackage(SAMSUNG_CLOCK),
+                    Intent(AlarmClock.ACTION_SHOW_ALARMS),
+                    launchIntent(context, SAMSUNG_CLOCK),
+                ),
+            )
             val alarm = context.getSystemService(AlarmManager::class.java)?.nextAlarmClock
             views.setTextViewText(
                 R.id.alarm_text,
@@ -93,7 +109,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             )
 
             // Date: tap for the calendar app on today.
-            views.setOnClickPendingIntent(R.id.date_area, activity(context, 2, calendarAt(System.currentTimeMillis())))
+            views.setOnClickPendingIntent(R.id.date_area, openCalendar(context, 2, System.currentTimeMillis()))
 
             bindWeather(context, views)
             bindSteps(context, views, locale)
@@ -125,8 +141,12 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.weather_desc, condition.label)
                 views.setTextViewText(R.id.weather_place, "↑${weather.high}° ↓${weather.low}° · $town")
             }
-            // Tap the weather to refresh everything now.
-            views.setOnClickPendingIntent(R.id.weather_row, broadcast(context, ACTION_REFRESH, 4))
+            // Tap for the weather app. Without one, tapping refreshes instead.
+            views.setOnClickPendingIntent(
+                R.id.weather_row,
+                launchIntent(context, SAMSUNG_WEATHER)?.let { activity(context, 4, it) }
+                    ?: broadcast(context, ACTION_REFRESH, 4),
+            )
         }
 
         private fun bindSteps(context: Context, views: RemoteViews, locale: Locale) {
@@ -204,7 +224,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 )
                 // Tap a day to open it in the calendar app.
                 val noon = date.atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                views.setOnClickPendingIntent(id, activity(context, DAY_REQUEST_CODE_BASE + i, calendarAt(noon)))
+                views.setOnClickPendingIntent(id, openCalendar(context, DAY_REQUEST_CODE_BASE + i, noon))
             }
         }
 
@@ -234,6 +254,24 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             Intent.ACTION_VIEW,
             CalendarContract.CONTENT_URI.buildUpon().appendPath("time").appendPath(millis.toString()).build(),
         )
+
+        /** The calendar app at [millis], preferring Samsung Calendar. */
+        private fun openCalendar(context: Context, requestCode: Int, millis: Long): PendingIntent = openOrNothing(
+            context, requestCode,
+            calendarAt(millis).setPackage(SAMSUNG_CALENDAR),
+            calendarAt(millis),
+            launchIntent(context, SAMSUNG_CALENDAR),
+        )
+
+        /** Opens the first of [intents] that some app can handle; otherwise the tap does nothing. */
+        private fun openOrNothing(context: Context, requestCode: Int, vararg intents: Intent?): PendingIntent {
+            val target = intents.firstOrNull { it != null && it.resolveActivity(context.packageManager) != null }
+            return if (target != null) activity(context, requestCode, target)
+            else broadcast(context, ACTION_NOTHING, requestCode)
+        }
+
+        private fun launchIntent(context: Context, packageName: String): Intent? =
+            context.packageManager.getLaunchIntentForPackage(packageName)
 
         private fun openApp(context: Context, requestCode: Int) =
             activity(context, requestCode, Intent(context, MainActivity::class.java))

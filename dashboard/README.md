@@ -7,9 +7,9 @@ It matches the [Gothic Crimson theme](../theme/gothic-crimson/README.md).
 
 | Part | Shows | Tap it to |
 | --- | --- | --- |
-| Clock | Time, plus your next alarm underneath | Open your alarms |
+| Clock | Time, plus your next alarm underneath | Open your alarm list, to switch alarms on or off |
 | Date | Day and date | Open your calendar on today |
-| Weather | Temperature, conditions, today's high and low | Refresh everything now |
+| Weather | Temperature, conditions, today's high and low | Open the Samsung Weather app |
 | Steps | Today's steps with a red progress bar toward your goal | Open Samsung Health |
 | Month calendar | This month, with today circled in red and a red dot under days that have events | **‹ ›** change month · month name goes back to this month · a day opens it in your calendar |
 
@@ -29,8 +29,9 @@ It matches the [Gothic Crimson theme](../theme/gothic-crimson/README.md).
 ## Good to know
 
 - The clock and date update live. Weather and steps refresh every 15 minutes, the most often Android allows.
-  Tap the weather to refresh straight away.
+  Opening the Crimson Widget app also refreshes them.
 - Samsung Health sends steps to Health Connect in batches, so the count can be a few minutes behind the Samsung Health app.
+- Tapping a gap in the widget does nothing, so a near-miss won't open anything.
 - The clock follows your phone's 12- or 24-hour setting, and weeks start on the day your phone's region uses (Monday in the UK).
 - Home-screen widgets can't be swiped sideways, because the home screen uses that swipe to change pages. That's why the calendar uses arrows.
 - Weather comes from [Open-Meteo](https://open-meteo.com), which is free and needs no account.

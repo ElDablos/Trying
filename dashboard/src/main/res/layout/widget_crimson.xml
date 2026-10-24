@@ -39,7 +39,7 @@
                     android:layout_height="0dp"
                     android:layout_weight="1" />
 
-                <!-- Clock and alarm: tap for alarms -->
+                <!-- Clock, alarm and date: tap for the Clock app -->
                 <LinearLayout
                     android:id="@+id/clock_area"
                     android:layout_width="match_parent"
@@ -82,29 +82,27 @@
                             android:textColor="@color/dust"
                             android:textSize="15sp" />
                     </LinearLayout>
-                </LinearLayout>
 
-                <!-- Date: tap for calendar -->
-                <TextClock
-                    android:id="@+id/date_area"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:fontFamily="sans-serif-medium"
-                    android:format12Hour="EEE d MMM"
-                    android:format24Hour="EEE d MMM"
-                    android:letterSpacing="0.12"
-                    android:maxLines="1"
-                    android:textAllCaps="true"
-                    android:textColor="@color/crimson"
-                    android:textSize="16sp" />
+                    <TextClock
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:fontFamily="sans-serif-medium"
+                        android:format12Hour="EEE d MMM"
+                        android:format24Hour="EEE d MMM"
+                        android:letterSpacing="0.12"
+                        android:maxLines="1"
+                        android:textAllCaps="true"
+                        android:textColor="@color/crimson"
+                        android:textSize="16sp" />
+                </LinearLayout>
 
                 <FrameLayout
                     android:layout_width="match_parent"
                     android:layout_height="0dp"
                     android:layout_weight="1" />
 
-                <!-- Weather: tap to refresh -->
+                <!-- Weather: tap for the Weather app -->
                 <LinearLayout
                     android:id="@+id/weather_row"
                     android:layout_width="match_parent"

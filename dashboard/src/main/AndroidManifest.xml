@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Samsung Clock requires this before another app can open its alarm list. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 
@@ -18,6 +20,11 @@
         <package android:name="com.google.android.calendar" />
         <intent>
             <action android:name="android.intent.action.SHOW_ALARMS" />
+        </intent>
+        <!-- Lets the widget find the Weather and Clock apps by name, whatever their package is. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />

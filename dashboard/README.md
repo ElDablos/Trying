@@ -7,9 +7,8 @@ It matches the [Gothic Crimson theme](../theme/gothic-crimson/README.md).
 
 | Part | Shows | Tap it to |
 | --- | --- | --- |
-| Clock | Time, plus your next alarm underneath | Open your alarm list, to switch alarms on or off |
-| Date | Day and date | Open your calendar on today |
-| Weather | Temperature, conditions, today's high and low | Open the Samsung Weather app |
+| Clock | Time, your next alarm and the date | Open the alarm list in Clock, to switch alarms on or off |
+| Weather | Temperature, conditions, today's high and low | Open your Weather app |
 | Steps | Today's steps with a red progress bar toward your goal | Open Samsung Health |
 | Month calendar | This month, with today circled in red and a red dot under days that have events | **‹ ›** change month · month name goes back to this month · a day opens it in your calendar |
 

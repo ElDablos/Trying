@@ -69,7 +69,9 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
         private const val ACTION_REFRESH = "com.eldablos.crimson.REFRESH"
         private const val SAMSUNG_CLOCK = "com.sec.android.app.clockpackage"
         private const val SAMSUNG_CALENDAR = "com.samsung.android.calendar"
-        private const val SAMSUNG_WEATHER = "com.sec.android.daemonapp"
+        private val WEATHER_APPS = listOf(
+            "com.sec.android.daemonapp", "com.samsung.android.weather", "com.google.android.apps.weather",
+        )
         private const val ACTION_PREV_MONTH = "com.eldablos.crimson.PREV_MONTH"
         private const val ACTION_NEXT_MONTH = "com.eldablos.crimson.NEXT_MONTH"
         private const val ACTION_THIS_MONTH = "com.eldablos.crimson.THIS_MONTH"
@@ -92,14 +94,14 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             // Taps on gaps do nothing, so a near-miss never opens this app.
             views.setOnClickPendingIntent(R.id.widget_root, broadcast(context, ACTION_NOTHING, 30))
 
-            // Clock: tap for the alarm list.
+            // Clock, alarm and date: tap for the alarm list in the Clock app.
             views.setOnClickPendingIntent(
                 R.id.clock_area,
                 openOrNothing(
                     context, 1,
                     Intent(AlarmClock.ACTION_SHOW_ALARMS).setPackage(SAMSUNG_CLOCK),
                     Intent(AlarmClock.ACTION_SHOW_ALARMS),
-                    launchIntent(context, SAMSUNG_CLOCK),
+                    findApp(context, listOf(SAMSUNG_CLOCK), "Clock"),
                 ),
             )
             val alarm = context.getSystemService(AlarmManager::class.java)?.nextAlarmClock
@@ -107,9 +109,6 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 R.id.alarm_text,
                 if (alarm != null) Format.alarm(alarm.triggerTime, now, is24h, locale) else "No alarm",
             )
-
-            // Date: tap for the calendar app on today.
-            views.setOnClickPendingIntent(R.id.date_area, openCalendar(context, 2, System.currentTimeMillis()))
 
             bindWeather(context, views)
             bindSteps(context, views, locale)
@@ -144,7 +143,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             // Tap for the weather app. Without one, tapping refreshes instead.
             views.setOnClickPendingIntent(
                 R.id.weather_row,
-                launchIntent(context, SAMSUNG_WEATHER)?.let { activity(context, 4, it) }
+                findApp(context, WEATHER_APPS, "Weather")?.let { activity(context, 4, it) }
                     ?: broadcast(context, ACTION_REFRESH, 4),
             )
         }
@@ -268,6 +267,21 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             val target = intents.firstOrNull { it != null && it.resolveActivity(context.packageManager) != null }
             return if (target != null) activity(context, requestCode, target)
             else broadcast(context, ACTION_NOTHING, requestCode)
+        }
+
+        /**
+         * The launcher entry for one of [packages], or else for an app labelled [label] (or with it in its
+         * package name). Matching by name copes with phones where the app's package differs.
+         */
+        private fun findApp(context: Context, packages: List<String>, label: String): Intent? {
+            packages.firstNotNullOfOrNull { launchIntent(context, it) }?.let { return it }
+            val pm = context.packageManager
+            val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val apps = pm.queryIntentActivities(main, 0).filter { it.activityInfo.packageName != context.packageName }
+            val match = apps.firstOrNull { it.loadLabel(pm).toString().equals(label, ignoreCase = true) }
+                ?: apps.firstOrNull { it.activityInfo.packageName.contains(label, ignoreCase = true) }
+                ?: return null
+            return Intent(main).setClassName(match.activityInfo.packageName, match.activityInfo.name)
         }
 
         private fun launchIntent(context: Context, packageName: String): Intent? =

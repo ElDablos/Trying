@@ -7,6 +7,8 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.pm.ResolveInfo
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.text.format.DateFormat
@@ -143,7 +145,8 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             // Tap for the weather app. Without one, tapping refreshes instead.
             views.setOnClickPendingIntent(
                 R.id.weather_row,
-                findApp(context, WEATHER_APPS, "Weather")?.let { activity(context, 4, it) }
+                (findAppByLabel(context, "Weather") ?: findApp(context, WEATHER_APPS, "Weather"))
+                    ?.let { activity(context, 4, it) }
                     ?: broadcast(context, ACTION_REFRESH, 4),
             )
         }
@@ -275,14 +278,32 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
          */
         private fun findApp(context: Context, packages: List<String>, label: String): Intent? {
             packages.firstNotNullOfOrNull { launchIntent(context, it) }?.let { return it }
-            val pm = context.packageManager
-            val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            val apps = pm.queryIntentActivities(main, 0).filter { it.activityInfo.packageName != context.packageName }
-            val match = apps.firstOrNull { it.loadLabel(pm).toString().equals(label, ignoreCase = true) }
-                ?: apps.firstOrNull { it.activityInfo.packageName.contains(label, ignoreCase = true) }
-                ?: return null
-            return Intent(main).setClassName(match.activityInfo.packageName, match.activityInfo.name)
+            return findAppByLabel(context, label)
+                ?: launcherApps(context).firstOrNull { it.activityInfo.packageName.contains(label, ignoreCase = true) }
+                    ?.let { launcherIntent(it.activityInfo) }
         }
+
+        /**
+         * The home-screen icon called exactly [label]. Samsung keeps a background weather service under a
+         * package name that also has a launch entry, so for Weather the visible icon is the reliable target.
+         */
+        private fun findAppByLabel(context: Context, label: String): Intent? {
+            val pm = context.packageManager
+            return launcherApps(context).firstOrNull { it.loadLabel(pm).toString().trim().equals(label, ignoreCase = true) }
+                ?.let { launcherIntent(it.activityInfo) }
+        }
+
+        private fun launcherApps(context: Context): List<ResolveInfo> =
+            context.packageManager
+                .queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+                .filter { it.activityInfo.packageName != context.packageName }
+
+        /** Starts an app the way the home screen does. */
+        private fun launcherIntent(info: ActivityInfo): Intent =
+            Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_LAUNCHER)
+                .setClassName(info.packageName, info.name)
+                .addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
 
         private fun launchIntent(context: Context, packageName: String): Intent? =
             context.packageManager.getLaunchIntentForPackage(packageName)

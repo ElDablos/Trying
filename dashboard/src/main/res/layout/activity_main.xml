@@ -217,6 +217,70 @@
                 android:text="Allow calendar" />
         </LinearLayout>
 
+        <LinearLayout style="@style/Card">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    style="@style/CardIcon"
+                    android:src="@drawable/ic_opacity" />
+
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="Widget background" />
+
+                <TextView
+                    android:id="@+id/opacity_pill"
+                    style="@style/Pill"
+                    android:background="@drawable/pill_on"
+                    android:text="90%"
+                    android:textColor="@color/bone" />
+            </LinearLayout>
+
+            <TextView
+                style="@style/BodyText"
+                android:text="Slide left to see more of your wallpaper through the widget." />
+
+            <SeekBar
+                android:id="@+id/opacity_slider"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:max="100"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:progressBackgroundTint="@color/dust"
+                android:progressTint="@color/crimson"
+                android:thumbTint="@color/crimson" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="See-through"
+                    android:textColor="@color/dust"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Solid"
+                    android:textColor="@color/dust"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
         <Button
             android:id="@+id/add_widget_button"
             style="@style/ButtonPrimary"

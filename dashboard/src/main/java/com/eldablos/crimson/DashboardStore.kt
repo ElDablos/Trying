@@ -7,6 +7,7 @@ import java.time.LocalDate
 /** Settings and the last fetched weather and steps, so the widget can draw instantly. */
 object DashboardStore {
     private const val DEFAULT_GOAL = 10_000
+    private const val DEFAULT_OPACITY = 90
 
     fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences("dashboard", Context.MODE_PRIVATE)
@@ -71,6 +72,13 @@ object DashboardStore {
 
     fun setMonthOffset(context: Context, offset: Int) {
         prefs(context).edit().putInt("month_offset", offset).apply()
+    }
+
+    /** Widget background opacity, 0 (see-through) to 100 (solid). */
+    fun opacity(context: Context): Int = prefs(context).getInt("opacity", DEFAULT_OPACITY)
+
+    fun setOpacity(context: Context, percent: Int) {
+        prefs(context).edit().putInt("opacity", percent.coerceIn(0, 100)).apply()
     }
 
     fun goal(context: Context): Int = prefs(context).getInt("goal", DEFAULT_GOAL)

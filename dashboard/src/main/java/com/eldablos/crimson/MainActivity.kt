@@ -11,6 +11,7 @@ import android.location.LocationManager
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 
@@ -23,6 +24,7 @@ class MainActivity : Activity() {
     private lateinit var weatherPill: TextView
     private lateinit var stepsPill: TextView
     private lateinit var calendarPill: TextView
+    private lateinit var opacityPill: TextView
 
     private enum class Status { ON, PARTIAL, OFF }
 
@@ -49,6 +51,24 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.goal_button).setOnClickListener { saveGoal() }
         findViewById<Button>(R.id.add_widget_button).setOnClickListener { pinWidget() }
         goalInput.setText(DashboardStore.goal(this).toString())
+
+        opacityPill = findViewById(R.id.opacity_pill)
+        findViewById<SeekBar>(R.id.opacity_slider).apply {
+            progress = DashboardStore.opacity(this@MainActivity)
+            opacityPill.text = "$progress%"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
+                    opacityPill.text = "$value%"
+                }
+
+                override fun onStartTrackingTouch(bar: SeekBar) {}
+
+                override fun onStopTrackingTouch(bar: SeekBar) {
+                    DashboardStore.setOpacity(this@MainActivity, bar.progress)
+                    CrimsonWidgetProvider.refreshAll(this@MainActivity)
+                }
+            })
+        }
     }
 
     override fun onResume() {

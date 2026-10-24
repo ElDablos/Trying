@@ -82,6 +82,8 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             val is24h = DateFormat.is24HourFormat(context)
             val now = Format.now()
 
+            views.setInt(R.id.widget_bg, "setImageAlpha", DashboardStore.opacity(context) * 255 / 100)
+
             // Clock: tap for alarms.
             views.setOnClickPendingIntent(R.id.clock_area, activity(context, 1, Intent(AlarmClock.ACTION_SHOW_ALARMS)))
             val alarm = context.getSystemService(AlarmManager::class.java)?.nextAlarmClock

@@ -1,7 +1,6 @@
 <resources>
     <!-- Gothic Crimson palette, matching theme/gothic-crimson. -->
     <color name="void_black">#FF0A0708</color>
-    <color name="widget_background">#E60A0708</color>
     <color name="widget_border">#66B3001B</color>
     <color name="blood">#FFB3001B</color>
     <color name="crimson">#FFE01E37</color>

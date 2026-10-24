@@ -23,6 +23,7 @@ It matches the [Gothic Crimson theme](../theme/gothic-crimson/README.md).
      Samsung Health also has to share steps: in Samsung Health, open the menu → **Settings → Health Connect**
      and allow it to write steps.
    - **Calendar**: tap **Allow calendar** to get the event dots. The calendar works without it.
+   - **Widget background**: drag the slider to make the background more see-through or more solid.
 4. Tap **Add widget to home screen**. It's 6×4 by default, the same space as your current calendar, weather, steps and clock widgets. Long-press it to resize.
 
 ## Good to know

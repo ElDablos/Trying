@@ -142,12 +142,10 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.weather_desc, condition.label)
                 views.setTextViewText(R.id.weather_place, "↑${weather.high}° ↓${weather.low}° · $town")
             }
-            // Tap for the weather app. Without one, tapping refreshes instead.
+            // Tap for the Weather app, opened via a trampoline because Samsung Weather ignores direct launches.
             views.setOnClickPendingIntent(
                 R.id.weather_row,
-                (findAppByLabel(context, "Weather") ?: findApp(context, WEATHER_APPS, "Weather"))
-                    ?.let { activity(context, 4, it) }
-                    ?: broadcast(context, ACTION_REFRESH, 4),
+                activity(context, 4, OpenAppActivity.intent(context, "Weather", WEATHER_APPS, Intent.CATEGORY_APP_WEATHER)),
             )
         }
 
@@ -283,10 +281,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                     ?.let { launcherIntent(it.activityInfo) }
         }
 
-        /**
-         * The home-screen icon called exactly [label]. Samsung keeps a background weather service under a
-         * package name that also has a launch entry, so for Weather the visible icon is the reliable target.
-         */
+        /** The home-screen icon called exactly [label]. */
         private fun findAppByLabel(context: Context, label: String): Intent? {
             val pm = context.packageManager
             return launcherApps(context).firstOrNull { it.loadLabel(pm).toString().trim().equals(label, ignoreCase = true) }

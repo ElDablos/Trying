@@ -59,6 +59,15 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- Invisible: opens another app for a widget tap, then closes. -->
+        <activity
+            android:name=".OpenAppActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <service
             android:name=".RefreshJob"
             android:exported="false"

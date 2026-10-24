@@ -3,6 +3,8 @@
 One dark red home-screen widget that replaces separate clock, calendar, weather and step widgets.
 It matches the [Gothic Crimson theme](../theme/gothic-crimson/README.md).
 
+![Preview (approximate)](preview.png)
+
 | Part | Shows | Tap it to |
 | --- | --- | --- |
 | Clock | Time, plus your next alarm underneath | Open your alarms |

@@ -30,6 +30,8 @@ class MainActivity : Activity() {
     private lateinit var budsPill: TextView
     private lateinit var budsButton: Button
     private lateinit var budsChooseButton: Button
+    private lateinit var musicStatus: TextView
+    private lateinit var musicPill: TextView
 
     private val budsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         runOnUiThread { renderBuds() }
@@ -65,6 +67,16 @@ class MainActivity : Activity() {
             }
         }
         budsChooseButton.setOnClickListener { chooseBuds() }
+        musicStatus = findViewById(R.id.music_status)
+        musicPill = findViewById(R.id.music_pill)
+        findViewById<Button>(R.id.music_button).setOnClickListener { openMusicAccess() }
+        findViewById<Button>(R.id.music_unlock_button).setOnClickListener {
+            startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(android.net.Uri.fromParts("package", packageName, null)),
+            )
+            toast("Tap ⋮ at the top right → Allow restricted settings, then come back")
+        }
         findViewById<Button>(R.id.steps_button).setOnClickListener {
             requestPermissions(arrayOf(Steps.PERMISSION_READ, Steps.PERMISSION_BACKGROUND), REQ_STEPS)
         }
@@ -147,6 +159,23 @@ class MainActivity : Activity() {
         else "The calendar works without this. Allow it to see red dots on days with events."
         setPill(calendarPill, if (calendar) Status.ON else Status.OFF)
         renderBuds()
+        val music = NowPlaying.hasAccess(this)
+        musicStatus.text = if (music) "The widget shows what's playing, with previous, play/pause and next."
+        else "Show the song that's playing on the widget, with controls. Starts Spotify if nothing's playing."
+        setPill(musicPill, if (music) Status.ON else Status.OFF)
+    }
+
+    /** Opens the notification-access switch for this app (or the list, on phones without the direct page). */
+    private fun openMusicAccess() {
+        val component = android.content.ComponentName(this, MusicListener::class.java)
+        try {
+            startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, component.flattenToString()),
+            )
+        } catch (e: Exception) {
+            startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
     }
 
     private fun renderBuds() {

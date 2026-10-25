@@ -45,6 +45,9 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             ACTION_PREV_MONTH -> changeMonth(context, DashboardStore.monthOffset(context) - 1)
             ACTION_NEXT_MONTH -> changeMonth(context, DashboardStore.monthOffset(context) + 1)
             ACTION_THIS_MONTH -> changeMonth(context, 0)
+            ACTION_MUSIC_PREVIOUS -> NowPlaying.control(context, NowPlaying.Control.PREVIOUS)
+            ACTION_MUSIC_PLAY_PAUSE -> NowPlaying.control(context, NowPlaying.Control.PLAY_PAUSE)
+            ACTION_MUSIC_NEXT -> NowPlaying.control(context, NowPlaying.Control.NEXT)
             AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED -> refreshAll(context)
             else -> super.onReceive(context, intent)
         }
@@ -77,6 +80,9 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
         private const val ACTION_PREV_MONTH = "com.eldablos.crimson.PREV_MONTH"
         private const val ACTION_NEXT_MONTH = "com.eldablos.crimson.NEXT_MONTH"
         private const val ACTION_THIS_MONTH = "com.eldablos.crimson.THIS_MONTH"
+        private const val ACTION_MUSIC_PREVIOUS = "com.eldablos.crimson.MUSIC_PREVIOUS"
+        private const val ACTION_MUSIC_PLAY_PAUSE = "com.eldablos.crimson.MUSIC_PLAY_PAUSE"
+        private const val ACTION_MUSIC_NEXT = "com.eldablos.crimson.MUSIC_NEXT"
         private const val DAY_REQUEST_CODE_BASE = 100
 
         /** Redraws every Crimson widget: this one and the slim Glance widget. */
@@ -118,6 +124,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             bindSteps(context, views, locale)
             bindCalendar(context, views, now.toLocalDate(), locale)
             bindBuds(context, views)
+            bindMusic(context, views)
             return views
         }
 
@@ -209,6 +216,36 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 views.setTextColor(id, context.getColor(if (selected) R.color.bone else R.color.dust))
                 views.setOnClickPendingIntent(id, budsService(context, BudsService.ACTION_SET_MODE, mode, code))
             }
+        }
+
+        /** The music row: the current track and controls, or a prompt to grant access or start Spotify. */
+        private fun bindMusic(context: Context, views: RemoteViews) {
+            views.setOnClickPendingIntent(R.id.music_prev, broadcast(context, ACTION_MUSIC_PREVIOUS, 60))
+            views.setOnClickPendingIntent(R.id.music_play, broadcast(context, ACTION_MUSIC_PLAY_PAUSE, 61))
+            views.setOnClickPendingIntent(R.id.music_next, broadcast(context, ACTION_MUSIC_NEXT, 62))
+
+            if (!NowPlaying.hasAccess(context)) {
+                views.setTextViewText(R.id.music_title, "Show what's playing")
+                views.setTextViewText(R.id.music_artist, "Tap to allow in Crimson Widget")
+                views.setImageViewResource(R.id.music_art, R.drawable.music_art_placeholder)
+                views.setImageViewResource(R.id.music_play, R.drawable.ic_music_play)
+                views.setOnClickPendingIntent(R.id.music_info, openApp(context, 63))
+                return
+            }
+
+            val track = NowPlaying.read(context)
+            val art = if (track != null) NowPlaying.art(context) else null
+            if (art != null) views.setImageViewBitmap(R.id.music_art, art)
+            else views.setImageViewResource(R.id.music_art, R.drawable.music_art_placeholder)
+            views.setTextViewText(R.id.music_title, track?.title ?: "Nothing playing")
+            views.setTextViewText(R.id.music_artist, track?.artist?.ifBlank { null } ?: if (track == null) "Tap play to start Spotify" else "")
+            views.setImageViewResource(
+                R.id.music_play,
+                if (track?.playing == true) R.drawable.ic_music_pause else R.drawable.ic_music_play,
+            )
+            // Art and title open whichever app is playing, or Spotify.
+            val app = track?.packageName?.let { launchIntent(context, it) } ?: launchIntent(context, NowPlaying.SPOTIFY)
+            views.setOnClickPendingIntent(R.id.music_info, if (app != null) activity(context, 63, app) else broadcast(context, ACTION_NOTHING, 63))
         }
 
         internal fun budsService(context: Context, action: String, mode: NoiseMode?, requestCode: Int): PendingIntent =

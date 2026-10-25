@@ -285,6 +285,53 @@
 
                 <ImageView
                     style="@style/CardIcon"
+                    android:src="@drawable/ic_music_note" />
+
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="Music" />
+
+                <TextView
+                    android:id="@+id/music_pill"
+                    style="@style/Pill"
+                    android:background="@drawable/pill_off"
+                    android:text="Off"
+                    android:textColor="@color/dust" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/music_status"
+                style="@style/BodyText" />
+
+            <Button
+                android:id="@+id/music_button"
+                style="@style/ButtonPrimary"
+                android:layout_width="match_parent"
+                android:layout_marginTop="14dp"
+                android:text="Allow music access" />
+
+            <Button
+                android:id="@+id/music_unlock_button"
+                style="@style/ButtonOutline"
+                android:layout_width="match_parent"
+                android:layout_marginTop="10dp"
+                android:text="Switch greyed out? Unlock it" />
+
+            <TextView
+                style="@style/NoteText"
+                android:text="Android calls this notification access. The widget only uses it to see what's playing and control it, the same way the quick panel's media player does. If the switch is greyed out, tap Unlock it, then ⋮ (top right) → Allow restricted settings, and come back." />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Card">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    style="@style/CardIcon"
                     android:src="@drawable/ic_opacity" />
 
                 <TextView

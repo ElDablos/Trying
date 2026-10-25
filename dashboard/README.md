@@ -10,6 +10,7 @@ It matches the [Gothic Crimson theme](../theme/gothic-crimson/README.md).
 | Clock | Time, your next alarm and the date | Open the alarm list in Clock, to switch alarms on or off |
 | Weather | Temperature, conditions, today's high and low | Open your Weather app |
 | Galaxy Buds (only while connected) | Left and right earbud battery, and an **ANC / Ambient** switch | A mode switches to it · elsewhere on the row reconnects |
+| Music | The song playing (album art, title, artist) with previous, play/pause and next | Art or title opens the music app · play with nothing playing resumes Spotify |
 | Steps | Today's steps with a red progress bar toward your goal | Open Samsung Health |
 | Month calendar | This month, with today circled in red and a red dot under days that have events | **‹ ›** change month · month name goes back to this month · a day opens it in your calendar |
 
@@ -24,9 +25,11 @@ It matches the [Gothic Crimson theme](../theme/gothic-crimson/README.md).
      Samsung Health also has to share steps: in Samsung Health, open the menu → **Settings → Health Connect**
      and allow it to write steps.
    - **Calendar**: tap **Allow calendar** to get the event dots. The calendar works without it.
+   - **Music**: tap **Allow music access** and switch Crimson Widget on. If the switch is greyed out, tap
+     **Switch greyed out? Unlock it**, then **⋮ → Allow restricted settings**, and try again.
    - **Galaxy Buds**: tap **Allow Bluetooth**. If you have more than one pair, tap **Earbuds** and pick yours.
    - **Widget background**: drag the slider to make the background more see-through or more solid.
-4. Tap **Add widget to home screen**. It's 6×4 by default, the same space as your current calendar, weather, steps and clock widgets. Long-press it to resize.
+4. Tap **Add widget to home screen**. It's 6×5 by default. Long-press it to resize.
 
 ## Crimson Glance (lock screen)
 

@@ -35,6 +35,7 @@ class StripConfigActivity : Activity() {
     private var shown: List<App> = emptyList()
     private lateinit var adapter: AppAdapter
     private lateinit var count: TextView
+    private lateinit var nameInput: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,6 +48,8 @@ class StripConfigActivity : Activity() {
         }
         setContentView(R.layout.activity_strip_config)
         count = findViewById(R.id.strip_count)
+        nameInput = findViewById(R.id.strip_name_input)
+        nameInput.setText(StripStore.name(this, widgetId))
 
         val pm = packageManager
         all = OpenAppActivity.launcherApps(this)
@@ -106,6 +109,7 @@ class StripConfigActivity : Activity() {
             return
         }
         StripStore.setApps(this, widgetId, chosen)
+        StripStore.setName(this, widgetId, nameInput.text.toString())
         StripWidgetProvider.update(this, AppWidgetManager.getInstance(this), widgetId)
         setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
         finish()

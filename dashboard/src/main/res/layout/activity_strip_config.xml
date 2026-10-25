@@ -27,10 +27,26 @@
         android:text="Tap apps in the order you want them. Six show at a time; swipe the strip up or down for the rest." />
 
     <EditText
-        android:id="@+id/strip_search"
+        android:id="@+id/strip_name_input"
         android:layout_width="match_parent"
         android:layout_height="48dp"
         android:layout_marginTop="16dp"
+        android:background="@drawable/input_background"
+        android:hint="Strip name (optional), e.g. SOCIAL"
+        android:inputType="textCapCharacters"
+        android:maxLength="14"
+        android:maxLines="1"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:textColor="@color/bone"
+        android:textColorHint="@color/dust"
+        android:textSize="15sp" />
+
+    <EditText
+        android:id="@+id/strip_search"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="10dp"
         android:background="@drawable/input_background"
         android:hint="Search apps"
         android:inputType="text"

@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
@@ -19,11 +20,13 @@ private class StripFactory(private val context: Context, private val widgetId: I
     private class App(val component: ComponentName, val label: String, val icon: Bitmap?)
 
     private var pages: List<List<App>> = emptyList()
+    private var name = ""
 
     override fun onCreate() {}
 
     override fun onDataSetChanged() {
         val pm = context.packageManager
+        name = StripStore.name(context, widgetId)
         val pack = IconPack.load(context)
         val size = (ICON_DP * context.resources.displayMetrics.density).toInt().coerceAtMost(MAX_ICON_PX)
         pages = StripStore.apps(context, widgetId)
@@ -45,7 +48,19 @@ private class StripFactory(private val context: Context, private val widgetId: I
 
     override fun getViewAt(position: Int): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.item_strip_page)
-        views.setInt(R.id.strip_page_bg, "setImageAlpha", DashboardStore.opacity(context) * 255 / 100)
+        val alpha = DashboardStore.opacity(context) * 255 / 100
+        views.setInt(R.id.strip_page_bg, "setImageAlpha", alpha)
+
+        // The name sits on the card's top edge, so the card drops down a little to make room for it.
+        val named = name.isNotEmpty()
+        views.setViewVisibility(R.id.strip_name, if (named) View.VISIBLE else View.GONE)
+        if (named) {
+            views.setTextViewText(R.id.strip_name_text, name)
+            views.setInt(R.id.strip_name_bg, "setImageAlpha", alpha.coerceAtLeast(MIN_TAG_ALPHA))
+        }
+        val drop = if (named) NAME_DROP_DP else 0f
+        views.setViewLayoutMargin(R.id.strip_page_bg, RemoteViews.MARGIN_TOP, drop, TypedValue.COMPLEX_UNIT_DIP)
+        views.setViewLayoutMargin(R.id.strip_page_body, RemoteViews.MARGIN_TOP, drop, TypedValue.COMPLEX_UNIT_DIP)
         val apps = pages.getOrNull(position).orEmpty()
         SLOTS.forEachIndexed { i, (slot, icon, label) ->
             val app = apps.getOrNull(i)
@@ -80,6 +95,9 @@ private class StripFactory(private val context: Context, private val widgetId: I
         private const val ICON_DP = 44
         // Keeps each card well under the size a widget update may carry.
         private const val MAX_ICON_PX = 144
+        private const val NAME_DROP_DP = 7f
+        // Keeps the name readable over the wallpaper even when the background is see-through.
+        private const val MIN_TAG_ALPHA = 200
 
         private val SLOTS = listOf(
             Triple(R.id.strip_slot_1, R.id.strip_icon_1, R.id.strip_label_1),

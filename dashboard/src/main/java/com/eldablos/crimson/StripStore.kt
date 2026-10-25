@@ -8,6 +8,7 @@ object StripStore {
     /** Five pages of six. */
     const val MAX_APPS = 30
     const val PAGE_SIZE = 6
+    const val MAX_NAME = 14
 
     private fun prefs(context: Context) = context.getSharedPreferences("strip", Context.MODE_PRIVATE)
 
@@ -22,7 +23,14 @@ object StripStore {
             .apply()
     }
 
+    /** The strip's short name, shown as a tag on its top edge. Empty when it has none. */
+    fun name(context: Context, widgetId: Int): String = prefs(context).getString("name_$widgetId", null).orEmpty()
+
+    fun setName(context: Context, widgetId: Int, name: String) {
+        prefs(context).edit().putString("name_$widgetId", name.trim().take(MAX_NAME).uppercase()).apply()
+    }
+
     fun remove(context: Context, widgetId: Int) {
-        prefs(context).edit().remove("apps_$widgetId").apply()
+        prefs(context).edit().remove("apps_$widgetId").remove("name_$widgetId").apply()
     }
 }

@@ -6,8 +6,8 @@ images and the exact colours for each tab.
 
 | File | Used for |
 | --- | --- |
-| `quick-panel.jpg` | Quick panel background: a faint glowing rose window at the top, dark where the tiles sit |
-| `keyboard.jpg` | Keyboard background: near-black with a row of faint gothic windows |
+| `quick-panel.jpg` | Quick panel background: glossy black 3D bands sweeping down the screen with a crimson neon line, over carbon fibre |
+| `keyboard.jpg` | Keyboard background: the same bands running across, dark at the top so the keys stay readable |
 | `../wallpapers/*.jpg` | Wallpapers, also used to build the system colours |
 
 Save both images to your phone first (open each on GitHub → **⋯ → Download**).
@@ -85,8 +85,13 @@ theme.
 
 ## Change the images
 
-`../src/themepark.js` draws both images. Edit it, then run from the repository root:
+Both are real 3D renders (three.js), made to match a glossy black-and-red carbon wallpaper. The scene is
+`../src/3d/bands.html`, with shared materials and geometry in `../src/3d/common.js`. To re-render:
 
 ```
-node theme/gothic-crimson/src/themepark.js
+cd theme/gothic-crimson/src/3d
+npm install
+node render.js
 ```
+
+It needs Playwright with Chromium, and renders with WebGL in software, so no graphics card is required.

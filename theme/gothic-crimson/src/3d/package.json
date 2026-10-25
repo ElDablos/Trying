@@ -1,0 +1,11 @@
+{
+  "name": "gothic-crimson-3d",
+  "private": true,
+  "description": "3D renders for the Gothic Crimson Theme Park images",
+  "scripts": {
+    "render": "node render.js"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  }
+}

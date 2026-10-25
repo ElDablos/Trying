@@ -238,9 +238,6 @@ function voidArch() {
 module.exports = {
   W,
   H,
-  defs,
-  lancet,
-  roseWindow,
   wallpapers: {
     'gothic-crimson-cathedral': cathedral,
     'gothic-crimson-rose-window': roseLock,

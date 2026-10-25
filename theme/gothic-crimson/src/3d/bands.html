@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Glossy black 3D bands with a crimson neon line, matching the user's home-screen wallpaper.
+  ?scene=panel renders the quick panel background (1440x3120); ?scene=keys the keyboard (1440x1080).
+-->
+<script type="importmap">
+{ "imports": { "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/" } }
+</script>
+<style>html, body { margin: 0; background: #000; overflow: hidden; }</style>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { setup, gloss, glow, ribbon, offsetPath, finish, CRIMSON } from './common.js';
+
+const which = new URLSearchParams(location.search).get('scene') || 'panel';
+const SCENES = {
+  // Tall: bands sweep diagonally down the screen and bend, with the neon running through the middle band.
+  panel: {
+    width: 1440, height: 3120, fov: 38, camera: [1.5, -2, 44], target: [0, 0, 0],
+    curve: (k) => new THREE.CubicBezierCurve(
+      new THREE.Vector2(-13 + k * 2.3, 19), new THREE.Vector2(-9 + k * 2.3, 2),
+      new THREE.Vector2(8 + k * 2.3, 4), new THREE.Vector2(4 + k * 2.3, -19)),
+    bands: 5, bandWidth: 1.9, thickness: 0.8, neonBand: 2,
+  },
+  // Wide and calm: shallow bands across the bottom, the neon near the bottom edge, dark at the top for keys.
+  keys: {
+    width: 1440, height: 1080, fov: 34, camera: [0, 4, 24], target: [0, -1.5, 0],
+    curve: (k) => new THREE.CubicBezierCurve(
+      new THREE.Vector2(-14, -0.4 - k * 1.45), new THREE.Vector2(-4, 2.0 - k * 1.45),
+      new THREE.Vector2(4, -3.0 - k * 1.45), new THREE.Vector2(14, -0.2 - k * 1.45)),
+    bands: 4, bandWidth: 1.25, thickness: 0.6, neonBand: 1,
+  },
+};
+const cfg = SCENES[which];
+const { width, height } = cfg;
+const { renderer, scene } = setup({ width, height, exposure: 0.8 });
+
+const camera = new THREE.PerspectiveCamera(cfg.fov, width / height, 0.1, 200);
+camera.position.set(...cfg.camera);
+camera.lookAt(...cfg.target);
+
+const material = gloss();
+for (let k = 0; k < cfg.bands; k++) {
+  const curve = cfg.curve(k);
+  const band = new THREE.Mesh(ribbon(curve, { width: cfg.bandWidth, thickness: cfg.thickness }), material);
+  // Alternate depth a little so the bands overlap like layered slats.
+  band.position.z = (k % 2 ? -0.25 : 0.25) - k * 0.15;
+  scene.add(band);
+
+  if (k === cfg.neonBand) {
+    // Neon tube along the top face of this band, plus a fainter twin on the band's far edge.
+    const z = band.position.z + cfg.thickness / 2 + 0.03;
+    scene.add(new THREE.Mesh(new THREE.TubeGeometry(offsetPath(curve, 0, z), 600, 0.06, 12), glow(CRIMSON, 2.4)));
+    scene.add(new THREE.Mesh(
+      new THREE.TubeGeometry(offsetPath(curve, cfg.bandWidth / 2 + 0.02, band.position.z), 600, 0.025, 8),
+      glow(CRIMSON, 1.4),
+    ));
+  }
+}
+
+// Carbon-fibre weave behind the bands, lit by a red glow in the middle.
+const backdrop = new THREE.Mesh(
+  new THREE.PlaneGeometry(120, 120),
+  new THREE.ShaderMaterial({
+    uniforms: { glow: { value: new THREE.Color(0x3a0610) } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `
+      uniform vec3 glow; varying vec2 vUv;
+      void main() {
+        vec2 g = vUv * 700.0;
+        vec2 cell = floor(g);
+        vec2 f = fract(g);
+        // Alternate the tow direction cell by cell, like a 2x2 twill.
+        float across = mod(cell.x + cell.y, 2.0) > 0.5 ? f.x : f.y;
+        float ridge = pow(sin(across * 3.14159), 1.5);
+        vec3 col = vec3(mix(0.006, 0.032, ridge)) * vec3(1.0, 0.93, 0.95);
+        col += glow * smoothstep(0.16, 0.0, distance(vUv, vec2(0.5)));
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  }),
+);
+backdrop.position.z = -5;
+scene.add(backdrop);
+
+finish({ renderer, scene, camera, width, height, bloom: { strength: 1.0, radius: 0.55, threshold: 0.85 } });
+</script>
+</body>
+</html>

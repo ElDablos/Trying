@@ -1088,7 +1088,8 @@
                 android:progressDrawable="@drawable/steps_bar" />
         </LinearLayout>
 
-        <!-- Music: what's playing, with previous / play-pause / next. Art and title open the music app. -->
+        <!-- Music: what's playing and a queue button, then shuffle / previous / play-pause / next / repeat.
+             Art and title open the music app. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -1125,7 +1126,7 @@
                         android:ellipsize="end"
                         android:fontFamily="sans-serif-medium"
                         android:maxLines="1"
-                        android:text="Paradise"
+                        android:text="Runnin'"
                         android:textColor="@color/bone"
                         android:textSize="15sp" />
 
@@ -1136,35 +1137,97 @@
                         android:layout_marginTop="2dp"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:text="Coldplay"
+                        android:text="The Pharcyde"
                         android:textColor="@color/dust"
                         android:textSize="12sp" />
                 </LinearLayout>
             </LinearLayout>
 
             <ImageView
-                android:id="@+id/music_prev"
+                android:id="@+id/music_queue"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:padding="8dp"
-                android:src="@drawable/ic_music_prev" />
+                android:src="@drawable/ic_music_queue" />
+        </LinearLayout>
 
-            <ImageView
-                android:id="@+id/music_play"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginStart="4dp"
-                android:layout_marginEnd="4dp"
-                android:background="@drawable/day_today"
-                android:padding="10dp"
-                android:src="@drawable/ic_music_pause" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <ImageView
-                android:id="@+id/music_next"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:padding="8dp"
-                android:src="@drawable/ic_music_next" />
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1">
+
+                <ImageView
+                    android:id="@+id/music_shuffle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="center"
+                    android:padding="9dp"
+                    android:src="@drawable/ic_music_shuffle" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1">
+
+                <ImageView
+                    android:id="@+id/music_prev"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="center"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_music_prev" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1">
+
+                <ImageView
+                    android:id="@+id/music_play"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/day_today"
+                    android:padding="10dp"
+                    android:src="@drawable/ic_music_pause" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1">
+
+                <ImageView
+                    android:id="@+id/music_next"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="center"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_music_next" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1">
+
+                <ImageView
+                    android:id="@+id/music_repeat"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_gravity="center"
+                    android:padding="9dp"
+                    android:src="@drawable/ic_music_repeat" />
+            </FrameLayout>
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

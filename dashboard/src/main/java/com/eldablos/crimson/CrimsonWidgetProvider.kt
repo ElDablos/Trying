@@ -48,6 +48,8 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             ACTION_MUSIC_PREVIOUS -> NowPlaying.control(context, NowPlaying.Control.PREVIOUS)
             ACTION_MUSIC_PLAY_PAUSE -> NowPlaying.control(context, NowPlaying.Control.PLAY_PAUSE)
             ACTION_MUSIC_NEXT -> NowPlaying.control(context, NowPlaying.Control.NEXT)
+            ACTION_MUSIC_SHUFFLE -> NowPlaying.control(context, NowPlaying.Control.SHUFFLE)
+            ACTION_MUSIC_REPEAT -> NowPlaying.control(context, NowPlaying.Control.REPEAT)
             AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED -> refreshAll(context)
             else -> super.onReceive(context, intent)
         }
@@ -83,6 +85,8 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
         private const val ACTION_MUSIC_PREVIOUS = "com.eldablos.crimson.MUSIC_PREVIOUS"
         private const val ACTION_MUSIC_PLAY_PAUSE = "com.eldablos.crimson.MUSIC_PLAY_PAUSE"
         private const val ACTION_MUSIC_NEXT = "com.eldablos.crimson.MUSIC_NEXT"
+        private const val ACTION_MUSIC_SHUFFLE = "com.eldablos.crimson.MUSIC_SHUFFLE"
+        private const val ACTION_MUSIC_REPEAT = "com.eldablos.crimson.MUSIC_REPEAT"
         private const val DAY_REQUEST_CODE_BASE = 100
 
         /** Redraws every Crimson widget: this one and the slim Glance widget. */
@@ -223,6 +227,21 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.music_prev, broadcast(context, ACTION_MUSIC_PREVIOUS, 60))
             views.setOnClickPendingIntent(R.id.music_play, broadcast(context, ACTION_MUSIC_PLAY_PAUSE, 61))
             views.setOnClickPendingIntent(R.id.music_next, broadcast(context, ACTION_MUSIC_NEXT, 62))
+            views.setOnClickPendingIntent(R.id.music_shuffle, broadcast(context, ACTION_MUSIC_SHUFFLE, 64))
+            views.setOnClickPendingIntent(R.id.music_repeat, broadcast(context, ACTION_MUSIC_REPEAT, 65))
+            views.setOnClickPendingIntent(
+                R.id.music_queue, activity(context, 66, Intent(context, QueueActivity::class.java)),
+            )
+            // Shuffle and repeat light up crimson when on; repeat shows a "1" when repeating one song.
+            val on = context.getColor(R.color.crimson)
+            val off = context.getColor(R.color.dust)
+            views.setInt(R.id.music_shuffle, "setColorFilter", if (NowPlaying.shuffle(context)) on else off)
+            val repeat = NowPlaying.repeat(context)
+            views.setImageViewResource(
+                R.id.music_repeat,
+                if (repeat == NowPlaying.Repeat.ONE) R.drawable.ic_music_repeat_one else R.drawable.ic_music_repeat,
+            )
+            views.setInt(R.id.music_repeat, "setColorFilter", if (repeat == NowPlaying.Repeat.OFF) off else on)
 
             if (!NowPlaying.hasAccess(context)) {
                 views.setTextViewText(R.id.music_title, "Show what's playing")

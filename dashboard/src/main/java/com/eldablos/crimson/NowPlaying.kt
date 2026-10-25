@@ -15,6 +15,7 @@ import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
 import java.io.File
@@ -30,7 +31,25 @@ object NowPlaying {
 
     data class Track(val title: String, val artist: String, val playing: Boolean, val packageName: String?)
 
-    enum class Control { PREVIOUS, PLAY_PAUSE, NEXT }
+    enum class Control { PREVIOUS, PLAY_PAUSE, NEXT, SHUFFLE, REPEAT }
+
+    /** Repeat modes, numbered as Android's media sessions number them. */
+    enum class Repeat(val mode: Int) { OFF(0), ONE(1), ALL(2) }
+
+    // Custom actions every player built on AndroidX media understands (Spotify included).
+    private const val SET_SHUFFLE = "android.support.v4.media.session.action.SET_SHUFFLE_MODE"
+    private const val SHUFFLE_ARG = "android.support.v4.media.session.action.ARGUMENT_SHUFFLE_MODE"
+    private const val SET_REPEAT = "android.support.v4.media.session.action.SET_REPEAT_MODE"
+    private const val REPEAT_ARG = "android.support.v4.media.session.action.ARGUMENT_REPEAT_MODE"
+
+    /**
+     * Shuffle and repeat as last set from the widget. Players don't report these to other apps, so if
+     * they're changed inside Spotify the widget catches up the next time they're tapped here.
+     */
+    fun shuffle(context: Context): Boolean = prefs(context).getBoolean("shuffle", false)
+
+    fun repeat(context: Context): Repeat =
+        Repeat.entries.firstOrNull { it.mode == prefs(context).getInt("repeat", 0) } ?: Repeat.OFF
 
     fun hasAccess(context: Context): Boolean =
         context.getSystemService(NotificationManager::class.java)
@@ -70,7 +89,7 @@ object NowPlaying {
         val p = prefs(context)
         if (title == null) {
             if (p.contains("title")) {
-                p.edit().clear().apply()
+                p.edit().remove("title").remove("artist").remove("playing").remove("package").apply()
                 artFile(context).delete()
                 CrimsonWidgetProvider.refreshAll(context)
             }
@@ -127,6 +146,23 @@ object NowPlaying {
                 Control.NEXT -> transport.skipToNext()
                 Control.PLAY_PAUSE ->
                     if (controller.playbackState?.state == PlaybackState.STATE_PLAYING) transport.pause() else transport.play()
+                Control.SHUFFLE -> {
+                    val on = !shuffle(context)
+                    transport.sendCustomAction(SET_SHUFFLE, Bundle().apply { putInt(SHUFFLE_ARG, if (on) 1 else 0) })
+                    prefs(context).edit().putBoolean("shuffle", on).apply()
+                    CrimsonWidgetProvider.refreshAll(context)
+                }
+                Control.REPEAT -> {
+                    // Same order as Spotify: off, all, one.
+                    val next = when (repeat(context)) {
+                        Repeat.OFF -> Repeat.ALL
+                        Repeat.ALL -> Repeat.ONE
+                        Repeat.ONE -> Repeat.OFF
+                    }
+                    transport.sendCustomAction(SET_REPEAT, Bundle().apply { putInt(REPEAT_ARG, next.mode) })
+                    prefs(context).edit().putInt("repeat", next.mode).apply()
+                    CrimsonWidgetProvider.refreshAll(context)
+                }
             }
             return
         }
@@ -134,6 +170,7 @@ object NowPlaying {
             Control.PREVIOUS -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
             Control.NEXT -> KeyEvent.KEYCODE_MEDIA_NEXT
             Control.PLAY_PAUSE -> KeyEvent.KEYCODE_MEDIA_PLAY
+            Control.SHUFFLE, Control.REPEAT -> return // nothing to apply them to
         }
         val audio = context.getSystemService(AudioManager::class.java) ?: return
         audio.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key))

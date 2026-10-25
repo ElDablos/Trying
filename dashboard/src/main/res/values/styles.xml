@@ -90,4 +90,13 @@
         <item name="android:textCursorDrawable">@null</item>
         <item name="android:textSize">15sp</item>
     </style>
+
+    <!-- A floating card over the home screen for the queue. -->
+    <style name="QueuePopup" parent="android:Theme.Material.Dialog.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowMinWidthMajor">92%</item>
+        <item name="android:windowMinWidthMinor">92%</item>
+        <item name="android:backgroundDimAmount">0.6</item>
+        <item name="android:colorAccent">@color/crimson</item>
+    </style>
 </resources>

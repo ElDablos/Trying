@@ -65,6 +65,14 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- The widget's queue pop-up. -->
+        <activity
+            android:name=".QueueActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@style/QueuePopup" />
+
         <!-- Invisible: opens another app for a widget tap, then closes. -->
         <activity
             android:name=".OpenAppActivity"

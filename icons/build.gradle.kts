@@ -11,7 +11,7 @@ android {
         applicationId = "com.eldablos.crimsonicons"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
+        versionCode = 4
         versionName = "3.0"
     }
 

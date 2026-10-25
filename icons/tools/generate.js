@@ -59,11 +59,12 @@ function fillFor(icon, set, name) {
   return isReddish(color) ? '#FFFFFF' : color;
 }
 
-// Deep blood-red tile with a soft highlight at the top and a darker rim.
+// Dark blood-red glass: a deep tile the wallpaper shows faintly through, with a soft highlight at the
+// top, a thin crimson edge and a darker rim.
 const TILE = `
   position:absolute; inset:6px; border-radius:62px;
-  background: radial-gradient(120% 90% at 30% 10%, #C8233A 0%, #9E0C22 45%, #5E000F 100%);
-  box-shadow: inset 0 0 0 3px rgba(0,0,0,0.28), inset 0 3px 0 rgba(255,255,255,0.18);`;
+  background: radial-gradient(120% 90% at 30% 10%, rgba(140,20,38,0.80) 0%, rgba(98,6,22,0.78) 45%, rgba(46,0,8,0.84) 100%);
+  box-shadow: inset 0 0 0 2px rgba(224,30,55,0.35), inset 0 0 0 5px rgba(0,0,0,0.22), inset 0 3px 0 rgba(255,255,255,0.12);`;
 
 function iconHtml(svg, fill) {
   // Single quotes, since this sits inside a double-quoted style attribute; encodeURIComponent leaves ' alone.

@@ -43,6 +43,17 @@ object BudsDevices {
         return paired(context).firstOrNull { it.address == address } ?: pairedBuds(context).firstOrNull()
     }
 
+    /**
+     * Whether [device] is connected to the phone right now, or null if Android won't say. Uses
+     * BluetoothDevice.isConnected(), which apps can call but which isn't in the public SDK.
+     */
+    fun isConnected(device: BluetoothDevice): Boolean? =
+        try {
+            BluetoothDevice::class.java.getMethod("isConnected").invoke(device) as? Boolean
+        } catch (e: Exception) {
+            null
+        }
+
     fun isTarget(context: Context, device: BluetoothDevice): Boolean {
         val address = BudsState.selectedAddress(context)
         return if (address != null) device.address == address else name(device).contains("buds", ignoreCase = true)

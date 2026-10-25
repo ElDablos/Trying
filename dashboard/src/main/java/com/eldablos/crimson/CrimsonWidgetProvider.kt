@@ -168,22 +168,16 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.steps_row, if (health != null) activity(context, 5, health) else openApp(context, 5))
         }
 
-        /** The Galaxy Buds row: hidden unless the earbuds are connected to the phone. */
+        /** The Galaxy Buds row: shown only while the earbuds are connected to the phone. */
         private fun bindBuds(context: Context, views: RemoteViews) {
             val buds = BudsState.read(context)
-            val show = buds.present || buds.connection != BudsState.Connection.DISCONNECTED
+            val connected = buds.connection == BudsState.Connection.CONNECTED
+            val device = BudsDevices.selected(context) // null without Bluetooth permission
+            val show = connected || (device != null && (BudsDevices.isConnected(device) ?: buds.present))
             views.setViewVisibility(R.id.buds_row, if (show) View.VISIBLE else View.GONE)
             if (!show) return
 
             val name = buds.deviceName?.removePrefix("Galaxy ") ?: context.getString(R.string.buds_default_name)
-            val connected = buds.connection == BudsState.Connection.CONNECTED
-            if (!BudsDevices.hasPermission(context)) {
-                views.setTextViewText(R.id.buds_text, "$name · tap to allow Bluetooth")
-                views.setTextColor(R.id.buds_text, context.getColor(R.color.dust))
-                views.setViewVisibility(R.id.buds_modes, View.GONE)
-                views.setOnClickPendingIntent(R.id.buds_row, openApp(context, 40))
-                return
-            }
 
             // Tapping the row (re)connects; tapping a mode switches to it.
             views.setOnClickPendingIntent(R.id.buds_row, budsService(context, BudsService.ACTION_CONNECT, null, 40))

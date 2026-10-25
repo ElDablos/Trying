@@ -71,7 +71,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
         private const val ACTION_REFRESH = "com.eldablos.crimson.REFRESH"
         private const val SAMSUNG_CLOCK = "com.sec.android.app.clockpackage"
         private const val SAMSUNG_CALENDAR = "com.samsung.android.calendar"
-        private val WEATHER_APPS = listOf(
+        internal val WEATHER_APPS = listOf(
             "com.sec.android.daemonapp", "com.samsung.android.weather", "com.google.android.apps.weather",
         )
         private const val ACTION_PREV_MONTH = "com.eldablos.crimson.PREV_MONTH"
@@ -79,10 +79,12 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
         private const val ACTION_THIS_MONTH = "com.eldablos.crimson.THIS_MONTH"
         private const val DAY_REQUEST_CODE_BASE = 100
 
+        /** Redraws every Crimson widget: this one and the slim Glance widget. */
         fun refreshAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context) ?: return
             val ids = manager.getAppWidgetIds(ComponentName(context, CrimsonWidgetProvider::class.java))
             if (ids.isNotEmpty()) manager.updateAppWidget(ids, buildViews(context))
+            CrimsonGlanceProvider.refresh(context, manager)
         }
 
         private fun buildViews(context: Context): RemoteViews {
@@ -209,7 +211,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             }
         }
 
-        private fun budsService(context: Context, action: String, mode: NoiseMode?, requestCode: Int): PendingIntent =
+        internal fun budsService(context: Context, action: String, mode: NoiseMode?, requestCode: Int): PendingIntent =
             PendingIntent.getForegroundService(
                 context, requestCode, BudsService.intent(context, action, mode),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
@@ -288,7 +290,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 
-        private fun iconFor(icon: WeatherIcon) = when (icon) {
+        internal fun iconFor(icon: WeatherIcon) = when (icon) {
             WeatherIcon.SUN -> R.drawable.ic_weather_sun
             WeatherIcon.MOON -> R.drawable.ic_weather_moon
             WeatherIcon.CLOUD -> R.drawable.ic_weather_cloud
@@ -348,13 +350,13 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 .setClassName(info.packageName, info.name)
                 .addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
 
-        private fun launchIntent(context: Context, packageName: String): Intent? =
+        internal fun launchIntent(context: Context, packageName: String): Intent? =
             context.packageManager.getLaunchIntentForPackage(packageName)
 
         private fun openApp(context: Context, requestCode: Int) =
             activity(context, requestCode, Intent(context, MainActivity::class.java))
 
-        private fun activity(context: Context, requestCode: Int, intent: Intent): PendingIntent =
+        internal fun activity(context: Context, requestCode: Int, intent: Intent): PendingIntent =
             PendingIntent.getActivity(
                 context, requestCode, intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,

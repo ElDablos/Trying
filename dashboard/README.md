@@ -28,6 +28,13 @@ It matches the [Gothic Crimson theme](../theme/gothic-crimson/README.md).
    - **Widget background**: drag the slider to make the background more see-through or more solid.
 4. Tap **Add widget to home screen**. It's 6×4 by default, the same space as your current calendar, weather, steps and clock widgets. Long-press it to resize.
 
+## Crimson Glance (lock screen)
+
+A second, slim widget: one row with the weather, steps, your Buds' battery and mode (only while they're
+connected; tap to switch between ANC and Ambient) and your next alarm. Add it to the lock screen from
+**Settings → Lock screen and AOD → Widgets** (if your phone lists it there), or to the home screen like any
+widget. It uses the same settings as the main widget, including the background slider.
+
 ## Good to know
 
 - The clock and date update live. Weather and steps refresh every 15 minutes, the most often Android allows.

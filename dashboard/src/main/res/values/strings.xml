@@ -1,6 +1,8 @@
 <resources>
     <string name="app_name">Crimson Widget</string>
     <string name="widget_description">Clock, alarm, weather, steps and a month calendar</string>
+    <string name="glance_name">Crimson Glance</string>
+    <string name="glance_description">Weather, steps, Buds battery and next alarm in one slim row</string>
     <string name="buds_default_name">Galaxy Buds</string>
     <string name="buds_channel_name">Earbuds connection</string>
     <string name="buds_connecting">Connecting…</string>

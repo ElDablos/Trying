@@ -59,10 +59,10 @@ function fillFor(icon, set, name) {
   return isReddish(color) ? '#FFFFFF' : color;
 }
 
-// Crimson tile with a soft highlight at the top and a darker rim.
+// Deep blood-red tile with a soft highlight at the top and a darker rim.
 const TILE = `
   position:absolute; inset:6px; border-radius:62px;
-  background: radial-gradient(120% 90% at 30% 10%, #F0344C 0%, #C8102E 45%, #8E0015 100%);
+  background: radial-gradient(120% 90% at 30% 10%, #C8233A 0%, #9E0C22 45%, #5E000F 100%);
   box-shadow: inset 0 0 0 3px rgba(0,0,0,0.28), inset 0 3px 0 rgba(255,255,255,0.18);`;
 
 function iconHtml(svg, fill) {

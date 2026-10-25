@@ -24,20 +24,20 @@ const SCENES = {
     curve: (k) => new THREE.CubicBezierCurve(
       new THREE.Vector2(-13 + k * 2.3, 19), new THREE.Vector2(-9 + k * 2.3, 2),
       new THREE.Vector2(8 + k * 2.3, 4), new THREE.Vector2(4 + k * 2.3, -19)),
-    bands: 5, bandWidth: 1.9, thickness: 0.8, neonBand: 2,
+    bands: 5, bandWidth: 1.9, thickness: 0.8, neonBand: 2, exposure: 0.8,
   },
   // Wide and calm: shallow bands across the bottom, the neon near the bottom edge, dark at the top for keys.
   keys: {
-    width: 1440, height: 1080, fov: 34, camera: [0, 4, 24], target: [0, -1.5, 0],
+    width: 1440, height: 1080, fov: 34, camera: [0, 3, 19], target: [0, -2.2, 0],
     curve: (k) => new THREE.CubicBezierCurve(
       new THREE.Vector2(-14, -0.4 - k * 1.45), new THREE.Vector2(-4, 2.0 - k * 1.45),
       new THREE.Vector2(4, -3.0 - k * 1.45), new THREE.Vector2(14, -0.2 - k * 1.45)),
-    bands: 4, bandWidth: 1.25, thickness: 0.6, neonBand: 1,
+    bands: 4, bandWidth: 1.25, thickness: 0.6, neonBand: 1, exposure: 1.25,
   },
 };
 const cfg = SCENES[which];
 const { width, height } = cfg;
-const { renderer, scene } = setup({ width, height, exposure: 0.8 });
+const { renderer, scene } = setup({ width, height, exposure: cfg.exposure });
 
 const camera = new THREE.PerspectiveCamera(cfg.fov, width / height, 0.1, 200);
 camera.position.set(...cfg.camera);

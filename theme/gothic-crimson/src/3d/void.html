@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!-- Crimson Void wallpaper: a glossy black gothic arch outlined in crimson neon, a glowing sword inside,
+     standing on a black mirror floor in front of carbon fibre. 1440x3120. -->
+<script type="importmap">
+{ "imports": { "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/" } }
+</script>
+<style>html, body { margin: 0; background: #000; overflow: hidden; }</style>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { Reflector } from 'three/addons/objects/Reflector.js';
+import { setup, gloss, glow, finish, CRIMSON } from './common.js';
+
+const width = 1440, height = 3120;
+const { renderer, scene } = setup({ width, height, exposure: 0.85 });
+
+const camera = new THREE.PerspectiveCamera(34, width / height, 0.1, 200);
+camera.position.set(0, 3.4, 52);
+camera.lookAt(0, 6.8, 0);
+
+// The pointed-arch opening, as a 2D path: straight sides up to the spring line, then two arcs.
+function lancetPath(w, spring) {
+  const r = w;
+  const apex = spring + Math.sqrt(r * r - (w / 2) ** 2);
+  const path = new THREE.Path();
+  path.moveTo(-w / 2, 0);
+  path.lineTo(-w / 2, spring);
+  path.absarc(w / 2, spring, r, Math.PI, Math.atan2(apex - spring, -w / 2), true);
+  path.absarc(-w / 2, spring, r, Math.atan2(apex - spring, w / 2), 0, true);
+  path.lineTo(w / 2, 0);
+  return path;
+}
+
+// Arch: a thick glossy frame around the opening.
+// Points are de-duplicated: where the arcs meet, the path repeats a point, which upsets triangulation.
+function points(path2d) {
+  return path2d.getPoints(120).filter((p, i, all) => i === 0 || p.distanceTo(all[i - 1]) > 1e-4);
+}
+const outer = new THREE.Shape(points(lancetPath(7.4, 8.4)));
+const hole = new THREE.Path(points(lancetPath(6.0, 8.4)));
+outer.holes.push(hole);
+const arch = new THREE.Mesh(
+  new THREE.ExtrudeGeometry(outer, { depth: 1.2, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, bevelSegments: 5 }),
+  gloss(),
+);
+arch.position.z = -0.6;
+scene.add(arch);
+
+// Neon tracing the inside edge of the opening, and a fainter line round the outside.
+function neon(path2d, z, radius, strength) {
+  const pts = path2d.getPoints(200).map((p) => new THREE.Vector3(p.x, p.y, z));
+  const curve = new THREE.CatmullRomCurve3(pts);
+  scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 800, radius, 12), glow(CRIMSON, strength)));
+}
+neon(lancetPath(6.15, 8.4), 0.72, 0.07, 1.5);
+neon(lancetPath(7.55, 8.4), 0.72, 0.035, 0.8);
+
+// The sword: crossguard, grip, pommel and a tapering blade, glowing from within.
+const sword = new THREE.Group();
+const blade = new THREE.Shape();
+blade.moveTo(-0.22, 0); blade.lineTo(0.22, 0); blade.lineTo(0.16, -5.2); blade.lineTo(0, -6.0); blade.lineTo(-0.16, -5.2); blade.closePath();
+const extrude = { depth: 0.12, bevelEnabled: true, bevelSize: 0.04, bevelThickness: 0.04, bevelSegments: 3 };
+// Glossy dark metal lit from within, so it keeps its shape instead of glowing flat.
+const swordGlow = new THREE.MeshPhysicalMaterial({
+  color: 0x1a0306, metalness: 0.6, roughness: 0.25, clearcoat: 1, envMapIntensity: 0.6,
+  emissive: CRIMSON, emissiveIntensity: 0.9,
+});
+sword.add(new THREE.Mesh(new THREE.ExtrudeGeometry(blade, extrude), swordGlow));
+const guard = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.22, 0.22), swordGlow);
+guard.position.y = 0.1;
+sword.add(guard);
+const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.3, 16), gloss());
+grip.position.y = 0.85;
+sword.add(grip);
+const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.22, 24, 16), swordGlow);
+pommel.position.y = 1.6;
+sword.add(pommel);
+sword.position.set(0, 8.6, 0.2);
+scene.add(sword);
+const swordLight = new THREE.PointLight(CRIMSON, 6, 12, 2);
+swordLight.position.set(0, 10.5, 4);
+scene.add(swordLight);
+
+// Black mirror floor.
+const floor = new Reflector(new THREE.PlaneGeometry(80, 80), { textureWidth: width / 2, textureHeight: height / 2, color: 0x2a2a2a });
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -0.62;
+scene.add(floor);
+
+// Carbon-fibre wall behind, with a crimson glow from the arch.
+const wall = new THREE.Mesh(
+  new THREE.PlaneGeometry(120, 120),
+  new THREE.ShaderMaterial({
+    uniforms: { glow: { value: new THREE.Color(0x2c040b) } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `
+      uniform vec3 glow; varying vec2 vUv;
+      void main() {
+        vec2 g = vUv * 700.0;
+        vec2 cell = floor(g);
+        vec2 f = fract(g);
+        float across = mod(cell.x + cell.y, 2.0) > 0.5 ? f.x : f.y;
+        float ridge = pow(sin(across * 3.14159), 1.5);
+        vec3 col = vec3(mix(0.006, 0.03, ridge)) * vec3(1.0, 0.93, 0.95);
+        col += glow * smoothstep(0.07, 0.0, distance(vUv, vec2(0.5, 0.535)));
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  }),
+);
+wall.position.set(0, 0, -4);
+scene.add(wall);
+
+// Embers drifting up through the arch.
+const count = 500;
+const pos = new Float32Array(count * 3);
+let seed = 5;
+const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+for (let i = 0; i < count; i++) {
+  pos[i * 3] = (rand() - 0.5) * 12;
+  pos[i * 3 + 1] = rand() * 22 - 1;
+  pos[i * 3 + 2] = (rand() - 0.5) * 6 + 1;
+}
+scene.add(new THREE.Points(
+  new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(pos, 3)),
+  new THREE.PointsMaterial({ color: new THREE.Color(0xff3a4a).multiplyScalar(1.5), size: 0.05, transparent: true, opacity: 0.7 }),
+));
+
+finish({ renderer, scene, camera, width, height, bloom: { strength: 1.0, radius: 0.6, threshold: 0.85 } });
+</script>
+</body>
+</html>

@@ -10,7 +10,7 @@ Near-black backgrounds, blood-red accents, cathedral spires and rose windows.
 | --- | --- |
 | `wallpapers/gothic-crimson-cathedral.jpg` | Home screen: blood moon over a cathedral skyline |
 | `wallpapers/gothic-crimson-rose-window.jpg` | Lock screen: glowing rose window, with space at the top for the clock |
-| `wallpapers/gothic-crimson-void.jpg` | Almost pure black with one glowing arch. Easy on the battery with the AMOLED screen |
+| `wallpapers/gothic-crimson-void.jpg` | 3D render: a glossy black gothic arch outlined in crimson neon, a glowing sword inside, on a black mirror floor |
 
 The wallpapers are 1440×3120, the S26 Ultra's full QHD+ resolution, so they show pixel for pixel. In **Settings → Display → Screen resolution**, pick **QHD+** to get the sharpest picture.
 

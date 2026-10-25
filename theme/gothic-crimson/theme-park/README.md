@@ -85,8 +85,9 @@ theme.
 
 ## Change the images
 
-Both are real 3D renders (three.js), made to match a glossy black-and-red carbon wallpaper. The scene is
-`../src/3d/bands.html`, with shared materials and geometry in `../src/3d/common.js`. To re-render:
+Both, and the Crimson Void wallpaper, are real 3D renders (three.js), made to match a glossy black-and-red
+carbon wallpaper. The scenes are `../src/3d/bands.html` and `../src/3d/void.html`, with shared materials and
+geometry in `../src/3d/common.js`. To re-render:
 
 ```
 cd theme/gothic-crimson/src/3d

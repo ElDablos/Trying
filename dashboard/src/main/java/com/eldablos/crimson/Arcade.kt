@@ -38,7 +38,7 @@ object Arcade {
     private const val PLAYTIME_WEIGHT = 0.6f
     private const val LAST_PLAYED_DAYS = 365L
     private val NEW_FOR = TimeUnit.DAYS.toMillis(7)
-    private const val CRIMSON = 0xFFE01E37.toInt()
+    private const val CRIMSON = 0xFFB3182C.toInt()
 
     private fun prefs(context: Context) = context.getSharedPreferences("arcade", Context.MODE_PRIVATE)
 

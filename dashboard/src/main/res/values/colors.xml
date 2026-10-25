@@ -1,9 +1,9 @@
 <resources>
-    <!-- Gothic Crimson palette, matching theme/gothic-crimson. -->
+    <!-- Gothic Crimson palette: the deep blood red of the Crimson Icons tiles. -->
     <color name="void_black">#FF0A0708</color>
-    <color name="widget_border">#66B3001B</color>
-    <color name="blood">#FFB3001B</color>
-    <color name="crimson">#FFE01E37</color>
+    <color name="widget_border">#99760012</color>
+    <color name="blood">#FF760012</color>
+    <color name="crimson">#FFB3182C</color>
     <color name="bone">#FFE8DCDC</color>
     <color name="dust">#FF9A8A8C</color>
     <color name="track">#33E8DCDC</color>

@@ -83,7 +83,7 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
     private val hiddenStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(1f)
-        color = 0x66B3001B
+        color = 0x66760012
         pathEffect = DashPathEffect(floatArrayOf(dp(4f), dp(4f)), 0f)
     }
     private val tagFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.void_black) }
@@ -290,7 +290,7 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         // The bar at the bottom: a hint, or the place to drop an app to remove it.
         rect.set(0f, zoneTop, width.toFloat(), zoneTop + zoneHeight)
         if (dragged != null) {
-            zoneFill.color = if (overRemove) context.getColor(R.color.blood) else 0x33B3001B
+            zoneFill.color = if (overRemove) context.getColor(R.color.blood) else 0x33760012
             canvas.drawRoundRect(rect, dp(14f), dp(14f), zoneFill)
             canvas.drawRoundRect(rect, dp(14f), dp(14f), cardStroke)
             hint.color = context.getColor(if (overRemove) R.color.bone else R.color.crimson)

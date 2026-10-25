@@ -93,7 +93,7 @@
                         android:letterSpacing="0.12"
                         android:maxLines="1"
                         android:textAllCaps="true"
-                        android:textColor="@color/crimson"
+                        android:textColor="@color/bone"
                         android:textSize="16sp" />
                 </LinearLayout>
 

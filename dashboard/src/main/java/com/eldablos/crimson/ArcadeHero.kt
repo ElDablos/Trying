@@ -55,7 +55,7 @@ object ArcadeHero {
         val stats: Boolean,
     )
 
-    private const val CRIMSON = 0xFFE01E37.toInt()
+    private const val CRIMSON = 0xFFB3182C.toInt()
     private const val BONE = 0xFFE8DCDC.toInt()
     private const val DUST = 0xFF9A8A8C.toInt()
     private const val MAX_SCALE = 2f
@@ -100,7 +100,7 @@ object ArcadeHero {
         }
         var y = 0f
         while (y < h) {
-            grid.shader = LinearGradient(0f, 0f, w * 0.8f, 0f, 0x16E01E37, 0x00E01E37, Shader.TileMode.CLAMP)
+            grid.shader = LinearGradient(0f, 0f, w * 0.8f, 0f, 0x16B3182C, 0x00B3182C, Shader.TileMode.CLAMP)
             canvas.drawLine(0f, y, w * 0.8f, y, grid)
             y += 15f
         }
@@ -108,7 +108,7 @@ object ArcadeHero {
         y = 0f
         while (y < h) { canvas.drawLine(0f, y, w, y, scan); y += 2.5f }
         canvas.restore()
-        canvas.drawPath(frame, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.8f; color = 0x59E01E37 })
+        canvas.drawPath(frame, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.8f; color = 0x59B3182C })
 
         // Header.
         val text = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = mono; textSize = 7f; letterSpacing = 0.24f }
@@ -188,7 +188,7 @@ object ArcadeHero {
             val play = RectF(ix, iy, ix + iw - buttonH - 6f, iy + buttonH)
             val dice = RectF(play.right + 6f, iy, ix + iw, iy + buttonH)
             playButton(canvas, play)
-            slanted(canvas, dice, fill = 0x1AE01E37, stroke = 0x99E01E37.toInt(), cut = 6f)
+            slanted(canvas, dice, fill = 0x1AB3182C, stroke = 0x99B3182C.toInt(), cut = 6f)
             text.textSize = 14f
             text.color = BONE
             text.textAlign = Paint.Align.CENTER
@@ -209,7 +209,7 @@ object ArcadeHero {
         canvas.drawText(label, pad + 6f, labelY, text)
         val lineX = pad + 6f + text.measureText(label) + 8f
         canvas.drawRect(lineX, labelY - 2.5f, w - pad - 4f, labelY - 2f, Paint().apply {
-            shader = LinearGradient(lineX, 0f, w - pad, 0f, 0xB3E01E37.toInt(), 0x00E01E37, Shader.TileMode.CLAMP)
+            shader = LinearGradient(lineX, 0f, w - pad, 0f, 0xB3B3182C.toInt(), 0x00B3182C, Shader.TileMode.CLAMP)
         })
         val tiles = scene.recommended.take(6)
         if (tiles.isNotEmpty()) {
@@ -268,7 +268,7 @@ object ArcadeHero {
 
     /** A readout box with its top-right corner cut, a value, a label and a bar [fill] of the way. */
     private fun statBox(canvas: Canvas, box: RectF, value: String, label: String, fill: Float, accent: Int, mono: Typeface) {
-        slanted(canvas, box, fill = 0x0FE01E37, stroke = 0x59E01E37, cut = 5f, corner = true)
+        slanted(canvas, box, fill = 0x0FB3182C, stroke = 0x59B3182C, cut = 5f, corner = true)
         val text = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { typeface = Typeface.create(mono, Typeface.BOLD); color = Color.WHITE; textSize = 11f }
         canvas.drawText(fit(value, text, box.width() - 8f), box.left + 5f, box.top + 13f, text)
         text.typeface = mono
@@ -277,7 +277,7 @@ object ArcadeHero {
         text.color = DUST
         canvas.drawText(fit(label, text, box.width() - 8f), box.left + 5f, box.top + 20f, text)
         val track = RectF(box.left + 5f, box.bottom - 6f, box.right - 5f, box.bottom - 4.5f)
-        canvas.drawRect(track, Paint().apply { color = 0x33E01E37 })
+        canvas.drawRect(track, Paint().apply { color = 0x33B3182C })
         if (fill > 0f) {
             canvas.drawRect(track.left, track.top, track.left + track.width() * fill.coerceIn(0f, 1f), track.bottom, Paint().apply {
                 color = accent; setShadowLayer(3f, 0f, 0f, accent)
@@ -295,7 +295,7 @@ object ArcadeHero {
             maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.OUTER)
         })
         canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(box.left, 0f, box.right, 0f, 0xFFB3001B.toInt(), CRIMSON, Shader.TileMode.CLAMP)
+            shader = LinearGradient(box.left, 0f, box.right, 0f, 0xFF760012.toInt(), CRIMSON, Shader.TileMode.CLAMP)
         })
         val text = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = Typeface.create("sans-serif", Typeface.BOLD)
@@ -326,7 +326,7 @@ object ArcadeHero {
         val width = text.measureText(label) + 4f
         val box = RectF(right - width, top, right, top + 8f)
         canvas.drawRect(box, Paint().apply { color = 0xE60A0708.toInt() })
-        canvas.drawRect(box, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.5f; color = 0x99E01E37.toInt() })
+        canvas.drawRect(box, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.5f; color = 0x99B3182C.toInt() })
         canvas.drawText(label, right - 2f, box.bottom - 2f, text)
     }
 

@@ -1,10 +1,8 @@
 package com.eldablos.crimson
 
 import android.app.Activity
-import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
-import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
@@ -159,15 +157,5 @@ class ArcadeConfigActivity : Activity() {
     companion object {
         private const val TAG = "CrimsonArcade"
         private const val ICON_DP = 40
-
-        /** Opens these settings from the widget, for its "no games found" message. */
-        fun pendingIntent(context: Context, widgetId: Int): PendingIntent =
-            PendingIntent.getActivity(
-                context, widgetId,
-                Intent(context, ArcadeConfigActivity::class.java)
-                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
     }
 }

@@ -53,13 +53,15 @@ Each strip keeps its own apps, and the background follows the same slider as the
 
 A 6×5 games widget. Long-press the home screen → Widgets → Crimson Widget → **Crimson Arcade**.
 
-- **HUD panel**: your most played games of the last 14 days as a hexagon cluster, number one in the
-  middle, with a readout of playtime and when you last played. It moves through them by itself every few
-  seconds. Tap any hexagon or **▶ Launch** to play, or **⚄ Random** for a surprise. Playtime needs
-  usage access (Settings → Usage access → Crimson Widget, or the button in the panel); without it the
-  panel shows your newest games.
-- **Hive**: every game A–Z as glowing hexagons, each in its own logo's colour, with letter tags and NEW
-  badges for games installed this week. Scroll it, or tap a letter on the rail to jump.
+- **Panel**: the selected game, console style: its cover in target brackets, playtime over the last 14
+  days, its most-played rank and when you last played it, and **▶ Play**. Under it, a row of recommended
+  games (your most played). **⚄** picks a random game.
+- **All games**: every game A–Z, with letter tags and NEW badges for games installed this week. Scroll
+  it, or tap a letter on the rail to jump.
+- Tapping a game, in the grid or the recommended row, only **selects** it; nothing launches until you
+  press **▶ Play**. Taps on empty parts of the widget do nothing.
+- Playtime needs usage access (Settings → Usage access → Crimson Widget, or **◈ Enable play stats** in
+  the panel); without it, the recommendations are your newest games.
 - Games are found automatically from the category apps declare. Long-press → **Settings** to add any it
   missed or hide any you don't want.
 

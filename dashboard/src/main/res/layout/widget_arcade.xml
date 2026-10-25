@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Crimson Arcade: a HUD panel of the most played games that flips through them, over a scrolling
-     hexagon hive of every game A–Z with a letter rail to jump along it. -->
+<!-- Crimson Arcade: a console-style panel for the selected game, over a scrolling A–Z grid of every game
+     with a letter rail to jump along it. Tapping a game selects it; only Play launches. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/arcade_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -18,340 +19,421 @@
         android:orientation="vertical"
         android:padding="8dp">
 
-        <!-- One drawing per game in focus; it moves on by itself every few seconds. -->
-        <AdapterViewFlipper
-            android:id="@+id/arcade_panel"
+        <!-- The panel is drawn as one image; the frames over it are its tap areas. -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="56"
-            android:autoStart="true"
-            android:flipInterval="6000"
-            android:inAnimation="@animator/arcade_in"
-            android:outAnimation="@animator/arcade_out" />
+            android:layout_weight="58">
+
+            <!-- Two images, so a new selection fades in over the old one. -->
+            <ViewFlipper
+                android:id="@+id/arcade_hero"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:inAnimation="@android:anim/fade_in"
+                android:outAnimation="@android:anim/fade_out">
+
+                <ImageView
+                    android:id="@+id/arcade_hero_0"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitXY" />
+
+                <ImageView
+                    android:id="@+id/arcade_hero_1"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitXY" />
+            </ViewFlipper>
+
+            <FrameLayout
+                android:id="@+id/arcade_hit_play"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_gravity="top|start" />
+            <FrameLayout
+                android:id="@+id/arcade_hit_random"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_gravity="top|start" />
+            <FrameLayout
+                android:id="@+id/arcade_hit_access"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_gravity="top|start" />
+            <FrameLayout
+                android:id="@+id/arcade_hit_rec_1"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_gravity="top|start" />
+            <FrameLayout
+                android:id="@+id/arcade_hit_rec_2"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_gravity="top|start" />
+            <FrameLayout
+                android:id="@+id/arcade_hit_rec_3"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_gravity="top|start" />
+            <FrameLayout
+                android:id="@+id/arcade_hit_rec_4"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_gravity="top|start" />
+            <FrameLayout
+                android:id="@+id/arcade_hit_rec_5"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_gravity="top|start" />
+            <FrameLayout
+                android:id="@+id/arcade_hit_rec_6"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_gravity="top|start" />
+        </FrameLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_marginTop="4dp"
-            android:layout_weight="44"
-            android:orientation="horizontal">
+            android:layout_weight="42"
+            android:orientation="vertical">
 
-            <ListView
-                android:id="@+id/arcade_hive"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:divider="@null"
-                android:dividerHeight="0dp"
-                android:overScrollMode="never"
-                android:scrollbars="none" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.24"
+                android:text="ALL GAMES // A–Z"
+                android:textColor="@color/dust"
+                android:textSize="8sp" />
 
-            <!-- Tap a letter to jump the hive to it. -->
             <LinearLayout
-                android:layout_width="18dp"
-                android:layout_height="match_parent"
-                android:layout_marginStart="2dp"
-                android:orientation="vertical"
-                android:paddingTop="4dp"
-                android:paddingBottom="10dp">
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginTop="4dp"
+                android:layout_weight="1"
+                android:orientation="horizontal">
 
-                <TextView
-                    android:id="@+id/arcade_rail_0"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
+                <ListView
+                    android:id="@+id/arcade_hive"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
                     android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="#"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_1"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="A"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_2"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="B"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_3"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="C"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_4"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="D"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_5"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="E"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_6"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="F"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_7"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="G"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_8"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="H"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_9"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="I"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_10"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="J"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_11"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="K"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_12"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="L"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_13"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="M"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_14"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="N"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_15"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="O"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_16"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="P"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_17"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="Q"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_18"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="R"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_19"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="S"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_20"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="T"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_21"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="U"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_22"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="V"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_23"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="W"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_24"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="X"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_25"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="Y"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
-                <TextView
-                    android:id="@+id/arcade_rail_26"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:fontFamily="monospace"
-                    android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:text="Z"
-                    android:textColor="#4D9A8A8C"
-                    android:textSize="9sp" />
+                    android:divider="@null"
+                    android:dividerHeight="0dp"
+                    android:overScrollMode="never"
+                    android:scrollbars="none" />
+
+                <!-- Tap a letter to jump the hive to it. -->
+                <LinearLayout
+                    android:layout_width="18dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="2dp"
+                    android:orientation="vertical"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="10dp">
+
+                    <TextView
+                        android:id="@+id/arcade_rail_0"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="#"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_1"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="A"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_2"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="B"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_3"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="C"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_4"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="D"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_5"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="E"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_6"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="F"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_7"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="G"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_8"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="H"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_9"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="I"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_10"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="J"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_11"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="K"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_12"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="L"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_13"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="M"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_14"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="N"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_15"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="O"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_16"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="P"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_17"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="Q"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_18"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="R"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_19"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="S"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_20"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="T"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_21"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="U"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_22"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="V"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_23"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="W"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_24"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="X"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_25"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="Y"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                    <TextView
+                        android:id="@+id/arcade_rail_26"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:fontFamily="monospace"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:text="Z"
+                        android:textColor="#4D9A8A8C"
+                        android:textSize="9sp" />
+                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
@@ -359,7 +441,8 @@
     <TextView
         android:id="@+id/arcade_empty"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
         android:fontFamily="monospace"
         android:gravity="center"
         android:letterSpacing="0.12"

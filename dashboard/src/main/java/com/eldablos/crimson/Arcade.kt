@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 /**
  * The games behind the Crimson Arcade widget: found automatically from the "game" category apps declare,
  * plus any the user added and minus any they hid, sorted A–Z. Also reads how long each was played, when
- * the user has given usage access, and draws game icons as glowing hexagons.
+ * the user has given usage access, keeps each widget's selected game, and draws game icons as tiles.
  */
 object Arcade {
     class Game(
@@ -85,6 +85,20 @@ object Arcade {
         prefs(context).edit().putStringSet("added", added).putStringSet("hidden", hidden).apply()
     }
 
+    /** The game a widget has selected, if it's still in the arcade. */
+    fun selected(context: Context, widgetId: Int, games: List<Game>): Game? {
+        val flat = prefs(context).getString("selected_$widgetId", null) ?: return null
+        return games.firstOrNull { it.component.flattenToString() == flat }
+    }
+
+    fun select(context: Context, widgetId: Int, component: ComponentName) {
+        prefs(context).edit().putString("selected_$widgetId", component.flattenToString()).apply()
+    }
+
+    fun forget(context: Context, widgetId: Int) {
+        prefs(context).edit().remove("selected_$widgetId").apply()
+    }
+
     fun isNew(game: Game, now: Long = System.currentTimeMillis()) = game.installed > 0 && now - game.installed < NEW_FOR
 
     // --- Play stats ---
@@ -95,27 +109,27 @@ object Arcade {
             AppOpsManager.MODE_ALLOWED
     }
 
+    /** Playtime over the last [STATS_DAYS] days for each played game, by package; empty without usage access. */
+    fun playStats(context: Context, games: List<Game>): Map<String, Played> {
+        if (!hasUsageAccess(context)) return emptyMap()
+        val now = System.currentTimeMillis()
+        val stats = context.getSystemService(UsageStatsManager::class.java)
+            ?.queryAndAggregateUsageStats(now - TimeUnit.DAYS.toMillis(STATS_DAYS.toLong()), now)
+            .orEmpty()
+        return games.mapNotNull { game ->
+            stats[game.component.packageName]
+                ?.takeIf { it.totalTimeInForeground > 0 }
+                ?.let { game.component.packageName to Played(game, it.totalTimeInForeground, it.lastTimeUsed) }
+        }.toMap()
+    }
+
     /**
-     * The most played games over the last [STATS_DAYS] days, most first. Without usage access, or before
-     * anything's been played, it falls back to the most recently installed games (with no playtime).
+     * The games to recommend: the most played first, then (without usage access, or to fill up) the most
+     * recently installed.
      */
-    fun mostPlayed(context: Context, games: List<Game>, count: Int): List<Played> {
-        val played = if (hasUsageAccess(context)) {
-            val now = System.currentTimeMillis()
-            val stats = context.getSystemService(UsageStatsManager::class.java)
-                ?.queryAndAggregateUsageStats(now - TimeUnit.DAYS.toMillis(STATS_DAYS.toLong()), now)
-                .orEmpty()
-            games.mapNotNull { game ->
-                stats[game.component.packageName]
-                    ?.takeIf { it.totalTimeInForeground > 0 }
-                    ?.let { Played(game, it.totalTimeInForeground, it.lastTimeUsed) }
-            }.sortedByDescending { it.millis }
-        } else {
-            emptyList()
-        }
-        val rest = games.filter { game -> played.none { it.game == game } }
-            .sortedByDescending { it.installed }
-            .map { Played(it, 0, 0) }
+    fun recommended(games: List<Game>, stats: Map<String, Played>, count: Int): List<Game> {
+        val played = stats.values.sortedByDescending { it.millis }.map { it.game }
+        val rest = games.filter { it !in played }.sortedByDescending { it.installed }
         return (played + rest).take(count)
     }
 
@@ -143,56 +157,58 @@ object Arcade {
         return Color.rgb((best shr 6 and 7) * 32 + 16, (best shr 3 and 7) * 32 + 16, (best and 7) * 32 + 16)
     }
 
-    /** A flat-sided hexagon filling [bounds]. */
-    fun hexPath(bounds: RectF, path: Path = Path()): Path {
-        val w = bounds.width()
-        val h = bounds.height()
-        path.reset()
-        path.moveTo(bounds.left + w * 0.25f, bounds.top + h * 0.03f)
-        path.lineTo(bounds.left + w * 0.75f, bounds.top + h * 0.03f)
-        path.lineTo(bounds.right, bounds.centerY())
-        path.lineTo(bounds.left + w * 0.75f, bounds.bottom - h * 0.03f)
-        path.lineTo(bounds.left + w * 0.25f, bounds.bottom - h * 0.03f)
-        path.lineTo(bounds.left, bounds.centerY())
-        path.close()
-        return path
-    }
-
     /**
-     * Draws a game's icon cut into a hexagon, edged and haloed in [accent], into [bounds] on [canvas].
-     * [glow] sets how strong the halo is.
+     * Draws a game's icon into [bounds] on [canvas] as a rounded tile. A [lit] tile gets an edge and a halo in
+     * [accent]; [alpha] fades it.
      */
-    fun drawHex(canvas: Canvas, icon: Bitmap?, accent: Int, bounds: RectF, glow: Float, dim: Boolean = false) {
-        val edge = bounds.width() * 0.035f
-        val path = hexPath(bounds)
-        if (glow > 0f) {
+    fun drawTile(canvas: Canvas, icon: Bitmap?, accent: Int, bounds: RectF, lit: Boolean, alpha: Int = 255) {
+        val radius = bounds.width() * 0.24f
+        if (lit) {
             val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = accent
-                alpha = (200 * glow).toInt().coerceIn(0, 255)
-                maskFilter = BlurMaskFilter(bounds.width() * 0.08f * glow, BlurMaskFilter.Blur.OUTER)
+                maskFilter = BlurMaskFilter(bounds.width() * 0.12f, BlurMaskFilter.Blur.OUTER)
             }
-            canvas.drawPath(path, halo)
+            canvas.drawRoundRect(bounds, radius, radius, halo)
         }
-        canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accent })
-        val inner = RectF(bounds.left + edge, bounds.top + edge, bounds.right - edge, bounds.bottom - edge)
-        canvas.save()
-        canvas.clipPath(hexPath(inner))
-        canvas.drawColor(0xFF3A0A14.toInt())
-        icon?.let {
-            // A little larger than the hexagon, so the tile fills it to the edges.
-            val grow = inner.width() * 0.1f
-            val dest = RectF(inner.left - grow, inner.top - grow, inner.right + grow, inner.bottom + grow)
-            canvas.drawBitmap(it, Rect(0, 0, it.width, it.height), dest, Paint(Paint.FILTER_BITMAP_FLAG))
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { this.alpha = alpha }
+        if (icon != null) {
+            canvas.save()
+            canvas.clipPath(Path().apply { addRoundRect(bounds, radius, radius, Path.Direction.CW) })
+            canvas.drawBitmap(icon, Rect(0, 0, icon.width, icon.height), bounds, paint)
+            canvas.restore()
+        } else {
+            canvas.drawRoundRect(bounds, radius, radius, paint.apply { color = 0xFF3A0A14.toInt(); this.alpha = alpha })
         }
-        if (dim) canvas.drawColor(0x88000000.toInt())
-        canvas.restore()
+        if (lit) {
+            canvas.drawRoundRect(bounds, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = bounds.width() * 0.035f
+                color = accent
+            })
+        }
     }
 
-    /** A game's hexagon on its own, with room around it for the halo. */
-    fun hexBitmap(icon: Bitmap?, accent: Int, sizePx: Int): Bitmap {
+    /** A game's icon for the A–Z grid, with room around it for the halo when it's the selected one. */
+    fun tileBitmap(icon: Bitmap?, accent: Int, sizePx: Int, selected: Boolean): Bitmap {
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-        val pad = sizePx * 0.09f
-        drawHex(Canvas(bitmap), icon, accent, RectF(pad, pad, sizePx - pad, sizePx - pad), 1f)
+        val canvas = Canvas(bitmap)
+        val pad = sizePx * 0.1f
+        val box = RectF(pad, pad, sizePx - pad, sizePx - pad)
+        drawTile(canvas, icon, accent, box, selected)
+        if (selected) {
+            // Target brackets on two corners.
+            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = accent
+                style = Paint.Style.STROKE
+                strokeWidth = sizePx * 0.03f
+            }
+            val len = sizePx * 0.16f
+            val o = pad * 0.35f
+            canvas.drawPath(Path().apply {
+                moveTo(o, o + len); lineTo(o, o); lineTo(o + len, o)
+                moveTo(sizePx - o - len, sizePx - o); lineTo(sizePx - o, sizePx - o); lineTo(sizePx - o, sizePx - o - len)
+            }, p)
+        }
         return bitmap
     }
 

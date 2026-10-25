@@ -19,7 +19,7 @@ class StripService : RemoteViewsService() {
 private class StripFactory(private val context: Context, private val widgetId: Int) : RemoteViewsService.RemoteViewsFactory {
     private class App(val component: ComponentName, val label: String, val icon: Bitmap?)
 
-    private var pages: List<List<App>> = emptyList()
+    private var pages: List<List<App?>> = emptyList()
     private var name = ""
     private var widthDp = 0f
     private var heightDp = 0f
@@ -39,17 +39,20 @@ private class StripFactory(private val context: Context, private val widgetId: I
         iconDp = (heightDp - drop - LABEL_SPACE_DP).coerceIn(MIN_ICON_DP, MAX_ICON_DP)
         val pack = IconPack.load(context)
         val size = (iconDp * context.resources.displayMetrics.density).toInt().coerceAtMost(MAX_ICON_PX)
-        pages = StripStore.apps(context, widgetId)
-            .mapNotNull { component ->
-                // Skips apps that have since been uninstalled.
+        pages = StripStore.spots(context, widgetId)
+            .map { component ->
+                // Gaps, and apps that have since been uninstalled, are empty spots.
+                if (component == null) return@map null
                 val info = try {
                     pm.getActivityInfo(component, 0)
                 } catch (e: Exception) {
-                    return@mapNotNull null
+                    return@map null
                 }
                 App(component, info.loadLabel(pm).toString(), pack.icon(context, component, size))
             }
             .chunked(StripStore.PAGE_SIZE)
+            // A page with nothing left on it would be a blank card.
+            .filter { page -> page.any { it != null } }
     }
 
     override fun onDestroy() {}

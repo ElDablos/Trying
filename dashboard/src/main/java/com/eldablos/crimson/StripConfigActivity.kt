@@ -26,13 +26,14 @@ import com.eldablos.crimson.OpenAppActivity.Companion.component
 /**
  * Picks the apps for an App Strip. Opens when the strip is added, and again from the widget's
  * long-press Settings. Tapping an app in the list adds it to the end of the strip; the preview on top
- * shows the strip and lets apps be dragged into a new order.
+ * shows the strip and lets apps be dragged to any spot, gaps included.
  */
 class StripConfigActivity : Activity() {
     private class App(val component: ComponentName, val label: String)
 
     private var widgetId = AppWidgetManager.INVALID_APPWIDGET_ID
-    private val chosen = mutableListOf<ComponentName>()
+    /** The strip's spots, null where a gap was left. */
+    private val chosen = mutableListOf<ComponentName?>()
     private lateinit var all: List<App>
     private var shown: List<App> = emptyList()
     private lateinit var adapter: AppAdapter
@@ -66,7 +67,7 @@ class StripConfigActivity : Activity() {
             .sortedBy { it.label.lowercase() }
         val installed = all.map { it.component }.toSet()
         all.forEach { labels[it.component] = it.label }
-        chosen += StripStore.apps(this, widgetId).filter { it in installed }
+        chosen += StripStore.trim(StripStore.spots(this, widgetId).map { it?.takeIf { app -> app in installed } })
         shown = all
 
         preview.lookup = { iconFor(it) to (labels[it] ?: it.packageName) }
@@ -100,9 +101,16 @@ class StripConfigActivity : Activity() {
     }
 
     private fun toggle(component: ComponentName) {
-        if (!chosen.remove(component)) {
-            if (chosen.size >= StripStore.MAX_APPS) {
-                Toast.makeText(this, "A strip holds up to ${StripStore.MAX_APPS} apps", Toast.LENGTH_SHORT).show()
+        val spot = chosen.indexOf(component)
+        if (spot >= 0) {
+            // Taking an app off leaves its spot empty, so the others don't shuffle along.
+            chosen[spot] = null
+            val kept = StripStore.trim(chosen)
+            chosen.clear()
+            chosen += kept
+        } else {
+            if (chosen.size >= StripStore.MAX_SPOTS) {
+                Toast.makeText(this, "The strip is full. Drag an app off to make room", Toast.LENGTH_SHORT).show()
                 return
             }
             chosen += component
@@ -112,11 +120,12 @@ class StripConfigActivity : Activity() {
 
     private fun render() {
         val pages = (chosen.size + StripStore.PAGE_SIZE - 1) / StripStore.PAGE_SIZE
+        val apps = chosen.count { it != null }
         count.text = when {
-            chosen.isEmpty() -> "No apps yet"
-            chosen.size == 1 -> "1 app"
-            pages <= 1 -> "${chosen.size} apps"
-            else -> "${chosen.size} apps · $pages pages"
+            apps == 0 -> "No apps yet"
+            apps == 1 -> "1 app"
+            pages <= 1 -> "$apps apps"
+            else -> "$apps apps · $pages pages"
         }
         adapter.notifyDataSetChanged()
         preview.apps = chosen
@@ -130,11 +139,11 @@ class StripConfigActivity : Activity() {
     private val iconPx by lazy { (ICON_DP * resources.displayMetrics.density).toInt() }
 
     private fun save() {
-        if (chosen.isEmpty()) {
+        if (chosen.none { it != null }) {
             Toast.makeText(this, "Pick at least one app", Toast.LENGTH_SHORT).show()
             return
         }
-        StripStore.setApps(this, widgetId, chosen)
+        StripStore.setSpots(this, widgetId, chosen)
         StripStore.setName(this, widgetId, nameInput.text.toString())
         StripWidgetProvider.update(this, AppWidgetManager.getInstance(this), widgetId)
         setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))

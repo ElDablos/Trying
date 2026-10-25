@@ -18,12 +18,13 @@ import kotlin.math.abs
 import kotlin.math.ceil
 
 /**
- * The live preview at the top of the strip setup screen: the strip's pages as rows of six. Press and
- * hold an app to pick it up, then drag it to a new spot, or onto the bar underneath to take it off.
+ * The live preview at the top of the strip setup screen: the strip's pages as rows of six spots. Press
+ * and hold an app to pick it up, then drag it to another spot (swapping with whatever is there), or onto
+ * the bar underneath to take it off. Spots left empty stay empty, so apps can have gaps between them.
  */
 class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
-    /** The strip's apps, in order. Owned by the setup screen; this view reorders it in place. */
-    var apps: MutableList<ComponentName> = mutableListOf()
+    /** The strip's spots, null where empty. Owned by the setup screen; this view rearranges it in place. */
+    var apps: MutableList<ComponentName?> = mutableListOf()
         set(value) {
             field = value
             changed()
@@ -83,6 +84,11 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         textAlign = Paint.Align.CENTER
     }
     private val zoneFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val gap = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
+        color = 0x33E8DCDC
+    }
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(2f)
@@ -96,24 +102,30 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
     private var downX = 0f
     private var downY = 0f
     private var pressed = -1
+    private var from = -1
     private var dragged: ComponentName? = null
     private var dragX = 0f
     private var dragY = 0f
     private var target = -1
     private var overRemove = false
     private val pickUp = Runnable {
-        if (pressed in apps.indices) {
-            dragged = apps[pressed]
+        apps.getOrNull(pressed)?.let {
+            dragged = it
+            from = pressed
             target = pressed
             dragX = downX
             dragY = downY
             parent?.requestDisallowInterceptTouchEvent(true)
             performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            invalidate()
+            changed()
         }
     }
 
-    private val rows get() = maxOf(1, ceil(apps.size / StripStore.PAGE_SIZE.toFloat()).toInt())
+    private val usedRows get() = maxOf(1, ceil(apps.size / StripStore.PAGE_SIZE.toFloat()).toInt())
+
+    // While dragging, an extra empty page appears (up to the limit) so an app can be moved onto it.
+    private val rows get() =
+        if (dragged != null) minOf(usedRows + 1, StripStore.MAX_SPOTS / StripStore.PAGE_SIZE) else usedRows
     private val cardsBottom get() = tagSpace + rows * cardHeight + (rows - 1) * cardGap
     private val slotWidth get() = (width - padStart - padEnd) / StripStore.PAGE_SIZE
 
@@ -127,11 +139,17 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), resolveSize(height.toInt(), heightMeasureSpec))
     }
 
-    /** What's drawn where: the apps with the dragged one moved to where it would land. */
-    private fun shown(): List<ComponentName> {
+    /** What's drawn where: the dragged app swapped into the spot it's over, or gone when over the bar. */
+    private fun shown(): List<ComponentName?> {
         val app = dragged ?: return apps
-        if (overRemove || target < 0) return apps - app
-        return (apps - app).toMutableList().apply { add(target.coerceAtMost(size), app) }
+        val spots = MutableList(rows * StripStore.PAGE_SIZE) { apps.getOrNull(it) }
+        if (overRemove) {
+            spots[from] = null
+        } else if (target >= 0) {
+            spots[from] = spots[target]
+            spots[target] = app
+        }
+        return spots
     }
 
     private fun cardTop(row: Int) = tagSpace + row * (cardHeight + cardGap)
@@ -161,9 +179,15 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         }
 
         // The apps.
-        shown().forEachIndexed { i, app ->
+        val spots = shown()
+        for (i in 0 until rows * StripStore.PAGE_SIZE) {
+            val app = spots.getOrNull(i)
             val (cx, top) = slotCenter(i)
-            if (app == dragged) {
+            if (app == null) {
+                // A faint ring marks an empty spot.
+                rect.set(cx - iconSize / 2, top, cx + iconSize / 2, top + iconSize)
+                canvas.drawRoundRect(rect, dp(10f), dp(10f), gap)
+            } else if (app == dragged) {
                 // An outline marks the spot where the dragged app will land.
                 rect.set(cx - slotWidth / 2 + dp(2f), top - dp(4f), cx + slotWidth / 2 - dp(2f), top + iconSize + dp(18f))
                 canvas.drawRoundRect(rect, dp(12f), dp(12f), glow)
@@ -183,7 +207,7 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
             canvas.drawText("Drop here to remove", rect.centerX(), rect.centerY() + dp(4f), hint)
         } else {
             hint.color = context.getColor(R.color.dust)
-            val text = if (apps.isEmpty()) "Tap apps below to add them" else "Hold an app and drag it to move it"
+            val text = if (apps.none { it != null }) "Tap apps below to add them" else "Hold an app and drag it to any spot"
             canvas.drawText(text, rect.centerX(), rect.centerY() + dp(4f), hint)
         }
 
@@ -224,7 +248,7 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
             MotionEvent.ACTION_DOWN -> {
                 downX = event.x
                 downY = event.y
-                pressed = slotAt(event.x, event.y).takeIf { it in apps.indices } ?: return false
+                pressed = slotAt(event.x, event.y).takeIf { apps.getOrNull(it) != null } ?: return false
                 postDelayed(pickUp, holdDelay)
                 return true
             }
@@ -238,9 +262,7 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
                 dragY = event.y
                 overRemove = event.y > cardsBottom + dp(4f)
                 if (!overRemove) {
-                    slotAt(event.x, event.y.coerceIn(tagSpace, cardsBottom - 1)).takeIf { it >= 0 }?.let {
-                        target = it.coerceAtMost(apps.size - 1)
-                    }
+                    slotAt(event.x, event.y.coerceIn(tagSpace, cardsBottom - 1)).takeIf { it >= 0 }?.let { target = it }
                 }
                 invalidate()
                 return true
@@ -249,14 +271,15 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
                 removeCallbacks(pickUp)
                 val app = dragged
                 if (app != null && event.actionMasked == MotionEvent.ACTION_UP) {
-                    val order = shown()
+                    val spots = StripStore.trim(shown())
                     apps.clear()
-                    apps.addAll(order)
+                    apps.addAll(spots)
                     onChanged()
                 }
                 dragged = null
                 overRemove = false
                 target = -1
+                from = -1
                 pressed = -1
                 changed()
                 return true

@@ -10,7 +10,7 @@ import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 
-/** Feeds the App Strip's swipeable stack: one card per six apps. */
+/** Feeds the App Strip's scrolling list: one page per row of apps. */
 class StripService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory =
         StripFactory(applicationContext, intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID))
@@ -25,6 +25,7 @@ private class StripFactory(private val context: Context, private val widgetId: I
     private var heightDp = 0f
     private var iconDp = 0f
     private var columns = StripStore.MAX_COLUMNS
+    private var drop = 0f
 
     override fun onCreate() {}
 
@@ -38,7 +39,7 @@ private class StripFactory(private val context: Context, private val widgetId: I
         columns = StripWidgetProvider.columns(context, widthDp)
         // Icons as big as the strip's height allows, after the name tag and the label under them, and
         // no wider than their share of the strip.
-        val drop = if (name.isNotEmpty()) NAME_DROP_DP else 0f
+        drop = StripWidgetProvider.nameDropDp(name)
         val slotDp = (widthDp - SIDE_PADDING_DP) / columns
         iconDp = minOf(heightDp - drop - LABEL_SPACE_DP, slotDp - SLOT_MARGIN_DP).coerceIn(MIN_ICON_DP, MAX_ICON_DP)
         val pack = IconPack.load(context)
@@ -65,25 +66,8 @@ private class StripFactory(private val context: Context, private val widgetId: I
 
     override fun getViewAt(position: Int): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.item_strip_page)
-        val alpha = DashboardStore.opacity(context) * 255 / 100
-        views.setInt(R.id.strip_page_bg, "setImageAlpha", alpha)
-
-        // The name sits on the card's top edge, so the card drops down a little to make room for it.
-        val named = name.isNotEmpty()
-        views.setViewVisibility(R.id.strip_name, if (named) View.VISIBLE else View.GONE)
-        if (named) {
-            views.setTextViewText(R.id.strip_name_text, name)
-            views.setInt(R.id.strip_name_bg, "setImageAlpha", alpha.coerceAtLeast(MIN_TAG_ALPHA))
-        }
-        val drop = if (named) NAME_DROP_DP else 0f
-        views.setViewLayoutMargin(R.id.strip_page_bg, RemoteViews.MARGIN_TOP, drop, TypedValue.COMPLEX_UNIT_DIP)
-        views.setViewLayoutMargin(R.id.strip_page_body, RemoteViews.MARGIN_TOP, drop, TypedValue.COMPLEX_UNIT_DIP)
-        // The stack only offers each card "up to" its size, so the card asks for the whole strip outright.
-        // The background too: a lone match_parent child of an "up to" sized frame is measured at zero.
-        for (id in intArrayOf(R.id.strip_page_body, R.id.strip_page_bg)) {
-            views.setViewLayoutWidth(id, widthDp - 1, TypedValue.COMPLEX_UNIT_DIP)
-            views.setViewLayoutHeight(id, heightDp - drop - 1, TypedValue.COMPLEX_UNIT_DIP)
-        }
+        // Each page is exactly as tall as the card, so the pages line up with it as they scroll.
+        views.setViewLayoutHeight(R.id.strip_page, heightDp - drop, TypedValue.COMPLEX_UNIT_DIP)
         val apps = pages.getOrNull(position).orEmpty()
         SLOTS.forEachIndexed { i, (slot, icon, label) ->
             if (i >= columns) {
@@ -133,9 +117,6 @@ private class StripFactory(private val context: Context, private val widgetId: I
         private const val SLOT_MARGIN_DP = 8f
         // Keeps each card well under the size a widget update may carry.
         private const val MAX_ICON_PX = 168
-        private const val NAME_DROP_DP = 7f
-        // Keeps the name readable over the wallpaper even when the background is see-through.
-        private const val MIN_TAG_ALPHA = 200
 
         private val SLOTS = listOf(
             Triple(R.id.strip_slot_1, R.id.strip_icon_1, R.id.strip_label_1),

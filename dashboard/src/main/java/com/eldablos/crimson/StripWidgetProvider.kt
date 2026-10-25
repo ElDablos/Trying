@@ -10,12 +10,13 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.SizeF
 import android.util.TypedValue
+import android.view.View
 import android.widget.RemoteViews
 import kotlin.math.roundToInt
 
 /**
- * Crimson App Strip: a 6x1 row of apps that works like a folder. Six show at a time; swipe the strip
- * up or down to flip to the next six.
+ * Crimson App Strip: a row of apps that works like a folder. It shows one app per cell of its width;
+ * scroll the strip up or down for the next page.
  */
 class StripWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -38,20 +39,25 @@ class StripWidgetProvider : AppWidgetProvider() {
             // A unique URI so each strip gets its own list of apps instead of a shared, cached one.
             adapter.data = Uri.parse(adapter.toUri(Intent.URI_INTENT_SCHEME))
             @Suppress("DEPRECATION")
-            views.setRemoteAdapter(R.id.strip_stack, adapter)
+            views.setRemoteAdapter(R.id.strip_list, adapter)
+            views.setEmptyView(R.id.strip_list, R.id.strip_empty)
 
-            // The stack keeps each card to 90% of its size and shifts it down-right, leaving room for the cards
-            // behind. Growing the stack past the widget's edges (which clip it) makes the front card fill the strip.
-            val (width, height) = sizeDp(manager, widgetId)
-            val grown = height / CARD_FRACTION
-            views.setViewLayoutWidth(R.id.strip_stack, width / CARD_FRACTION, TypedValue.COMPLEX_UNIT_DIP)
-            views.setViewLayoutHeight(R.id.strip_stack, grown, TypedValue.COMPLEX_UNIT_DIP)
-            views.setViewLayoutMargin(R.id.strip_stack, RemoteViews.MARGIN_TOP, height - grown, TypedValue.COMPLEX_UNIT_DIP)
-            views.setEmptyView(R.id.strip_stack, R.id.strip_empty)
-            views.setInt(R.id.strip_empty_bg, "setImageAlpha", DashboardStore.opacity(context) * 255 / 100)
+            // One card behind the scrolling pages, faded like the main widget.
+            val alpha = DashboardStore.opacity(context) * 255 / 100
+            views.setInt(R.id.strip_bg, "setImageAlpha", alpha)
+
+            // The name sits on the card's top edge, so the card drops down a little to make room for it.
+            val name = StripStore.name(context, widgetId)
+            views.setViewVisibility(R.id.strip_name, if (name.isEmpty()) View.GONE else View.VISIBLE)
+            views.setTextViewText(R.id.strip_name_text, name)
+            views.setInt(R.id.strip_name_bg, "setImageAlpha", alpha.coerceAtLeast(MIN_TAG_ALPHA))
+            val drop = nameDropDp(name)
+            for (id in intArrayOf(R.id.strip_bg, R.id.strip_list, R.id.strip_empty)) {
+                views.setViewLayoutMargin(id, RemoteViews.MARGIN_TOP, drop, TypedValue.COMPLEX_UNIT_DIP)
+            }
             views.setOnClickPendingIntent(R.id.strip_empty, StripConfigActivity.pendingIntent(context, widgetId))
             views.setPendingIntentTemplate(
-                R.id.strip_stack,
+                R.id.strip_list,
                 PendingIntent.getActivity(
                     context, widgetId, OpenAppActivity.template(context),
                     PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
@@ -59,13 +65,17 @@ class StripWidgetProvider : AppWidgetProvider() {
             )
             manager.updateAppWidget(widgetId, views)
             @Suppress("DEPRECATION")
-            manager.notifyAppWidgetViewDataChanged(widgetId, R.id.strip_stack)
+            manager.notifyAppWidgetViewDataChanged(widgetId, R.id.strip_list)
         }
 
-        /** Share of the stack's size that StackView gives each card. */
-        private const val CARD_FRACTION = 0.9f
+        private const val NAME_DROP_DP = 7f
+        // Keeps the name readable over the wallpaper even when the background is see-through.
+        private const val MIN_TAG_ALPHA = 200
         private const val DEFAULT_WIDTH_DP = 380f
         private const val DEFAULT_HEIGHT_DP = 80f
+
+        /** How far the card sits below the strip's top edge: room for half the name tag, if there is one. */
+        internal fun nameDropDp(name: String) = if (name.isEmpty()) 0f else NAME_DROP_DP
 
         /** The strip's size in portrait, in dp. */
         internal fun sizeDp(manager: AppWidgetManager, widgetId: Int): Pair<Float, Float> {

@@ -1,15 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One card of the App Strip: six apps, with page dots down the right edge. -->
+<!-- One page of the App Strip: up to six apps, with page dots down the right edge. Its height is set in code. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/strip_page"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="80dp">
 
-    <ImageView
-        android:id="@+id/strip_page_bg"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="fitXY"
-        android:src="@drawable/widget_background" />
 
     <LinearLayout
         android:id="@+id/strip_page_body"
@@ -244,37 +239,4 @@
         android:textColor="@color/dust"
         android:textSize="9sp"
         android:visibility="gone" />
-
-    <!-- The strip's name, as a small tag on the top-left edge. -->
-    <FrameLayout
-        android:id="@+id/strip_name"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|start"
-        android:layout_marginStart="18dp"
-        android:visibility="gone">
-
-        <ImageView
-            android:id="@+id/strip_name_bg"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scaleType="fitXY"
-            android:src="@drawable/strip_name_tab" />
-
-        <!-- match_parent like the box behind it, so the frame sizes the box to the text. -->
-        <TextView
-            android:id="@+id/strip_name_text"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:fontFamily="sans-serif-medium"
-            android:includeFontPadding="false"
-            android:letterSpacing="0.18"
-            android:maxLines="1"
-            android:paddingStart="8dp"
-            android:paddingTop="2dp"
-            android:paddingEnd="8dp"
-            android:paddingBottom="2dp"
-            android:textColor="@color/crimson"
-            android:textSize="9sp" />
-    </FrameLayout>
 </FrameLayout>

@@ -80,7 +80,9 @@
             android:name=".StripConfigActivity"
             android:excludeFromRecents="true"
             android:exported="true"
-            android:taskAffinity="">
+            android:taskAffinity=""
+            android:theme="@style/AppTheme.NoTitle"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>

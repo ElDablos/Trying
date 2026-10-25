@@ -40,11 +40,13 @@ widget. It uses the same settings as the main widget, including the background s
 
 ## Crimson App Strip
 
-A 6x1 row of apps that works like a folder. Long-press the home screen → Widgets → Crimson Widget →
-**Crimson App Strip**, give it a short name if you like (it shows as a tag on the top-left edge), then tap apps in the order you want them (up to 30). It shows one app per cell of width (resize it from 6×1 down to 1×1); swipe the
-strip up or down to flip to the next six, and it loops back round. Icons come from Crimson Icons when it's
-installed. To change the apps or name later, long-press the strip → **Settings**. Each strip keeps its own apps, and
-the background follows the same slider as the main widget.
+A row of apps that works like a folder. Long-press the home screen → Widgets → Crimson Widget →
+**Crimson App Strip**. In its setup screen, give it a short name if you like (it shows as a tag on the
+top-left edge), tap apps to add them, and hold and drag them in the preview to arrange them. Spots you leave
+empty stay empty. The strip shows one app per cell of its width (resize it from 6×1 down to 1×1); scroll it
+up or down for the next page. Icons come from Crimson Icons when it's installed. To change the apps or name
+later, long-press the strip → **Settings**. Each strip keeps its own apps, and the background follows the
+same slider as the main widget.
 
 ## Good to know
 

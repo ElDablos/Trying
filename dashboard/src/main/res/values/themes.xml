@@ -7,4 +7,9 @@
         <item name="android:statusBarColor">@color/void_black</item>
         <item name="android:navigationBarColor">@color/void_black</item>
     </style>
+
+    <style name="AppTheme.NoTitle">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
 </resources>

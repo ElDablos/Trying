@@ -14,6 +14,7 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -100,7 +101,28 @@ class StripConfigActivity : Activity() {
             }
         })
         findViewById<Button>(R.id.strip_save).setOnClickListener { save() }
+        foldWhileSearching()
         render()
+    }
+
+    /**
+     * While the keyboard is up for the search box, hides the preview, name and Save so the results fill
+     * the space above it. They come back when the keyboard goes away.
+     */
+    private fun foldWhileSearching() {
+        val search = findViewById<EditText>(R.id.strip_search)
+        val folding = listOf(findViewById<View>(R.id.strip_header), findViewById<View>(R.id.strip_save))
+        var keyboard = false
+        fun update() {
+            val fold = keyboard && search.hasFocus()
+            folding.forEach { it.visibility = if (fold) View.GONE else View.VISIBLE }
+        }
+        findViewById<View>(R.id.strip_root).setOnApplyWindowInsetsListener { view, insets ->
+            keyboard = insets.isVisible(WindowInsets.Type.ime())
+            update()
+            view.onApplyWindowInsets(insets)
+        }
+        search.setOnFocusChangeListener { _, _ -> update() }
     }
 
     private fun toggle(component: ComponentName) {

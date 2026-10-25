@@ -1,37 +1,67 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Crimson App Strip: a stack of cards, six apps each. Swipe up or down to flip between them. -->
+<!-- Crimson App Strip: one see-through card with the pages scrolling up and down inside it. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Sized past the widget's edges in code, so the front card fills the strip. -->
-    <StackView
-        android:id="@+id/strip_stack"
+    <ImageView
+        android:id="@+id/strip_bg"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_gravity="top|start"
-        android:loopViews="true" />
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_background" />
+
+    <!-- Pages, one under another, each as tall as the strip. -->
+    <ListView
+        android:id="@+id/strip_list"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:overScrollMode="never"
+        android:scrollbars="none" />
 
     <!-- Shown until apps are picked. -->
-    <FrameLayout
+    <TextView
         android:id="@+id/strip_empty"
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:letterSpacing="0.15"
+        android:text="TAP TO CHOOSE APPS"
+        android:textColor="@color/crimson"
+        android:textSize="13sp" />
+
+    <!-- The strip's name, as a small tag on the top-left edge. -->
+    <FrameLayout
+        android:id="@+id/strip_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="18dp"
+        android:visibility="gone">
 
         <ImageView
-            android:id="@+id/strip_empty_bg"
+            android:id="@+id/strip_name_bg"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:scaleType="fitXY"
-            android:src="@drawable/widget_background" />
+            android:src="@drawable/strip_name_tab" />
 
+        <!-- match_parent like the box behind it, so the frame sizes the box to the text. -->
         <TextView
+            android:id="@+id/strip_name_text"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:gravity="center"
-            android:letterSpacing="0.15"
-            android:text="TAP TO CHOOSE APPS"
+            android:fontFamily="sans-serif-medium"
+            android:includeFontPadding="false"
+            android:letterSpacing="0.18"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="2dp"
             android:textColor="@color/crimson"
-            android:textSize="13sp" />
+            android:textSize="9sp" />
     </FrameLayout>
 </FrameLayout>

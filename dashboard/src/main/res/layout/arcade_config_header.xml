@@ -21,6 +21,13 @@
         android:gravity="center"
         android:text="Games are found automatically and listed A–Z. Tap any app below to add it to the Arcade or hide it." />
 
+    <TextView
+        android:id="@+id/arcade_problem"
+        style="@style/BodyText"
+        android:textColor="@color/crimson"
+        android:textIsSelectable="true"
+        android:visibility="gone" />
+
     <LinearLayout style="@style/Card">
 
         <TextView

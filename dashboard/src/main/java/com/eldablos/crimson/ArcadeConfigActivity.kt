@@ -12,12 +12,14 @@ import android.os.Bundle
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ListView
 import android.widget.TextView
@@ -78,6 +80,25 @@ class ArcadeConfigActivity : Activity() {
         })
         findViewById<Button>(R.id.arcade_done).setOnClickListener { finish() }
         renderCount()
+        checkWidget()
+    }
+
+    /**
+     * Builds the widget here, in this app, the way the home screen does. If that fails, the home screen
+     * only says "Couldn't add widget"; here the actual error can be shown.
+     */
+    private fun checkWidget() {
+        val problem = try {
+            ArcadeWidgetProvider.buildViews(this, widgetId).apply(this, FrameLayout(this))
+            null
+        } catch (e: Exception) {
+            Log.w(TAG, "The Arcade widget won't build", e)
+            e
+        } ?: return
+        header.findViewById<TextView>(R.id.arcade_problem).apply {
+            visibility = View.VISIBLE
+            text = "The widget hit an error. A screenshot of this helps fix it:\n\n${problem.javaClass.simpleName}: ${problem.message}"
+        }
     }
 
     override fun onResume() {
@@ -136,6 +157,7 @@ class ArcadeConfigActivity : Activity() {
     }
 
     companion object {
+        private const val TAG = "CrimsonArcade"
         private const val ICON_DP = 40
 
         /** Opens these settings from the widget, for its "no games found" message. */

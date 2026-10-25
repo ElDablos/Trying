@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The current game slides off to the left as it fades. -->
-<set xmlns:android="http://schemas.android.com/apk/res/android">
-    <objectAnimator
-        android:duration="350"
-        android:interpolator="@android:interpolator/accelerate_cubic"
+<!-- The current game slides off to the left as it fades. A single objectAnimator, like arcade_in. -->
+<objectAnimator xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="350"
+    android:interpolator="@android:interpolator/accelerate_cubic">
+    <propertyValuesHolder
         android:propertyName="alpha"
         android:valueFrom="1"
         android:valueTo="0"
         android:valueType="floatType" />
-    <objectAnimator
-        android:duration="350"
-        android:interpolator="@android:interpolator/accelerate_cubic"
+    <propertyValuesHolder
         android:propertyName="translationX"
         android:valueFrom="0"
         android:valueTo="-60"
         android:valueType="floatType" />
-</set>
+</objectAnimator>

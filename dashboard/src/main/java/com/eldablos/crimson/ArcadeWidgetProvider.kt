@@ -63,6 +63,15 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
         )
 
         fun update(context: Context, manager: AppWidgetManager, widgetId: Int) {
+            manager.updateAppWidget(widgetId, buildViews(context, widgetId))
+            @Suppress("DEPRECATION")
+            manager.notifyAppWidgetViewDataChanged(widgetId, R.id.arcade_panel)
+            @Suppress("DEPRECATION")
+            manager.notifyAppWidgetViewDataChanged(widgetId, R.id.arcade_hive)
+        }
+
+        /** The widget, ready to send to the home screen (or to try out in the settings). */
+        fun buildViews(context: Context, widgetId: Int): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_arcade)
             views.setInt(R.id.arcade_bg, "setImageAlpha", DashboardStore.opacity(context) * 255 / 100)
 
@@ -95,12 +104,7 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
                     ),
                 )
             }
-
-            manager.updateAppWidget(widgetId, views)
-            @Suppress("DEPRECATION")
-            manager.notifyAppWidgetViewDataChanged(widgetId, R.id.arcade_panel)
-            @Suppress("DEPRECATION")
-            manager.notifyAppWidgetViewDataChanged(widgetId, R.id.arcade_hive)
+            return views
         }
 
         /** Redraws every Arcade, e.g. after the background slider moves or games change. */

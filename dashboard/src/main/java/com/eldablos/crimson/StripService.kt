@@ -32,7 +32,7 @@ private class StripFactory(private val context: Context, private val widgetId: I
         columns = StripWidgetProvider.columns(context, widthDp)
         // The rows showing at once share the strip's height, below the name tag if there is one.
         val drop = StripWidgetProvider.nameDropDp(StripStore.name(context, widgetId))
-        rowDp = (heightDp - drop) / StripWidgetProvider.visibleRows(heightDp)
+        rowDp = (heightDp - drop) / StripWidgetProvider.visibleRows(context, heightDp)
         // Icons as big as a row allows, after the label under them, and no wider than their share of it.
         val slotDp = (widthDp - SIDE_PADDING_DP) / columns
         iconDp = minOf(rowDp - LABEL_SPACE_DP, slotDp - SLOT_MARGIN_DP).coerceIn(MIN_ICON_DP, MAX_ICON_DP)

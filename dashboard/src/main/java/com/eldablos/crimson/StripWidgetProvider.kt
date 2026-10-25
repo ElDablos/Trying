@@ -69,15 +69,20 @@ class StripWidgetProvider : AppWidgetProvider() {
         }
 
         private const val NAME_DROP_DP = 7f
-        // Roughly one home screen row, for counting how many rows a strip is tall.
+        // Roughly one home screen row, until the main widget gives a measured one.
         private const val ROW_DP = 88f
+
+        // The main Crimson widget's size in cells.
+        private const val MAIN_COLUMNS = 6
+        private const val MAIN_ROWS = 5
         // Keeps the name readable over the wallpaper even when the background is see-through.
         private const val MIN_TAG_ALPHA = 200
         private const val DEFAULT_WIDTH_DP = 380f
         private const val DEFAULT_HEIGHT_DP = 80f
 
-        /** How many rows of apps show at once in a strip [heightDp] tall: about one per home screen row. */
-        internal fun visibleRows(heightDp: Float): Int = maxOf(1, (heightDp / ROW_DP).roundToInt())
+        /** How many rows of apps show at once in a strip [heightDp] tall: one per home screen row. */
+        internal fun visibleRows(context: Context, heightDp: Float): Int =
+            maxOf(1, (heightDp / cellDp(context).second).roundToInt())
 
         /** How far the card sits below the strip's top edge: room for half the name tag, if there is one. */
         internal fun nameDropDp(name: String) = if (name.isEmpty()) 0f else NAME_DROP_DP
@@ -94,14 +99,30 @@ class StripWidgetProvider : AppWidgetProvider() {
             return width to height
         }
 
+        /** How many apps fit across a strip [widthDp] wide: one per home screen cell. */
+        internal fun columns(context: Context, widthDp: Float): Int =
+            (widthDp / cellDp(context).first).roundToInt().coerceIn(1, StripStore.MAX_COLUMNS)
+
         /**
-         * How many apps fit across a strip [widthDp] wide: one per home screen cell, judged against a
-         * six-column grid on the phone's portrait width.
+         * One home screen cell's width and height, in the same dp the home screen reports widget sizes
+         * in. Samsung's reports run larger than the widgets really are, so cells are measured against the
+         * main Crimson widget (6x5) when it's on the home screen, and remembered for when it isn't. Before
+         * that, they're estimated from the screen's width and a typical row.
          */
-        internal fun columns(context: Context, widthDp: Float): Int {
+        private fun cellDp(context: Context): Pair<Float, Float> {
+            val prefs = context.getSharedPreferences("strip", Context.MODE_PRIVATE)
+            val manager = AppWidgetManager.getInstance(context)
+            manager.getAppWidgetIds(ComponentName(context, CrimsonWidgetProvider::class.java)).firstOrNull()?.let { id ->
+                val (width, height) = sizeDp(manager, id)
+                if (width > 0 && height > 0) {
+                    val cell = width / MAIN_COLUMNS to height / MAIN_ROWS
+                    prefs.edit().putFloat("cell_w", cell.first).putFloat("cell_h", cell.second).apply()
+                    return cell
+                }
+            }
+            if (prefs.contains("cell_w")) return prefs.getFloat("cell_w", 0f) to prefs.getFloat("cell_h", ROW_DP)
             val metrics = context.resources.displayMetrics
-            val cellDp = minOf(metrics.widthPixels, metrics.heightPixels) / metrics.density / StripStore.MAX_COLUMNS
-            return (widthDp / cellDp).roundToInt().coerceIn(1, StripStore.MAX_COLUMNS)
+            return minOf(metrics.widthPixels, metrics.heightPixels) / metrics.density / StripStore.MAX_COLUMNS to ROW_DP
         }
 
         /** Redraws every strip, e.g. after the background slider moves. */

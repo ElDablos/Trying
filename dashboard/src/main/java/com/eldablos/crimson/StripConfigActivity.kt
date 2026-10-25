@@ -63,7 +63,7 @@ class StripConfigActivity : Activity() {
         // The preview's card is the strip's size on the home screen.
         val (widthDp, heightDp) = StripWidgetProvider.sizeDp(AppWidgetManager.getInstance(this), widgetId)
         preview.columns = StripWidgetProvider.columns(this, widthDp)
-        preview.visibleRows = StripWidgetProvider.visibleRows(heightDp)
+        preview.visibleRows = StripWidgetProvider.visibleRows(this, heightDp)
         pack = IconPack.load(this)
 
         val pm = packageManager

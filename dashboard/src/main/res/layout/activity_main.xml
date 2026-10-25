@@ -236,6 +236,55 @@
 
                 <ImageView
                     style="@style/CardIcon"
+                    android:src="@drawable/ic_buds" />
+
+                <TextView
+                    style="@style/CardTitle"
+                    android:text="Galaxy Buds" />
+
+                <TextView
+                    android:id="@+id/buds_pill"
+                    style="@style/Pill"
+                    android:background="@drawable/pill_off"
+                    android:text="Off"
+                    android:textColor="@color/dust" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/buds_status"
+                style="@style/BodyText" />
+
+            <Button
+                android:id="@+id/buds_button"
+                style="@style/ButtonPrimary"
+                android:layout_width="match_parent"
+                android:layout_marginTop="14dp"
+                android:text="Allow Bluetooth" />
+
+            <Button
+                android:id="@+id/buds_choose_button"
+                style="@style/ButtonOutline"
+                android:layout_width="match_parent"
+                android:layout_marginTop="10dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="Earbuds: choose" />
+
+            <TextView
+                style="@style/NoteText"
+                android:text="When your Buds connect, the widget shows each earbud's battery and an ANC / Ambient switch. If they won't connect, the Galaxy Wearable app may be holding the connection: close it and tap Connect now." />
+        </LinearLayout>
+
+        <LinearLayout style="@style/Card">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    style="@style/CardIcon"
                     android:src="@drawable/ic_opacity" />
 
                 <TextView

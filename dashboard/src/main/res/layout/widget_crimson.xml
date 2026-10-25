@@ -971,6 +971,71 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- Galaxy Buds: only shown while they're connected. -->
+        <LinearLayout
+            android:id="@+id/buds_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_buds" />
+
+            <TextView
+                android:id="@+id/buds_text"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:text="L 85%  ·  R 83%"
+                android:textColor="@color/bone"
+                android:textSize="15sp" />
+
+            <LinearLayout
+                android:id="@+id/buds_modes"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/segment_track"
+                android:orientation="horizontal"
+                android:padding="2dp">
+
+                <TextView
+                    android:id="@+id/buds_anc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="30dp"
+                    android:background="@drawable/segment_on"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:minWidth="64dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:text="ANC"
+                    android:textColor="@color/bone"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/buds_ambient"
+                    android:layout_width="wrap_content"
+                    android:layout_height="30dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center"
+                    android:minWidth="64dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:text="Ambient"
+                    android:textColor="@color/dust"
+                    android:textSize="13sp" />
+            </LinearLayout>
+        </LinearLayout>
+
         <!-- Steps across the full width: tap for Samsung Health -->
         <LinearLayout
             android:id="@+id/steps_row"

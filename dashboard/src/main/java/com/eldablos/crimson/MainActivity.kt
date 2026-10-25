@@ -26,6 +26,14 @@ class MainActivity : Activity() {
     private lateinit var calendarPill: TextView
     private lateinit var opacityPill: TextView
     private lateinit var weatherAppButton: Button
+    private lateinit var budsStatus: TextView
+    private lateinit var budsPill: TextView
+    private lateinit var budsButton: Button
+    private lateinit var budsChooseButton: Button
+
+    private val budsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        runOnUiThread { renderBuds() }
+    }
 
     private enum class Status { ON, PARTIAL, OFF }
 
@@ -45,6 +53,18 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.my_location_button).setOnClickListener { useMyLocation() }
         weatherAppButton = findViewById(R.id.weather_app_button)
         weatherAppButton.setOnClickListener { pickWeatherApp() }
+        budsStatus = findViewById(R.id.buds_status)
+        budsPill = findViewById(R.id.buds_pill)
+        budsButton = findViewById(R.id.buds_button)
+        budsChooseButton = findViewById(R.id.buds_choose_button)
+        budsButton.setOnClickListener {
+            if (BudsDevices.hasPermission(this)) {
+                if (!BudsService.start(this, BudsService.ACTION_CONNECT)) toast("Couldn't start the Buds connection")
+            } else {
+                requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_BLUETOOTH)
+            }
+        }
+        budsChooseButton.setOnClickListener { chooseBuds() }
         findViewById<Button>(R.id.steps_button).setOnClickListener {
             requestPermissions(arrayOf(Steps.PERMISSION_READ, Steps.PERMISSION_BACKGROUND), REQ_STEPS)
         }
@@ -81,14 +101,23 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        BudsState.prefs(this).registerOnSharedPreferenceChangeListener(budsListener)
         render()
         refreshWidget()
+    }
+
+    override fun onPause() {
+        BudsState.prefs(this).unregisterOnSharedPreferenceChangeListener(budsListener)
+        super.onPause()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQ_LOCATION && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
             useMyLocation()
+        }
+        if (requestCode == REQ_BLUETOOTH && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            BudsService.start(this, BudsService.ACTION_CONNECT)
         }
         render()
         refreshWidget()
@@ -117,15 +146,62 @@ class MainActivity : Activity() {
         calendarStatus.text = if (calendar) "Days with events get a red dot on the widget."
         else "The calendar works without this. Allow it to see red dots on days with events."
         setPill(calendarPill, if (calendar) Status.ON else Status.OFF)
+        renderBuds()
     }
 
-    private fun setPill(pill: TextView, status: Status) {
+    private fun renderBuds() {
+        val buds = BudsState.read(this)
+        val allowed = BudsDevices.hasPermission(this)
+        val device = if (allowed) BudsDevices.selected(this) else null
+        budsChooseButton.text = "Earbuds: ${device?.let { BudsDevices.name(it) } ?: "choose"}"
+        budsChooseButton.visibility = if (allowed) android.view.View.VISIBLE else android.view.View.GONE
+        budsButton.text = if (allowed) "Connect now" else "Allow Bluetooth"
+        when {
+            !allowed -> {
+                budsStatus.text = "Allow Bluetooth so the widget can show your Buds' battery and switch ANC / Ambient."
+                setPill(budsPill, Status.OFF)
+            }
+            buds.connection == BudsState.Connection.CONNECTED -> {
+                budsStatus.text = "Connected to ${buds.deviceName ?: "your Buds"}\n${buds.batterySummary()}" +
+                    (buds.mode?.let { "  ·  ${it.label}" } ?: "")
+                setPill(budsPill, Status.ON, "Linked")
+            }
+            buds.connection == BudsState.Connection.CONNECTING -> {
+                budsStatus.text = "Connecting to ${buds.deviceName ?: "your Buds"}…"
+                setPill(budsPill, Status.PARTIAL, "Linking")
+            }
+            else -> {
+                budsStatus.text = buds.message ?: "Links automatically when your Buds connect to the phone."
+                setPill(budsPill, Status.PARTIAL, "Ready")
+            }
+        }
+    }
+
+    /** Lists paired devices, Galaxy Buds first, and saves the one the widget should talk to. */
+    private fun chooseBuds() {
+        val devices = BudsDevices.paired(this)
+            .sortedByDescending { BudsDevices.name(it).contains("buds", ignoreCase = true) }
+        if (devices.isEmpty()) {
+            toast("No paired devices. Pair your Buds in Bluetooth settings first.")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Your earbuds")
+            .setItems(devices.map { BudsDevices.name(it) }.toTypedArray()) { _, i ->
+                BudsState.setSelectedAddress(this, devices[i].address)
+                renderBuds()
+                BudsService.start(this, BudsService.ACTION_CONNECT)
+            }
+            .show()
+    }
+
+    private fun setPill(pill: TextView, status: Status, label: String? = null) {
         val (text, background, color) = when (status) {
             Status.ON -> Triple("On", R.drawable.pill_on, R.color.bone)
             Status.PARTIAL -> Triple("Partly", R.drawable.pill_warn, R.color.crimson)
             Status.OFF -> Triple("Off", R.drawable.pill_off, R.color.dust)
         }
-        pill.text = text
+        pill.text = label ?: text
         pill.setBackgroundResource(background)
         pill.setTextColor(getColor(color))
     }
@@ -256,5 +332,6 @@ class MainActivity : Activity() {
         private const val REQ_STEPS = 1
         private const val REQ_CALENDAR = 2
         private const val REQ_LOCATION = 3
+        private const val REQ_BLUETOOTH = 4
     }
 }

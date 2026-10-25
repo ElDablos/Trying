@@ -1,4 +1,12 @@
 <resources>
     <string name="app_name">Crimson Widget</string>
     <string name="widget_description">Clock, alarm, weather, steps and a month calendar</string>
+    <string name="buds_default_name">Galaxy Buds</string>
+    <string name="buds_channel_name">Earbuds connection</string>
+    <string name="buds_connecting">Connecting…</string>
+    <string name="buds_disconnected">Not connected</string>
+    <string name="buds_none_paired">No Galaxy Buds paired with this phone</string>
+    <string name="buds_bluetooth_off">Bluetooth is off</string>
+    <string name="buds_connect_failed">Couldn\'t reach your Buds. Make sure they\'re out of the case and connected.</string>
+    <string name="buds_disconnect">Disconnect</string>
 </resources>

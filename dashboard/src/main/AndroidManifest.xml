@@ -7,10 +7,15 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Samsung Clock requires this before another app can open its alarm list. -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 
     <!-- Apps the widget opens on tap. Android 11+ hides other apps unless they're listed here. -->
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+
     <queries>
         <package android:name="com.sec.android.app.shealth" />
         <package android:name="com.sec.android.app.clockpackage" />
@@ -72,6 +77,21 @@
             android:name=".RefreshJob"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- Talks to Galaxy Buds for battery and listening mode while they're connected. -->
+        <service
+            android:name=".BudsService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <receiver
+            android:name=".BluetoothReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+                <action android:name="android.bluetooth.device.action.ACL_DISCONNECTED" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".CrimsonWidgetProvider"

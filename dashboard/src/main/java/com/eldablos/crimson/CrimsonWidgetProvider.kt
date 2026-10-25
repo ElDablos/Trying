@@ -115,6 +115,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             bindWeather(context, views)
             bindSteps(context, views, locale)
             bindCalendar(context, views, now.toLocalDate(), locale)
+            bindBuds(context, views)
             return views
         }
 
@@ -166,6 +167,59 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             val health = context.packageManager.getLaunchIntentForPackage(Steps.SAMSUNG_HEALTH)
             views.setOnClickPendingIntent(R.id.steps_row, if (health != null) activity(context, 5, health) else openApp(context, 5))
         }
+
+        /** The Galaxy Buds row: hidden unless the earbuds are connected to the phone. */
+        private fun bindBuds(context: Context, views: RemoteViews) {
+            val buds = BudsState.read(context)
+            val show = buds.present || buds.connection != BudsState.Connection.DISCONNECTED
+            views.setViewVisibility(R.id.buds_row, if (show) View.VISIBLE else View.GONE)
+            if (!show) return
+
+            val name = buds.deviceName?.removePrefix("Galaxy ") ?: context.getString(R.string.buds_default_name)
+            val connected = buds.connection == BudsState.Connection.CONNECTED
+            if (!BudsDevices.hasPermission(context)) {
+                views.setTextViewText(R.id.buds_text, "$name · tap to allow Bluetooth")
+                views.setTextColor(R.id.buds_text, context.getColor(R.color.dust))
+                views.setViewVisibility(R.id.buds_modes, View.GONE)
+                views.setOnClickPendingIntent(R.id.buds_row, openApp(context, 40))
+                return
+            }
+
+            // Tapping the row (re)connects; tapping a mode switches to it.
+            views.setOnClickPendingIntent(R.id.buds_row, budsService(context, BudsService.ACTION_CONNECT, null, 40))
+            if (!connected) {
+                val status = if (buds.connection == BudsState.Connection.CONNECTING) "connecting…" else "tap to connect"
+                views.setTextViewText(R.id.buds_text, "$name · $status")
+                views.setTextColor(R.id.buds_text, context.getColor(R.color.dust))
+                views.setViewVisibility(R.id.buds_modes, View.GONE)
+                return
+            }
+
+            views.setTextViewText(
+                R.id.buds_text,
+                "L ${BudsState.formatBattery(buds.left)}  ·  R ${BudsState.formatBattery(buds.right)}",
+            )
+            val low = listOf(buds.left, buds.right).any { it in 1..15 }
+            views.setTextColor(R.id.buds_text, context.getColor(if (low) R.color.crimson else R.color.bone))
+
+            views.setViewVisibility(R.id.buds_modes, View.VISIBLE)
+            for ((mode, id, code) in listOf(
+                Triple(NoiseMode.ANC, R.id.buds_anc, 41),
+                Triple(NoiseMode.AMBIENT, R.id.buds_ambient, 42),
+            )) {
+                views.setViewVisibility(id, if (mode in buds.model.modes) View.VISIBLE else View.GONE)
+                val selected = buds.mode == mode
+                views.setInt(id, "setBackgroundResource", if (selected) R.drawable.segment_on else R.drawable.day_none)
+                views.setTextColor(id, context.getColor(if (selected) R.color.bone else R.color.dust))
+                views.setOnClickPendingIntent(id, budsService(context, BudsService.ACTION_SET_MODE, mode, code))
+            }
+        }
+
+        private fun budsService(context: Context, action: String, mode: NoiseMode?, requestCode: Int): PendingIntent =
+            PendingIntent.getForegroundService(
+                context, requestCode, BudsService.intent(context, action, mode),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
 
         private fun bindCalendar(context: Context, views: RemoteViews, today: LocalDate, locale: Locale) {
             val month = YearMonth.from(today).plusMonths(DashboardStore.monthOffset(context).toLong())

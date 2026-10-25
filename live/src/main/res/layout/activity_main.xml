@@ -36,6 +36,27 @@
         android:scaleType="fitCenter"
         android:src="@drawable/preview" />
 
+    <TextView
+        android:id="@+id/tilt_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Tilt effect: 60%"
+        android:textColor="@color/bone"
+        android:textSize="15sp" />
+
+    <SeekBar
+        android:id="@+id/tilt_slider"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="16dp"
+        android:max="100"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:progressBackgroundTint="@color/dust"
+        android:progressTint="@color/crimson"
+        android:thumbTint="@color/crimson" />
+
     <Button
         android:id="@+id/set_button"
         android:layout_width="match_parent"
@@ -52,7 +73,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
         android:gravity="center"
-        android:text="Pauses whenever the wallpaper is hidden, so it only uses power while you can see it."
+        android:text="Tilt your phone to see the layers move. Everything pauses whenever the wallpaper is hidden, so it only uses power while you can see it."
         android:textColor="@color/dust"
         android:textSize="12sp" />
 </LinearLayout>

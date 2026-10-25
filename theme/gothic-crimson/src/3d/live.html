@@ -31,7 +31,11 @@ const TAU = Math.PI * 2;
 const { renderer, scene } = setup({ width, height, exposure: 0.85 });
 scene.fog = new THREE.FogExp2(0x050203, 0.012);
 
-const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 300);
+// Rendered 12% larger than the screen on every side's worth, so the phone can shift layers for the tilt effect.
+const OVERSCAN = 1.12;
+const camera = new THREE.PerspectiveCamera(
+  (2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(20)) * OVERSCAN) * 180) / Math.PI, width / height, 0.1, 300,
+);
 
 let seed = 3;
 const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -174,21 +178,26 @@ scene.add(neonMain, neonEdge);
 const NEON_BAND = 2;
 
 // ---- Embers --------------------------------------------------------------------------------------
-const EMBERS = 700;
+// Each ember drifts slowly upwards for one loop, fading in and out, then starts again from its spot.
+// Faded out at the wrap, so the loop stays seamless. Additive, so dark means invisible.
+const EMBERS = 650;
 const emberBase = [];
 for (let i = 0; i < EMBERS; i++) {
   emberBase.push({
-    x: (rand() - 0.5) * 26, z: rand() * 14 - 10, y0: rand(), laps: 1 + Math.floor(rand() * 2),
-    sway: 0.3 + rand() * 0.8, phase: rand() * TAU,
+    x: (rand() - 0.5) * 28, y: rand() * 44 - 22, z: rand() * 14 - 10,
+    rise: 2.5 + rand() * 3.5, sway: 0.2 + rand() * 0.5, phase: rand(), bright: 0.5 + rand() * 0.5,
   });
 }
 const emberPos = new Float32Array(EMBERS * 3);
-const embersGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+const emberCol = new Float32Array(EMBERS * 3);
+const embersGeo = new THREE.BufferGeometry()
+  .setAttribute('position', new THREE.BufferAttribute(emberPos, 3))
+  .setAttribute('color', new THREE.BufferAttribute(emberCol, 3));
 const embers = new THREE.Points(embersGeo, new THREE.PointsMaterial({
-  color: new THREE.Color(0xff4455).multiplyScalar(3.0), size: 0.12, transparent: true, opacity: 0.9, depthWrite: false, fog: false,
+  size: 0.12, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
 }));
 scene.add(embers);
-const EMBER_BOTTOM = -16, EMBER_HEIGHT = 40;
+const emberColor = new THREE.Color(0xff4455).multiplyScalar(2.6);
 
 // ---- Post-processing -----------------------------------------------------------------------------
 const composer = new EffectComposer(renderer);
@@ -196,7 +205,10 @@ composer.addPass(new RenderPass(scene, camera));
 composer.addPass(new UnrealBloomPass(new THREE.Vector2(width, height), 1.0, 0.6, 0.82));
 composer.addPass(new OutputPass());
 
-window.renderFrame = (t) => {
+const maskMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+const black = new THREE.Color(0x000000);
+
+window.renderFrame = (t, layer = 'all') => {
   const u = (t % LOOP) / LOOP; // 0..1 through the loop
 
   camera.position.set(Math.sin(TAU * u) * 1.4, -1.5 + Math.sin(TAU * u * 2) * 0.5, 44);
@@ -226,14 +238,38 @@ window.renderFrame = (t) => {
 
   for (let i = 0; i < EMBERS; i++) {
     const e = emberBase[i];
-    const y = EMBER_BOTTOM + ((e.y0 + u * e.laps) % 1) * EMBER_HEIGHT;
-    emberPos[i * 3] = e.x + Math.sin(TAU * u * e.laps + e.phase) * e.sway;
-    emberPos[i * 3 + 1] = y;
+    const life = (u + e.phase) % 1;
+    const fade = Math.sin(Math.PI * life) * e.bright;
+    emberPos[i * 3] = e.x + Math.sin(TAU * life) * e.sway;
+    emberPos[i * 3 + 1] = e.y + life * e.rise;
     emberPos[i * 3 + 2] = e.z;
+    emberCol[i * 3] = emberColor.r * fade;
+    emberCol[i * 3 + 1] = emberColor.g * fade;
+    emberCol[i * 3 + 2] = emberColor.b * fade;
   }
+  embersGeo.attributes.color.needsUpdate = true;
   embersGeo.attributes.position.needsUpdate = true;
 
-  composer.render();
+  // Which parts each layer shows. The phone stacks them: bg, then fg over it using mask as the fg's opacity.
+  const back = layer === 'all' || layer === 'bg';
+  const front = layer === 'all' || layer === 'fg' || layer === 'mask';
+  wall.visible = back;
+  rose.visible = back;
+  bands.forEach((b) => (b.visible = front));
+  neonMain.visible = neonEdge.visible = front && layer !== 'mask';
+  embers.visible = front && layer !== 'mask';
+  scene.background = black;
+  if (layer === 'mask') {
+    // Bands in solid white, no glow: an exact cut-out.
+    scene.overrideMaterial = maskMaterial;
+    const fog = scene.fog;
+    scene.fog = null;
+    renderer.render(scene, camera);
+    scene.fog = fog;
+    scene.overrideMaterial = null;
+  } else {
+    composer.render();
+  }
 };
 
 window.__ready = true;

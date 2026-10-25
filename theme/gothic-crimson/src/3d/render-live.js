@@ -1,6 +1,9 @@
-// Renders live.html frame by frame and encodes a seamless looping MP4 for the Crimson Live wallpaper app.
+// Renders live.html frame by frame and encodes the seamless looping video for the Crimson Live wallpaper app.
+// Each frame is rendered as three layers, packed side by side into one 3240x2340 video:
+//   [ background: wall + rose window | foreground: bands, neon, embers on black | mask: the bands in white ]
+// The app stacks them on the phone and shifts each by a different amount as the phone tilts.
 // Run from this folder: npm install && node render-live.js [--preview]
-//   --preview renders a few still frames to the scratch folder instead of the whole video.
+//   --preview renders the layers of a few frames to a temp folder instead of the whole video.
 const http = require('http');
 const fs = require('fs');
 const os = require('os');
@@ -35,8 +38,10 @@ server.listen(0, async () => {
     const total = preview ? 4 : FPS * LOOP;
     for (let i = 0; i < total; i++) {
       const t = preview ? (i * LOOP) / 4 : i / FPS;
-      await page.evaluate((time) => window.renderFrame(time), t);
-      await canvas.screenshot({ path: path.join(frames, `f${String(i).padStart(4, '0')}.png`) });
+      for (const layer of ['bg', 'fg', 'mask']) {
+        await page.evaluate(([time, l]) => window.renderFrame(time, l), [t, layer]);
+        await canvas.screenshot({ path: path.join(frames, `${layer}${String(i).padStart(4, '0')}.png`) });
+      }
       if (i % 30 === 0) console.log(`frame ${i}/${total}`);
     }
   } finally {
@@ -48,9 +53,11 @@ server.listen(0, async () => {
     return;
   }
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
+  const input = (layer) => ['-framerate', String(FPS), '-i', path.join(frames, `${layer}%04d.png`)];
   execFileSync('ffmpeg', [
-    '-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', path.join(frames, 'f%04d.png'),
-    '-c:v', 'libx264', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-crf', '20', '-preset', 'slow',
+    '-y', '-loglevel', 'error', ...input('bg'), ...input('fg'), ...input('mask'),
+    '-filter_complex', '[0][1][2]hstack=inputs=3,format=yuv420p',
+    '-c:v', 'libx264', '-profile:v', 'high', '-crf', '21', '-preset', 'slow',
     '-movflags', '+faststart', OUT,
   ], { stdio: 'inherit' });
   fs.rmSync(frames, { recursive: true, force: true });

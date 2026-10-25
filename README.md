@@ -53,4 +53,5 @@ Every push to GitHub builds the APK automatically (`.github/workflows/build.yml`
 
 - [Crimson Widget](dashboard/README.md): a dark red home-screen widget with a clock (tap for alarms), weather, steps and a month calendar.
 - [Crimson Icons](icons/README.md): a matching icon pack (brand logos on crimson tiles), applied through Good Lock's Theme Park.
+- [Crimson Live](live/README.md): an animated 3D live wallpaper: a turning rose window, rippling glossy bands, neon pulses and embers.
 - [Gothic Crimson theme](theme/gothic-crimson/README.md): matching wallpapers and colours for the Galaxy S26 Ultra.

@@ -1,0 +1,242 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Crimson Live: the animated wallpaper. A glowing gothic rose window turns slowly on a carbon-fibre wall
+  while glossy black bands ripple in front, light pulses race along a crimson neon line and embers drift up.
+  Everything is periodic in LOOP seconds, so frame LOOP*fps joins seamlessly back to frame 0.
+  The render script calls window.renderFrame(t) for each frame.
+-->
+<script type="importmap">
+{ "imports": { "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/" } }
+</script>
+<style>html, body { margin: 0; background: #000; overflow: hidden; }</style>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { setup, gloss, ribbon, offsetPath, CRIMSON } from './common.js';
+
+const params = new URLSearchParams(location.search);
+const width = Number(params.get('w') || 1080);
+const height = Number(params.get('h') || 2340);
+const LOOP = 12; // seconds
+const TAU = Math.PI * 2;
+
+const { renderer, scene } = setup({ width, height, exposure: 0.85 });
+scene.fog = new THREE.FogExp2(0x050203, 0.012);
+
+const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 300);
+
+let seed = 3;
+const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const crimson = new THREE.Color(CRIMSON);
+
+// ---- Carbon-fibre wall with a glow behind the window --------------------------------------------
+const wall = new THREE.Mesh(
+  new THREE.PlaneGeometry(200, 200),
+  new THREE.ShaderMaterial({
+    uniforms: { glow: { value: new THREE.Color(0x3a0610) }, breath: { value: 1 } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `
+      uniform vec3 glow; uniform float breath; varying vec2 vUv;
+      void main() {
+        vec2 g = vUv * 900.0;
+        vec2 cell = floor(g);
+        vec2 f = fract(g);
+        float across = mod(cell.x + cell.y, 2.0) > 0.5 ? f.x : f.y;
+        float ridge = pow(sin(across * 3.14159), 1.5);
+        vec3 col = vec3(mix(0.005, 0.03, ridge)) * vec3(1.0, 0.93, 0.95);
+        float d = distance(vUv, vec2(0.513, 0.561));
+        col += glow * breath * smoothstep(0.09, 0.0, d);
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  }),
+);
+wall.position.z = -16;
+scene.add(wall);
+
+// ---- Rose window ---------------------------------------------------------------------------------
+// Glowing tracery: rings, twelve spokes, twelve lancet petals and an inner ring of roundels.
+// It turns one twelfth of a circle per loop, which looks identical thanks to its 12-fold symmetry.
+const rose = new THREE.Group();
+rose.position.set(2.6, 12.2, -12);
+scene.add(rose);
+const traceryMat = new THREE.MeshBasicMaterial({ color: crimson.clone().multiplyScalar(1.6), fog: false });
+const R = 6.2;
+function ring(r, t) {
+  rose.add(new THREE.Mesh(new THREE.TorusGeometry(r, t, 12, 160), traceryMat));
+}
+ring(R, 0.12); ring(R * 0.94, 0.05); ring(R * 0.24, 0.1); ring(R * 0.13, 0.06);
+function lancetCurve(cx, cy, angle, w, h) {
+  // A pointed petal, drawn as a closed outline and rotated to point outwards.
+  const pts = [];
+  const r = w;
+  const spring = h * 0.45;
+  const apexY = spring + Math.sqrt(r * r - (w / 2) ** 2);
+  const push = (x, y) => {
+    const ca = Math.cos(angle), sa = Math.sin(angle);
+    pts.push(new THREE.Vector3(cx + x * ca - y * sa, cy + x * sa + y * ca, 0));
+  };
+  push(-w / 2, 0); push(-w / 2, spring);
+  const a0 = Math.PI, a1 = Math.atan2(apexY - spring, -w / 2);
+  for (let i = 1; i <= 16; i++) { const a = a0 + (a1 - a0) * (i / 16); push(w / 2 + Math.cos(a) * r, spring + Math.sin(a) * r); }
+  const b0 = Math.atan2(apexY - spring, w / 2), b1 = 0;
+  for (let i = 1; i <= 16; i++) { const a = b0 + (b1 - b0) * (i / 16); push(-w / 2 + Math.cos(a) * r, spring + Math.sin(a) * r); }
+  push(w / 2, 0);
+  return new THREE.CatmullRomCurve3(pts, true);
+}
+for (let i = 0; i < 12; i++) {
+  const a = (i / 12) * TAU;
+  const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.09, R * 0.7, 0.09), traceryMat);
+  spoke.position.set(Math.cos(a) * R * 0.59, Math.sin(a) * R * 0.59, 0);
+  spoke.rotation.z = a - Math.PI / 2;
+  rose.add(spoke);
+  const mid = a + Math.PI / 12;
+  const c = lancetCurve(Math.cos(mid) * R * 0.42, Math.sin(mid) * R * 0.42, mid - Math.PI / 2, R * 0.16, R * 0.4);
+  rose.add(new THREE.Mesh(new THREE.TubeGeometry(c, 120, 0.05, 8, true), traceryMat));
+  const roundel = new THREE.Mesh(new THREE.TorusGeometry(R * 0.06, 0.04, 8, 48), traceryMat);
+  roundel.position.set(Math.cos(mid) * R * 0.86, Math.sin(mid) * R * 0.86, 0);
+  rose.add(roundel);
+  const inner = new THREE.Mesh(new THREE.TorusGeometry(R * 0.07, 0.035, 8, 48), traceryMat);
+  inner.position.set(Math.cos(a) * R * 0.33, Math.sin(a) * R * 0.33, 0);
+  rose.add(inner);
+}
+// Stained glass behind the tracery: a dark red disc glowing from the centre.
+const glass = new THREE.Mesh(
+  new THREE.CircleGeometry(R, 96),
+  new THREE.ShaderMaterial({
+    transparent: true,
+    uniforms: { color: { value: crimson.clone().multiplyScalar(0.45) }, breath: { value: 1 } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `
+      uniform vec3 color; uniform float breath; varying vec2 vUv;
+      void main() {
+        vec2 p = vUv - 0.5;
+        float d = length(p) * 2.0;
+        float a = atan(p.y, p.x);
+        // Panes: twelve wedges and concentric bands, each a slightly different depth of red.
+        float wedge = 0.55 + 0.45 * cos(a * 12.0);
+        float bands = 0.6 + 0.4 * cos(d * 18.0);
+        float lead = smoothstep(0.0, 0.06, abs(fract(a * 12.0 / 6.28318 + 0.5) - 0.5));
+        vec3 c = color * breath * wedge * bands * lead * (1.15 - 0.8 * d);
+        gl_FragColor = vec4(c, 0.9);
+      }`,
+  }),
+);
+glass.position.z = -0.2;
+rose.add(glass);
+
+// ---- Glossy bands --------------------------------------------------------------------------------
+const BANDS = 5;
+const bandWidth = 1.9;
+const thickness = 0.8;
+const material = gloss({ envMapIntensity: 0.22, clearcoat: 0.35 });
+function bandCurve(k, t) {
+  // A slow ripple travels across the bands; whole cycles per loop keep it seamless.
+  const w = Math.sin(TAU * (t / LOOP) + k * 0.7) * 0.9;
+  const v = Math.cos(TAU * (t / LOOP) * 2 + k * 0.5) * 0.5;
+  return new THREE.CubicBezierCurve(
+    new THREE.Vector2(-16 + k * 2.2, 18), new THREE.Vector2(-11 + k * 2.2 + w, 1 + v),
+    new THREE.Vector2(6 + k * 2.2 - w, 3 - v), new THREE.Vector2(3 + k * 2.2, -23),
+  );
+}
+const bands = [];
+for (let k = 0; k < BANDS; k++) {
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  mesh.position.z = (k % 2 ? -0.25 : 0.25) - k * 0.15;
+  scene.add(mesh);
+  bands.push(mesh);
+}
+
+// ---- Neon with travelling pulses -----------------------------------------------------------------
+const neonMat = (base, pulse, pulses) => new THREE.ShaderMaterial({
+  uniforms: { color: { value: crimson }, phase: { value: 0 }, base: { value: base }, pulse: { value: pulse }, pulses: { value: pulses } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform vec3 color; uniform float phase, base, pulse, pulses; varying vec2 vUv;
+    void main() {
+      // Distance (wrapping) from the nearest pulse, which moves along the tube's length (vUv.x).
+      float x = fract(vUv.x * pulses - phase);
+      float d = min(x, 1.0 - x);
+      float p = exp(-d * d * 900.0);
+      gl_FragColor = vec4(color * (base + pulse * p) + vec3(1.0, 0.75, 0.78) * p * pulse * 0.25, 1.0);
+    }`,
+});
+const neonMain = new THREE.Mesh(new THREE.BufferGeometry(), neonMat(2.0, 6.0, 2.0));
+const neonEdge = new THREE.Mesh(new THREE.BufferGeometry(), neonMat(0.9, 4.0, 3.0));
+scene.add(neonMain, neonEdge);
+const NEON_BAND = 2;
+
+// ---- Embers --------------------------------------------------------------------------------------
+const EMBERS = 700;
+const emberBase = [];
+for (let i = 0; i < EMBERS; i++) {
+  emberBase.push({
+    x: (rand() - 0.5) * 26, z: rand() * 14 - 10, y0: rand(), laps: 1 + Math.floor(rand() * 2),
+    sway: 0.3 + rand() * 0.8, phase: rand() * TAU,
+  });
+}
+const emberPos = new Float32Array(EMBERS * 3);
+const embersGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+const embers = new THREE.Points(embersGeo, new THREE.PointsMaterial({
+  color: new THREE.Color(0xff4455).multiplyScalar(3.0), size: 0.12, transparent: true, opacity: 0.9, depthWrite: false, fog: false,
+}));
+scene.add(embers);
+const EMBER_BOTTOM = -16, EMBER_HEIGHT = 40;
+
+// ---- Post-processing -----------------------------------------------------------------------------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(width, height), 1.0, 0.6, 0.82));
+composer.addPass(new OutputPass());
+
+window.renderFrame = (t) => {
+  const u = (t % LOOP) / LOOP; // 0..1 through the loop
+
+  camera.position.set(Math.sin(TAU * u) * 1.4, -1.5 + Math.sin(TAU * u * 2) * 0.5, 44);
+  camera.lookAt(0, 0.5, 0);
+
+  rose.rotation.z = -u * (TAU / 12);
+  const breath = 0.85 + 0.15 * Math.sin(TAU * u * 2);
+  glass.material.uniforms.breath.value = breath;
+  wall.material.uniforms.breath.value = breath;
+  traceryMat.color.copy(crimson).multiplyScalar(1.3 + 0.35 * Math.sin(TAU * u * 2));
+
+  for (let k = 0; k < BANDS; k++) {
+    const curve = bandCurve(k, t);
+    bands[k].geometry.dispose();
+    bands[k].geometry = ribbon(curve, { width: bandWidth, thickness, steps: 300 });
+    if (k === NEON_BAND) {
+      const z = bands[k].position.z + thickness / 2 + 0.03;
+      neonMain.geometry.dispose();
+      neonMain.geometry = new THREE.TubeGeometry(offsetPath(curve, 0, z), 500, 0.06, 10);
+      neonEdge.geometry.dispose();
+      neonEdge.geometry = new THREE.TubeGeometry(offsetPath(curve, bandWidth / 2 + 0.02, bands[k].position.z), 500, 0.03, 8);
+    }
+  }
+  // Pulses run top to bottom: two along the main line, three along the edge line, per loop.
+  neonMain.material.uniforms.phase.value = u * 2.0;
+  neonEdge.material.uniforms.phase.value = u * 3.0 + 0.5;
+
+  for (let i = 0; i < EMBERS; i++) {
+    const e = emberBase[i];
+    const y = EMBER_BOTTOM + ((e.y0 + u * e.laps) % 1) * EMBER_HEIGHT;
+    emberPos[i * 3] = e.x + Math.sin(TAU * u * e.laps + e.phase) * e.sway;
+    emberPos[i * 3 + 1] = y;
+    emberPos[i * 3 + 2] = e.z;
+  }
+  embersGeo.attributes.position.needsUpdate = true;
+
+  composer.render();
+};
+
+window.__ready = true;
+</script>
+</body>
+</html>

@@ -28,6 +28,7 @@ jobs:
           cp app/build/outputs/apk/debug/app-debug.apk BudsBattery.apk
           cp dashboard/build/outputs/apk/debug/dashboard-debug.apk CrimsonWidget.apk
           cp icons/build/outputs/apk/debug/icons-debug.apk CrimsonIcons.apk
+          cp live/build/outputs/apk/debug/live-debug.apk CrimsonLive.apk
 
       - uses: actions/upload-artifact@v4
         with:
@@ -44,6 +45,11 @@ jobs:
           name: CrimsonIcons-apk
           path: CrimsonIcons.apk
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CrimsonLive-apk
+          path: CrimsonLive.apk
+
       # A fixed download link you can open straight from your phone.
       - name: Publish latest build
         uses: softprops/action-gh-release@v2
@@ -56,3 +62,4 @@ jobs:
             BudsBattery.apk
             CrimsonWidget.apk
             CrimsonIcons.apk
+            CrimsonLive.apk

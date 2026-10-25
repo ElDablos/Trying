@@ -1,0 +1,15 @@
+<resources>
+    <color name="void_black">#FF0A0708</color>
+    <color name="blood">#FFB3001B</color>
+    <color name="crimson">#FFE01E37</color>
+    <color name="bone">#FFE8DCDC</color>
+    <color name="dust">#FF9A8A8C</color>
+
+    <style name="AppTheme" parent="android:Theme.Material">
+        <item name="android:colorPrimary">@color/blood</item>
+        <item name="android:colorAccent">@color/crimson</item>
+        <item name="android:windowBackground">@color/void_black</item>
+        <item name="android:statusBarColor">@color/void_black</item>
+        <item name="android:navigationBarColor">@color/void_black</item>
+    </style>
+</resources>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A small rose window: two rings and twelve spokes in crimson on black. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval"><solid android:color="@color/void_black" /></shape>
+    </item>
+    <item android:drawable="@drawable/ic_rose" />
+</layer-list>

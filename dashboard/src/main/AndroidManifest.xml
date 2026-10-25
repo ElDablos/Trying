@@ -19,6 +19,8 @@
     <queries>
         <package android:name="com.sec.android.app.shealth" />
         <package android:name="com.spotify.music" />
+        <!-- The App Strip borrows its icons from Crimson Icons. -->
+        <package android:name="com.eldablos.crimsonicons" />
         <package android:name="com.sec.android.app.clockpackage" />
         <package android:name="com.samsung.android.calendar" />
         <package android:name="com.sec.android.daemonapp" />
@@ -73,6 +75,17 @@
             android:taskAffinity=""
             android:theme="@style/QueuePopup" />
 
+        <!-- Picks the apps for an App Strip, when it's added and from its long-press Settings. -->
+        <activity
+            android:name=".StripConfigActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <!-- Invisible: opens another app for a widget tap, then closes. -->
         <activity
             android:name=".OpenAppActivity"
@@ -111,6 +124,23 @@
                 <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
                 <action android:name="android.bluetooth.device.action.ACL_DISCONNECTED" />
             </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".StripService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
+        <receiver
+            android:name=".StripWidgetProvider"
+            android:exported="true"
+            android:label="@string/strip_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/crimson_strip_info" />
         </receiver>
 
         <receiver

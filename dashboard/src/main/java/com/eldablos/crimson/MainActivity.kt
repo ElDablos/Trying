@@ -101,6 +101,7 @@ class MainActivity : Activity() {
                 override fun onStopTrackingTouch(bar: SeekBar) {
                     DashboardStore.setOpacity(this@MainActivity, bar.progress)
                     CrimsonWidgetProvider.refreshAll(this@MainActivity)
+                    StripWidgetProvider.refresh(this@MainActivity, AppWidgetManager.getInstance(this@MainActivity))
                 }
             })
         }

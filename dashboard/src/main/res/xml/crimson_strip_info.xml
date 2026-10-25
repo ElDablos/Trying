@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:configure="com.eldablos.crimson.StripConfigActivity"
+    android:description="@string/strip_description"
+    android:initialLayout="@layout/widget_strip"
+    android:minWidth="300dp"
+    android:minHeight="56dp"
+    android:minResizeWidth="250dp"
+    android:minResizeHeight="48dp"
+    android:previewImage="@drawable/strip_preview"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="6"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen"
+    android:widgetFeatures="reconfigurable" />

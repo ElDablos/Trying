@@ -3,6 +3,8 @@
     <string name="widget_description">Clock, alarm, weather, steps, a month calendar and music controls</string>
     <string name="glance_name">Crimson Glance</string>
     <string name="glance_description">Weather, steps, Buds battery and next alarm in one slim row</string>
+    <string name="strip_name">Crimson App Strip</string>
+    <string name="strip_description">Six apps in a row. Swipe up or down for more</string>
     <string name="buds_default_name">Galaxy Buds</string>
     <string name="buds_channel_name">Earbuds connection</string>
     <string name="buds_connecting">Connecting…</string>

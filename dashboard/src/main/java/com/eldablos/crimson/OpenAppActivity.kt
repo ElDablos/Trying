@@ -11,12 +11,18 @@ import android.util.Log
 import android.widget.Toast
 
 /**
- * Invisible trampoline for the widget's weather tap. Opens the app the user picked, or else tries to find
- * one. If nothing opens, it sends the user to the setup screen to pick the app.
+ * Invisible trampoline for widget taps. For the App Strip it opens the app that was tapped. For the
+ * weather tap it opens the app the user picked, or else tries to find one; if nothing opens, it sends
+ * the user to the setup screen to pick the app.
  */
 class OpenAppActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        intent.getStringExtra(EXTRA_COMPONENT)?.let { flat ->
+            ComponentName.unflattenFromString(flat)?.let { openStripApp(it) }
+            finish()
+            return
+        }
         val label = intent.getStringExtra(EXTRA_LABEL) ?: run { finish(); return }
         val packages = intent.getStringArrayExtra(EXTRA_PACKAGES)?.toList() ?: emptyList()
 
@@ -36,6 +42,15 @@ class OpenAppActivity : Activity() {
         finish()
     }
 
+    private fun openStripApp(component: ComponentName) {
+        try {
+            startActivity(launcherIntent(component).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't open $component", e)
+            Toast.makeText(this, "That app isn't installed any more", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun candidates(label: String, packages: List<String>): List<Intent> {
         val pm = packageManager
         return buildList {
@@ -53,11 +68,18 @@ class OpenAppActivity : Activity() {
         private const val TAG = "CrimsonOpenApp"
         private const val EXTRA_LABEL = "label"
         private const val EXTRA_PACKAGES = "packages"
+        private const val EXTRA_COMPONENT = "component"
 
         fun intent(context: Context, label: String, packages: List<String>): Intent =
             Intent(context, OpenAppActivity::class.java)
                 .putExtra(EXTRA_LABEL, label)
                 .putExtra(EXTRA_PACKAGES, packages.toTypedArray())
+
+        /** The App Strip's tap target; each icon fills in its app with [fillIn]. */
+        fun template(context: Context): Intent =
+            Intent(context, OpenAppActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        fun fillIn(component: ComponentName): Intent = Intent().putExtra(EXTRA_COMPONENT, component.flattenToString())
 
         /** Every app with a home-screen icon, other than this one. */
         fun launcherApps(context: Context): List<ResolveInfo> =

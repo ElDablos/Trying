@@ -38,6 +38,14 @@ connected; tap to switch between ANC and Ambient) and your next alarm. Add it to
 **Settings → Lock screen and AOD → Widgets** (if your phone lists it there), or to the home screen like any
 widget. It uses the same settings as the main widget, including the background slider.
 
+## Crimson App Strip
+
+A 6x1 row of apps that works like a folder. Long-press the home screen → Widgets → Crimson Widget →
+**Crimson App Strip**, then tap apps in the order you want them (up to 30). Six show at a time; swipe the
+strip up or down to flip to the next six, and it loops back round. Icons come from Crimson Icons when it's
+installed. To change the apps later, long-press the strip → **Settings**. Each strip keeps its own apps, and
+the background follows the same slider as the main widget.
+
 ## Good to know
 
 - The clock and date update live. Weather and steps refresh every 15 minutes, the most often Android allows.

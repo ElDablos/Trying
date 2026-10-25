@@ -67,7 +67,7 @@
     <ListView
         android:id="@+id/queue_list"
         android:layout_width="match_parent"
-        android:layout_height="440dp"
+        android:layout_height="400dp"
         android:divider="@null"
         android:scrollbars="none" />
 
@@ -92,5 +92,63 @@
             android:layout_width="match_parent"
             android:layout_marginTop="14dp"
             android:text="Open the queue in Spotify" />
+    </LinearLayout>
+
+    <!-- Shuffle and repeat, like Spotify's queue screen. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:id="@+id/queue_shuffle"
+            android:layout_width="0dp"
+            android:layout_height="64dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/queue_tile"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/queue_shuffle_icon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_music_shuffle" />
+
+            <TextView
+                android:id="@+id/queue_shuffle_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Shuffle"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/queue_repeat"
+            android:layout_width="0dp"
+            android:layout_height="64dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/queue_tile"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/queue_repeat_icon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_music_repeat" />
+
+            <TextView
+                android:id="@+id/queue_repeat_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Repeat"
+                android:textSize="13sp" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

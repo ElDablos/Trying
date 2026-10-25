@@ -13,23 +13,57 @@ import android.widget.ImageView
 import android.widget.ListView
 import android.widget.TextView
 
-/** The pop-up behind the widget's queue button: what's up next in the player, tap a song to jump to it. */
+/**
+ * The pop-up behind the widget's queue button: what's up next in the player (tap a song to jump to it),
+ * with shuffle and repeat.
+ */
 class QueueActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_queue)
         findViewById<View>(R.id.queue_close).setOnClickListener { finish() }
+        findViewById<Button>(R.id.queue_open_app).setOnClickListener {
+            val player = NowPlaying.activeController(this)?.packageName ?: NowPlaying.SPOTIFY
+            packageManager.getLaunchIntentForPackage(player)?.let { startActivity(it) }
+            finish()
+        }
+        findViewById<View>(R.id.queue_shuffle).setOnClickListener {
+            NowPlaying.control(this, NowPlaying.Control.SHUFFLE)
+            renderModes()
+            // The player reorders the queue a moment later; show the new order.
+            window.decorView.postDelayed({ loadQueue() }, RELOAD_DELAY_MS)
+        }
+        findViewById<View>(R.id.queue_repeat).setOnClickListener {
+            NowPlaying.control(this, NowPlaying.Control.REPEAT)
+            renderModes()
+        }
+        renderModes()
+        loadQueue()
+    }
 
+    /** Lights the shuffle and repeat tiles crimson when they're on. */
+    private fun renderModes() {
+        val on = getColor(R.color.crimson)
+        val off = getColor(R.color.dust)
+        val shuffle = NowPlaying.shuffle(this)
+        findViewById<ImageView>(R.id.queue_shuffle_icon).setColorFilter(if (shuffle) on else off)
+        findViewById<TextView>(R.id.queue_shuffle_label).setTextColor(if (shuffle) on else off)
+        val repeat = NowPlaying.repeat(this)
+        findViewById<ImageView>(R.id.queue_repeat_icon).apply {
+            setImageResource(if (repeat == NowPlaying.Repeat.ONE) R.drawable.ic_music_repeat_one else R.drawable.ic_music_repeat)
+            setColorFilter(if (repeat == NowPlaying.Repeat.OFF) off else on)
+        }
+        findViewById<TextView>(R.id.queue_repeat_label).apply {
+            text = if (repeat == NowPlaying.Repeat.ONE) "Repeat one" else "Repeat"
+            setTextColor(if (repeat == NowPlaying.Repeat.OFF) off else on)
+        }
+    }
+
+    private fun loadQueue() {
         val controller = NowPlaying.activeController(this)
         val queue = controller?.queue.orEmpty()
         val list = findViewById<ListView>(R.id.queue_list)
         val empty = findViewById<View>(R.id.queue_empty)
-        val openApp = findViewById<Button>(R.id.queue_open_app)
-        val playerPackage = controller?.packageName ?: NowPlaying.SPOTIFY
-        openApp.setOnClickListener {
-            packageManager.getLaunchIntentForPackage(playerPackage)?.let { startActivity(it) }
-            finish()
-        }
 
         findViewById<TextView>(R.id.queue_subtitle).text = controller?.queueTitle?.toString()
             ?: NowPlaying.read(this)?.let { "Playing ${it.title}" } ?: ""
@@ -38,6 +72,8 @@ class QueueActivity : Activity() {
             empty.visibility = View.VISIBLE
             return
         }
+        list.visibility = View.VISIBLE
+        empty.visibility = View.GONE
         // Start the list at the song that's playing, if the player marks it.
         val current = controller?.playbackState?.activeQueueItemId
         list.adapter = QueueAdapter(queue, current)
@@ -74,5 +110,9 @@ class QueueActivity : Activity() {
             if (bitmap != null) art.setImageBitmap(bitmap) else art.setImageResource(R.drawable.music_art_placeholder)
             return view
         }
+    }
+
+    companion object {
+        private const val RELOAD_DELAY_MS = 700L
     }
 }

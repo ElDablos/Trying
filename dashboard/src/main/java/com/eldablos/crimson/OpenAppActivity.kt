@@ -7,17 +7,33 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 
 /**
- * Invisible trampoline for widget taps. For the App Strip it opens the app that was tapped. For the
+ * Invisible trampoline for widget taps. For the App Strip and the Arcade it opens the app that was tapped
+ * (or, for the Arcade's Random button, a random game, or the usage access settings). For the
  * weather tap it opens the app the user picked, or else tries to find one; if nothing opens, it sends
  * the user to the setup screen to pick the app.
  */
 class OpenAppActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        when (intent.getStringExtra(EXTRA_ARCADE)) {
+            ARCADE_RANDOM -> {
+                // A game picked fresh on every tap.
+                Arcade.games(this).randomOrNull()?.let { openStripApp(it.component) }
+                finish()
+                return
+            }
+            ARCADE_USAGE_ACCESS -> {
+                Toast.makeText(this, "Turn on Crimson Widget to show your most played games", Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                finish()
+                return
+            }
+        }
         intent.getStringExtra(EXTRA_COMPONENT)?.let { flat ->
             ComponentName.unflattenFromString(flat)?.let { openStripApp(it) }
             finish()
@@ -69,6 +85,9 @@ class OpenAppActivity : Activity() {
         private const val EXTRA_LABEL = "label"
         private const val EXTRA_PACKAGES = "packages"
         private const val EXTRA_COMPONENT = "component"
+        private const val EXTRA_ARCADE = "arcade"
+        private const val ARCADE_RANDOM = "random"
+        private const val ARCADE_USAGE_ACCESS = "usage_access"
 
         fun intent(context: Context, label: String, packages: List<String>): Intent =
             Intent(context, OpenAppActivity::class.java)
@@ -80,6 +99,12 @@ class OpenAppActivity : Activity() {
             Intent(context, OpenAppActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         fun fillIn(component: ComponentName): Intent = Intent().putExtra(EXTRA_COMPONENT, component.flattenToString())
+
+        /** The Arcade's Random button: opens a game picked at the moment of the tap. */
+        fun fillInRandomGame(): Intent = Intent().putExtra(EXTRA_ARCADE, ARCADE_RANDOM)
+
+        /** The Arcade's prompt to turn on usage access, for its most played games. */
+        fun fillInUsageAccess(): Intent = Intent().putExtra(EXTRA_ARCADE, ARCADE_USAGE_ACCESS)
 
         /** Every app with a home-screen icon, other than this one. */
         fun launcherApps(context: Context): List<ResolveInfo> =

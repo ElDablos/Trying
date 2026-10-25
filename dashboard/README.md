@@ -49,6 +49,20 @@ The preview shows the strip at its home screen size, with those rows faded under
 Crimson Icons when it's installed. To change the apps or name later, long-press the strip → **Settings**.
 Each strip keeps its own apps, and the background follows the same slider as the main widget.
 
+## Crimson Arcade
+
+A 6×5 games widget. Long-press the home screen → Widgets → Crimson Widget → **Crimson Arcade**.
+
+- **HUD panel**: your most played games of the last 14 days as a hexagon cluster, number one in the
+  middle, with a readout of playtime and when you last played. It moves through them by itself every few
+  seconds. Tap any hexagon or **▶ Launch** to play, or **⚄ Random** for a surprise. Playtime needs
+  usage access (Settings → Usage access → Crimson Widget, or the button in the panel); without it the
+  panel shows your newest games.
+- **Hive**: every game A–Z as glowing hexagons, each in its own logo's colour, with letter tags and NEW
+  badges for games installed this week. Scroll it, or tap a letter on the rail to jump.
+- Games are found automatically from the category apps declare. Long-press → **Settings** to add any it
+  missed or hide any you don't want.
+
 ## Good to know
 
 - The clock and date update live. Weather and steps refresh every 15 minutes, the most often Android allows.

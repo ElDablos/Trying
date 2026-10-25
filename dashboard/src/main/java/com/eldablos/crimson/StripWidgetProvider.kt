@@ -99,6 +99,19 @@ class StripWidgetProvider : AppWidgetProvider() {
             return width to height
         }
 
+        /**
+         * A widget's size as it really is on screen. Samsung reports sizes larger than they are; measured
+         * against the main widget, the report's cell is wider than a sixth of the screen by the same factor,
+         * so it's scaled back by that much (and never up).
+         */
+        internal fun trueSizeDp(context: Context, manager: AppWidgetManager, widgetId: Int): Pair<Float, Float> {
+            val (width, height) = sizeDp(manager, widgetId)
+            val metrics = context.resources.displayMetrics
+            val screenCell = minOf(metrics.widthPixels, metrics.heightPixels) / metrics.density / StripStore.MAX_COLUMNS
+            val scale = minOf(1f, screenCell / cellDp(context).first)
+            return width * scale to height * scale
+        }
+
         /** How many apps fit across a strip [widthDp] wide: one per home screen cell. */
         internal fun columns(context: Context, widthDp: Float): Int =
             (widthDp / cellDp(context).first).roundToInt().coerceIn(1, StripStore.MAX_COLUMNS)

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One frame of the Arcade's HUD panel: the drawing, with tap areas laid over its hexagons and buttons. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/arcade_art"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY" />
+
+    <FrameLayout
+        android:id="@+id/arcade_hit_1"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start" />
+    <FrameLayout
+        android:id="@+id/arcade_hit_2"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start" />
+    <FrameLayout
+        android:id="@+id/arcade_hit_3"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start" />
+    <FrameLayout
+        android:id="@+id/arcade_hit_4"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start" />
+    <FrameLayout
+        android:id="@+id/arcade_hit_5"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start" />
+    <FrameLayout
+        android:id="@+id/arcade_hit_6"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start" />
+    <FrameLayout
+        android:id="@+id/arcade_hit_7"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start" />
+    <FrameLayout
+        android:id="@+id/arcade_hit_8"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start" />
+    <FrameLayout
+        android:id="@+id/arcade_hit_9"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_gravity="top|start" />
+</FrameLayout>

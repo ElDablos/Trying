@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:configure="com.eldablos.crimson.ArcadeConfigActivity"
+    android:description="@string/arcade_description"
+    android:initialLayout="@layout/widget_arcade"
+    android:minWidth="300dp"
+    android:minHeight="320dp"
+    android:minResizeWidth="250dp"
+    android:minResizeHeight="250dp"
+    android:previewImage="@drawable/arcade_preview"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="6"
+    android:targetCellHeight="5"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen"
+    android:widgetFeatures="reconfigurable|configuration_optional" />

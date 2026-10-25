@@ -102,6 +102,7 @@ class MainActivity : Activity() {
                     DashboardStore.setOpacity(this@MainActivity, bar.progress)
                     CrimsonWidgetProvider.refreshAll(this@MainActivity)
                     StripWidgetProvider.refresh(this@MainActivity, AppWidgetManager.getInstance(this@MainActivity))
+                    ArcadeWidgetProvider.refresh(this@MainActivity)
                 }
             })
         }

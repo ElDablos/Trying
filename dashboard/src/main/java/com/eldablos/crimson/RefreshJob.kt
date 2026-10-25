@@ -52,6 +52,8 @@ class RefreshJob : JobService() {
                 Steps.readToday(context)?.let { DashboardStore.setSteps(context, it) }
             }
             CrimsonWidgetProvider.refreshAll(context)
+            // Picks up newly installed games and fresh playtime.
+            ArcadeWidgetProvider.refresh(context)
         }
     }
 }

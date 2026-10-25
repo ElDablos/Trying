@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- fitsSystemWindows sits on the outer frame, since it replaces the padding of the view it's on. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/screen_background"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="16dp">
+
+        <!-- The intro and play stats ride at the top of this list. -->
+        <ListView
+            android:id="@+id/arcade_apps"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:divider="@null"
+            android:paddingTop="20dp"
+            android:scrollbars="none" />
+
+        <EditText
+            android:id="@+id/arcade_search"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/input_background"
+            android:hint="Search apps"
+            android:imeOptions="actionDone"
+            android:inputType="text"
+            android:maxLines="1"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:textColor="@color/bone"
+            android:textColorHint="@color/dust"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/arcade_done"
+            style="@style/ButtonPrimary"
+            android:layout_width="match_parent"
+            android:layout_marginTop="10dp"
+            android:text="Done" />
+    </LinearLayout>
+</FrameLayout>

@@ -35,6 +35,7 @@ object Arcade {
     class Played(val game: Game, val millis: Long, val lastUsed: Long)
 
     const val STATS_DAYS = 14
+    private const val PLAYTIME_WEIGHT = 0.6f
     private val NEW_FOR = TimeUnit.DAYS.toMillis(7)
     private const val CRIMSON = 0xFFE01E37.toInt()
 
@@ -124,11 +125,18 @@ object Arcade {
     }
 
     /**
-     * The games to recommend: the most played first, then (without usage access, or to fill up) the most
-     * recently installed.
+     * The games to recommend. Played games come first, scored on how long they were played over the last
+     * [STATS_DAYS] days and how recently ([PLAYTIME_WEIGHT] to the rest), so a long-loved game and one
+     * started yesterday both make it. Without usage access, or to fill up, the most recently installed follow.
      */
-    fun recommended(games: List<Game>, stats: Map<String, Played>, count: Int): List<Game> {
-        val played = stats.values.sortedByDescending { it.millis }.map { it.game }
+    fun recommended(games: List<Game>, stats: Map<String, Played>, count: Int, now: Long = System.currentTimeMillis()): List<Game> {
+        val longest = stats.values.maxOfOrNull { it.millis }?.coerceAtLeast(1) ?: 1
+        val window = TimeUnit.DAYS.toMillis(STATS_DAYS.toLong()).toFloat()
+        val played = stats.values.sortedByDescending {
+            val playtime = it.millis.toFloat() / longest
+            val recency = (1f - (now - it.lastUsed) / window).coerceIn(0f, 1f)
+            PLAYTIME_WEIGHT * playtime + (1 - PLAYTIME_WEIGHT) * recency
+        }.map { it.game }
         val rest = games.filter { it !in played }.sortedByDescending { it.installed }
         return (played + rest).take(count)
     }

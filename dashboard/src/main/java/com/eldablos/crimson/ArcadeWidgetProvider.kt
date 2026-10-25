@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 
@@ -88,9 +87,19 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
             R.id.arcade_rail_20, R.id.arcade_rail_21, R.id.arcade_rail_22, R.id.arcade_rail_23, R.id.arcade_rail_24,
             R.id.arcade_rail_25, R.id.arcade_rail_26,
         )
-        private val RECS = intArrayOf(
-            R.id.arcade_hit_rec_1, R.id.arcade_hit_rec_2, R.id.arcade_hit_rec_3,
-            R.id.arcade_hit_rec_4, R.id.arcade_hit_rec_5, R.id.arcade_hit_rec_6,
+        /** A tap area's nested layouts: weight sums on each place it, the last one takes the tap. */
+        private class TapArea(val area: Int, val x: Int, val y: Int, val yy: Int, val tap: Int)
+
+        private val PLAY = TapArea(R.id.arcade_hit_play, R.id.arcade_hit_play_x, R.id.arcade_hit_play_y, R.id.arcade_hit_play_yy, R.id.arcade_tap_play)
+        private val RANDOM = TapArea(R.id.arcade_hit_random, R.id.arcade_hit_random_x, R.id.arcade_hit_random_y, R.id.arcade_hit_random_yy, R.id.arcade_tap_random)
+        private val ACCESS = TapArea(R.id.arcade_hit_access, R.id.arcade_hit_access_x, R.id.arcade_hit_access_y, R.id.arcade_hit_access_yy, R.id.arcade_tap_access)
+        private val RECS = listOf(
+            TapArea(R.id.arcade_hit_rec_1, R.id.arcade_hit_rec_1_x, R.id.arcade_hit_rec_1_y, R.id.arcade_hit_rec_1_yy, R.id.arcade_tap_rec_1),
+            TapArea(R.id.arcade_hit_rec_2, R.id.arcade_hit_rec_2_x, R.id.arcade_hit_rec_2_y, R.id.arcade_hit_rec_2_yy, R.id.arcade_tap_rec_2),
+            TapArea(R.id.arcade_hit_rec_3, R.id.arcade_hit_rec_3_x, R.id.arcade_hit_rec_3_y, R.id.arcade_hit_rec_3_yy, R.id.arcade_tap_rec_3),
+            TapArea(R.id.arcade_hit_rec_4, R.id.arcade_hit_rec_4_x, R.id.arcade_hit_rec_4_y, R.id.arcade_hit_rec_4_yy, R.id.arcade_tap_rec_4),
+            TapArea(R.id.arcade_hit_rec_5, R.id.arcade_hit_rec_5_x, R.id.arcade_hit_rec_5_y, R.id.arcade_hit_rec_5_yy, R.id.arcade_tap_rec_5),
+            TapArea(R.id.arcade_hit_rec_6, R.id.arcade_hit_rec_6_x, R.id.arcade_hit_rec_6_y, R.id.arcade_hit_rec_6_yy, R.id.arcade_tap_rec_6),
         )
         private const val DIM_LETTER = 0x339A8A8C
 
@@ -169,17 +178,16 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
             views.setImageViewBitmap(if (showing == 0) R.id.arcade_hero_0 else R.id.arcade_hero_1, art.bitmap)
             views.setDisplayedChild(R.id.arcade_hero, showing)
 
-            (intArrayOf(R.id.arcade_hit_play, R.id.arcade_hit_random, R.id.arcade_hit_access) + RECS)
-                .forEach { views.setViewVisibility(it, View.GONE) }
+            (listOf(PLAY, RANDOM, ACCESS) + RECS).forEach { views.setViewVisibility(it.area, View.GONE) }
             var rec = 0
             for (hit in art.hits) {
-                val id = when (hit.action) {
-                    ArcadeHero.Action.Play -> R.id.arcade_hit_play
-                    ArcadeHero.Action.Random -> R.id.arcade_hit_random
-                    ArcadeHero.Action.UsageAccess -> R.id.arcade_hit_access
+                val target = when (hit.action) {
+                    ArcadeHero.Action.Play -> PLAY
+                    ArcadeHero.Action.Random -> RANDOM
+                    ArcadeHero.Action.UsageAccess -> ACCESS
                     is ArcadeHero.Action.Select -> RECS.getOrNull(rec++) ?: continue
                 }
-                place(views, id, hit)
+                place(views, target, hit, width, height)
                 val tap = when (val action = hit.action) {
                     ArcadeHero.Action.Play -> CrimsonWidgetProvider.activity(
                         context, widgetId * CODES + CODE_PLAY,
@@ -195,16 +203,26 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
                         Intent(ACTION_SELECT).putExtra(EXTRA_COMPONENT, action.component.flattenToString()),
                     )
                 }
-                views.setOnClickPendingIntent(id, tap)
+                views.setOnClickPendingIntent(target.tap, tap)
             }
         }
 
-        private fun place(views: RemoteViews, id: Int, hit: ArcadeHero.Hit) {
-            views.setViewVisibility(id, View.VISIBLE)
-            views.setViewLayoutMargin(id, RemoteViews.MARGIN_LEFT, hit.area.left, TypedValue.COMPLEX_UNIT_DIP)
-            views.setViewLayoutMargin(id, RemoteViews.MARGIN_TOP, hit.area.top, TypedValue.COMPLEX_UNIT_DIP)
-            views.setViewLayoutWidth(id, hit.area.width(), TypedValue.COMPLEX_UNIT_DIP)
-            views.setViewLayoutHeight(id, hit.area.height(), TypedValue.COMPLEX_UNIT_DIP)
+        /**
+         * Puts a tap area over [hit], as fractions of the panel ([width] x [height] dp as drawn): the outer
+         * layout keeps the share up to the right edge, the next the part from the left edge on, and the same
+         * again down the panel. The panel image stretches to fit, so the fractions hold whatever its real size.
+         */
+        private fun place(views: RemoteViews, target: TapArea, hit: ArcadeHero.Hit, width: Float, height: Float) {
+            fun frac(v: Float, of: Float) = (v / of).coerceIn(0f, 1f)
+            val left = frac(hit.area.left, width)
+            val right = frac(hit.area.right, width).coerceAtLeast(left + 0.01f)
+            val top = frac(hit.area.top, height)
+            val bottom = frac(hit.area.bottom, height).coerceAtLeast(top + 0.01f)
+            views.setViewVisibility(target.area, View.VISIBLE)
+            views.setFloat(target.area, "setWeightSum", 1f / right)
+            views.setFloat(target.x, "setWeightSum", right / (right - left))
+            views.setFloat(target.y, "setWeightSum", 1f / bottom)
+            views.setFloat(target.yy, "setWeightSum", bottom / (bottom - top))
         }
 
         /** Redraws every Arcade, e.g. after the background slider moves or games change. */

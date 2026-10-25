@@ -41,6 +41,11 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    testOptions {
+        // Lets tests build small Android values like ComponentName, which the stub library would refuse.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {

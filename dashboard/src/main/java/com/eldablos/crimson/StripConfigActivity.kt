@@ -39,6 +39,7 @@ class StripConfigActivity : Activity() {
     private lateinit var all: List<App>
     private var shown: List<App> = emptyList()
     private lateinit var adapter: AppAdapter
+    private lateinit var header: View
     private lateinit var count: TextView
     private lateinit var nameInput: EditText
     private lateinit var preview: StripPreviewView
@@ -56,10 +57,13 @@ class StripConfigActivity : Activity() {
             return
         }
         setContentView(R.layout.activity_strip_config)
-        count = findViewById(R.id.strip_count)
-        nameInput = findViewById(R.id.strip_name_input)
+        val list = findViewById<ListView>(R.id.strip_apps)
+        header = layoutInflater.inflate(R.layout.strip_config_header, list, false)
+        list.addHeaderView(header, null, false)
+        count = header.findViewById(R.id.strip_count)
+        nameInput = header.findViewById(R.id.strip_name_input)
         nameInput.setText(StripStore.name(this, widgetId))
-        preview = findViewById(R.id.strip_preview)
+        preview = header.findViewById(R.id.strip_preview)
         // The preview's card is the strip's size on the home screen.
         val (widthDp, heightDp) = StripWidgetProvider.sizeDp(AppWidgetManager.getInstance(this), widgetId)
         preview.columns = StripWidgetProvider.columns(this, widthDp)
@@ -89,9 +93,9 @@ class StripConfigActivity : Activity() {
         })
 
         adapter = AppAdapter()
-        findViewById<ListView>(R.id.strip_apps).apply {
-            adapter = this@StripConfigActivity.adapter
-            setOnItemClickListener { _, _, position, _ -> toggle(shown[position].component) }
+        list.adapter = adapter
+        list.setOnItemClickListener { _, _, position, _ ->
+            shown.getOrNull(position - list.headerViewsCount)?.let { toggle(it.component) }
         }
         findViewById<EditText>(R.id.strip_search).addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -113,7 +117,7 @@ class StripConfigActivity : Activity() {
      */
     private fun foldWhileSearching() {
         val search = findViewById<EditText>(R.id.strip_search)
-        val folding = listOf(findViewById<View>(R.id.strip_header), findViewById<View>(R.id.strip_save))
+        val folding = listOf(header.findViewById<View>(R.id.strip_header), findViewById<View>(R.id.strip_save))
         var keyboard = false
         fun update() {
             val fold = keyboard && search.hasFocus()

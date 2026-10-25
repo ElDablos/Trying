@@ -12,83 +12,26 @@
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:paddingStart="20dp"
-        android:paddingTop="20dp"
         android:paddingEnd="20dp"
         android:paddingBottom="16dp">
 
-        <!-- Folded away while searching, so the results get the room above the keyboard. -->
-        <LinearLayout
-            android:id="@+id/strip_header"
+        <!-- The preview and name ride at the top of this list, so a big strip never squeezes the apps. -->
+        <ListView
+            android:id="@+id/strip_apps"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:divider="@null"
+            android:paddingTop="20dp"
+            android:clipToPadding="false"
+            android:scrollbars="none" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:fontFamily="serif"
-                android:gravity="center"
-                android:letterSpacing="0.35"
-                android:text="APP STRIP"
-                android:textColor="@color/crimson"
-                android:textSize="26sp"
-                android:textStyle="bold" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:layout_marginBottom="6dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:letterSpacing="0.18"
-                    android:text="PREVIEW"
-                    android:textColor="@color/dust"
-                    android:textSize="11sp" />
-
-                <TextView
-                    android:id="@+id/strip_count"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:letterSpacing="0.18"
-                    android:textAllCaps="true"
-                    android:textColor="@color/dust"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <!-- The strip as it will look. Hold an app and drag it to move it. -->
-            <com.eldablos.crimson.StripPreviewView
-                android:id="@+id/strip_preview"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <EditText
-                android:id="@+id/strip_name_input"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/input_background"
-                android:hint="Strip name (optional), e.g. SOCIAL"
-                android:imeOptions="actionDone"
-                android:inputType="textCapCharacters"
-                android:maxLength="14"
-                android:maxLines="1"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:textColor="@color/bone"
-                android:textColorHint="@color/dust"
-                android:textSize="15sp" />
-        </LinearLayout>
-
+        <!-- Search and Save stay put under the list, right above the keyboard while typing. -->
         <EditText
             android:id="@+id/strip_search"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="8dp"
             android:background="@drawable/input_background"
             android:hint="Search apps"
             android:imeOptions="actionDone"
@@ -100,20 +43,11 @@
             android:textColorHint="@color/dust"
             android:textSize="15sp" />
 
-        <ListView
-            android:id="@+id/strip_apps"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_marginTop="8dp"
-            android:layout_weight="1"
-            android:divider="@null"
-            android:scrollbars="none" />
-
         <Button
             android:id="@+id/strip_save"
             style="@style/ButtonPrimary"
             android:layout_width="match_parent"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="10dp"
             android:text="Save strip" />
     </LinearLayout>
 </FrameLayout>

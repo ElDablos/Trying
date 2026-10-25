@@ -75,8 +75,11 @@ private class StripFactory(private val context: Context, private val widgetId: I
         views.setViewLayoutMargin(R.id.strip_page_bg, RemoteViews.MARGIN_TOP, drop, TypedValue.COMPLEX_UNIT_DIP)
         views.setViewLayoutMargin(R.id.strip_page_body, RemoteViews.MARGIN_TOP, drop, TypedValue.COMPLEX_UNIT_DIP)
         // The stack only offers each card "up to" its size, so the card asks for the whole strip outright.
-        views.setViewLayoutWidth(R.id.strip_page_body, widthDp - 1, TypedValue.COMPLEX_UNIT_DIP)
-        views.setViewLayoutHeight(R.id.strip_page_body, heightDp - drop - 1, TypedValue.COMPLEX_UNIT_DIP)
+        // The background too: a lone match_parent child of an "up to" sized frame is measured at zero.
+        for (id in intArrayOf(R.id.strip_page_body, R.id.strip_page_bg)) {
+            views.setViewLayoutWidth(id, widthDp - 1, TypedValue.COMPLEX_UNIT_DIP)
+            views.setViewLayoutHeight(id, heightDp - drop - 1, TypedValue.COMPLEX_UNIT_DIP)
+        }
         val apps = pages.getOrNull(position).orEmpty()
         SLOTS.forEachIndexed { i, (slot, icon, label) ->
             val app = apps.getOrNull(i)

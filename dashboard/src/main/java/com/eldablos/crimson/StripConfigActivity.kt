@@ -26,8 +26,9 @@ import com.eldablos.crimson.OpenAppActivity.Companion.component
 
 /**
  * Picks the apps for an App Strip. Opens when the strip is added, and again from the widget's
- * long-press Settings. Tapping an app in the list adds it to the end of the strip; the preview on top
- * shows the strip and lets apps be dragged to any spot, gaps included.
+ * long-press Settings. Tapping an app in the list adds it after the last one; the preview on top shows
+ * the strip at its home screen size, with the rows that need a scroll underneath, and lets apps be
+ * dragged to any spot, gaps included.
  */
 class StripConfigActivity : Activity() {
     private class App(val component: ComponentName, val label: String)
@@ -59,9 +60,10 @@ class StripConfigActivity : Activity() {
         nameInput = findViewById(R.id.strip_name_input)
         nameInput.setText(StripStore.name(this, widgetId))
         preview = findViewById(R.id.strip_preview)
-        // Pages as wide as the strip is on the home screen.
-        val (widthDp, _) = StripWidgetProvider.sizeDp(AppWidgetManager.getInstance(this), widgetId)
+        // The preview's card is the strip's size on the home screen.
+        val (widthDp, heightDp) = StripWidgetProvider.sizeDp(AppWidgetManager.getInstance(this), widgetId)
         preview.columns = StripWidgetProvider.columns(this, widthDp)
+        preview.visibleRows = StripWidgetProvider.visibleRows(heightDp)
         pack = IconPack.load(this)
 
         val pm = packageManager
@@ -144,13 +146,11 @@ class StripConfigActivity : Activity() {
     }
 
     private fun render() {
-        val pages = (chosen.size + preview.columns - 1) / preview.columns
+        val rows = (chosen.size + preview.columns - 1) / preview.columns
         val apps = chosen.count { it != null }
         count.text = when {
             apps == 0 -> "No apps yet"
-            apps == 1 -> "1 app"
-            pages <= 1 -> "$apps apps"
-            else -> "$apps apps · $pages pages"
+            else -> "${if (apps == 1) "1 app" else "$apps apps"} · ${if (rows == 1) "1 row" else "$rows rows"}"
         }
         adapter.notifyDataSetChanged()
         preview.apps = chosen

@@ -3,6 +3,7 @@ package com.eldablos.crimson
 import android.content.ComponentName
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -15,12 +16,13 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import kotlin.math.abs
-import kotlin.math.ceil
 
 /**
- * The live preview at the top of the strip setup screen: the strip's pages as rows of six spots. Press
- * and hold an app to pick it up, then drag it to another spot (swapping with whatever is there), or onto
- * the bar underneath to take it off. Spots left empty stay empty, so apps can have gaps between them.
+ * The live preview at the top of the strip setup screen. The card is the strip as it sits on the home
+ * screen: as many apps across and rows down as fit its size. Rows that don't fit sit underneath, faded,
+ * as "scroll to see" (side by side for narrow strips, so the preview stays short). Press and hold an app
+ * to pick it up, then drag it to another spot (swapping with whatever is there), or onto the bar at the
+ * bottom to take it off. Spots left empty stay empty.
  */
 class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     /** The strip's spots, null where empty. Owned by the setup screen; this view rearranges it in place. */
@@ -36,6 +38,20 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
             invalidate()
         }
 
+    /** Apps across the strip: one per cell of its width. */
+    var columns: Int = StripStore.MAX_COLUMNS
+        set(value) {
+            field = value.coerceIn(1, StripStore.MAX_COLUMNS)
+            changed()
+        }
+
+    /** Rows showing on the home screen without scrolling: one per cell of its height. */
+    var visibleRows: Int = 1
+        set(value) {
+            field = maxOf(1, value)
+            changed()
+        }
+
     /** Looks up an app's icon and label for drawing. */
     var lookup: (ComponentName) -> Pair<Drawable?, String> = { null to it.packageName }
 
@@ -46,12 +62,16 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
     private fun dp(v: Float) = v * density
 
     private val tagSpace = dp(8f)
-    private val cardHeight = dp(78f)
-    private val cardGap = dp(10f)
-    private val padStart = dp(4f)
-    private val padEnd = dp(20f)
+    private val rowHeight = dp(74f)
+    private val hiddenRowHeight = dp(62f)
+    private val cardPad = dp(5f)
+    private val groupGap = dp(6f)
+    private val lineGap = dp(6f)
+    private val noteHeight = dp(30f)
     private val iconSize = dp(40f)
+    private val hiddenIconSize = dp(30f)
     private val zoneHeight = dp(44f)
+    private val zoneGap = dp(10f)
     private val radius = dp(22f)
 
     private val cardFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0F0A0B.toInt() }
@@ -59,6 +79,12 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         style = Paint.Style.STROKE
         strokeWidth = dp(1f)
         color = context.getColor(R.color.blood)
+    }
+    private val hiddenStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
+        color = 0x66B3001B
+        pathEffect = DashPathEffect(floatArrayOf(dp(4f), dp(4f)), 0f)
     }
     private val tagFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.void_black) }
     private val tagText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -69,18 +95,16 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
     }
     private val label = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = context.getColor(R.color.bone)
-        textSize = dp(10f)
         textAlign = Paint.Align.CENTER
     }
     private val hint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = context.getColor(R.color.dust)
         textSize = dp(12f)
         textAlign = Paint.Align.CENTER
     }
-    private val pageText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val note = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = context.getColor(R.color.dust)
-        textSize = dp(9f)
-        letterSpacing = 0.1f
+        textSize = dp(11f)
+        letterSpacing = 0.06f
         textAlign = Paint.Align.CENTER
     }
     private val zoneFill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -121,28 +145,76 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         }
     }
 
-    /** How many apps the strip shows at once: one per cell of its width. */
-    var columns: Int = StripStore.MAX_COLUMNS
-        set(value) {
-            field = value.coerceIn(1, StripStore.MAX_COLUMNS)
-            changed()
+    // --- Geometry ---
+
+    /** Every spot is the same width, a sixth of the room left once the cards' padding is taken off. */
+    private val slotWidth get() = (width - groupsPerLine * (2 * cardPad) - (groupsPerLine - 1) * groupGap) / StripStore.MAX_COLUMNS
+
+    /** Hidden rows of narrow strips sit side by side: this many per line. */
+    private val groupsPerLine get() = maxOf(1, StripStore.MAX_COLUMNS / columns)
+
+    private val usedRows get() = (apps.size + columns - 1) / columns
+
+    // While dragging, an extra empty row appears (up to the limit) so an app can be moved onto it.
+    private val rows get() = maxOf(
+        visibleRows,
+        if (dragged != null) minOf(usedRows + 1, StripStore.MAX_SPOTS / columns) else usedRows,
+    )
+    private val hiddenRows get() = rows - visibleRows
+    private val hiddenLines get() = (hiddenRows + groupsPerLine - 1) / groupsPerLine
+
+    private val cardWidth get() = columns * slotWidth + 2 * cardPad
+    private val cardLeft get() = (width - cardWidth) / 2
+    private val cardTop get() = tagSpace
+    private val cardBottom get() = cardTop + visibleRows * rowHeight
+    private val hiddenTop get() = cardBottom + noteHeight
+    private val contentBottom get() = if (hiddenRows > 0) hiddenTop + hiddenLines * (hiddenRowHeight + lineGap) - lineGap else cardBottom
+    private val zoneTop get() = contentBottom + zoneGap
+
+    /** The box around a hidden row. Each line of them is centred under the card. */
+    private fun hiddenBox(hidden: Int, out: RectF) {
+        val line = hidden / groupsPerLine
+        val inLine = minOf(groupsPerLine, hiddenRows - line * groupsPerLine)
+        val lineWidth = inLine * cardWidth + (inLine - 1) * groupGap
+        val left = (width - lineWidth) / 2 + (hidden % groupsPerLine) * (cardWidth + groupGap)
+        val top = hiddenTop + line * (hiddenRowHeight + lineGap)
+        out.set(left, top, left + cardWidth, top + hiddenRowHeight)
+    }
+
+    private class Spot(val cx: Float, val top: Float, val icon: Float, val hidden: Boolean)
+
+    private fun spot(i: Int): Spot {
+        val row = i / columns
+        val col = i % columns
+        if (row < visibleRows) {
+            val cx = cardLeft + cardPad + slotWidth * (col + 0.5f)
+            val top = cardTop + row * rowHeight + (rowHeight - icon(false) - dp(14f)) / 2
+            return Spot(cx, top, icon(false), false)
         }
+        hiddenBox(row - visibleRows, rect)
+        val cx = rect.left + cardPad + slotWidth * (col + 0.5f)
+        val top = rect.top + (hiddenRowHeight - icon(true) - dp(12f)) / 2
+        return Spot(cx, top, icon(true), true)
+    }
 
-    // Narrow strips' pages sit side by side, so the preview stays about as tall as a full-width one.
-    private val perRow get() = maxOf(1, StripStore.MAX_COLUMNS / columns)
-    private val usedPages get() = maxOf(1, ceil(apps.size / columns.toFloat()).toInt())
+    private fun icon(hidden: Boolean) = minOf(if (hidden) hiddenIconSize else iconSize, slotWidth - dp(8f))
 
-    // While dragging, an extra empty page appears (up to the limit) so an app can be moved onto it.
-    private val pages get() =
-        if (dragged != null) minOf(usedPages + 1, StripStore.MAX_SPOTS / columns) else usedPages
-    private val rows get() = (pages + perRow - 1) / perRow
-    private val cardsBottom get() = tagSpace + rows * cardHeight + (rows - 1) * cardGap
-    private val cardWidth get() = (width - cardGap * (perRow - 1)) / perRow
-    private val pageLabels get() = perRow == 1 && pages > 1
-    private val slotWidth get() = (cardWidth - padStart - (if (pageLabels) padEnd else padStart)) / columns
-    private val drawnIcon get() = minOf(iconSize, slotWidth - dp(6f))
-
-    private fun cardLeft(page: Int) = (page % perRow) * (cardWidth + cardGap)
+    /** The spot under a point, or -1 when it's not over one. */
+    private fun slotAt(x: Float, y: Float): Int {
+        if (y in cardTop..cardBottom && x in cardLeft..cardLeft + cardWidth) {
+            val row = ((y - cardTop) / rowHeight).toInt().coerceIn(0, visibleRows - 1)
+            val col = ((x - cardLeft - cardPad) / slotWidth).toInt().coerceIn(0, columns - 1)
+            return row * columns + col
+        }
+        for (hidden in 0 until hiddenRows) {
+            hiddenBox(hidden, rect)
+            if (rect.contains(x, y)) {
+                val col = ((x - rect.left - cardPad) / slotWidth).toInt().coerceIn(0, columns - 1)
+                return (visibleRows + hidden) * columns + col
+            }
+        }
+        return -1
+    }
 
     private fun changed() {
         requestLayout()
@@ -150,14 +222,14 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val height = cardsBottom + dp(8f) + zoneHeight
+        val height = zoneTop + zoneHeight
         setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), resolveSize(height.toInt(), heightMeasureSpec))
     }
 
     /** What's drawn where: the dragged app swapped into the spot it's over, or gone when over the bar. */
     private fun shown(): List<ComponentName?> {
         val app = dragged ?: return apps
-        val spots = MutableList(pages * columns) { apps.getOrNull(it) }
+        val spots = MutableList(rows * columns) { apps.getOrNull(it) }
         if (overRemove) {
             spots[from] = null
         } else if (target >= 0) {
@@ -167,54 +239,55 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         return spots
     }
 
-    private fun cardTop(row: Int) = tagSpace + row * (cardHeight + cardGap)
+    // --- Drawing ---
 
     override fun onDraw(canvas: Canvas) {
-        // Cards, one per page.
-        for (page in 0 until pages) {
-            val top = cardTop(page / perRow)
-            val left = cardLeft(page)
-            rect.set(left + dp(0.5f), top, left + cardWidth - dp(0.5f), top + cardHeight)
-            canvas.drawRoundRect(rect, radius, radius, cardFill)
-            canvas.drawRoundRect(rect, radius, radius, cardStroke)
-            if (pageLabels) {
-                canvas.save()
-                canvas.rotate(90f, width - dp(10f), top + cardHeight / 2)
-                canvas.drawText("PAGE ${page + 1}", width - dp(10f), top + cardHeight / 2 + dp(3f), pageText)
-                canvas.restore()
-            }
-        }
+        // The strip as it sits on the home screen.
+        rect.set(cardLeft, cardTop, cardLeft + cardWidth, cardBottom)
+        canvas.drawRoundRect(rect, radius, radius, cardFill)
+        canvas.drawRoundRect(rect, radius, radius, cardStroke)
 
-        // The name tag on the first card's top edge.
+        // Its name tag on the top edge.
         if (name.isNotEmpty()) {
             val textWidth = tagText.measureText(name)
-            rect.set(dp(18f), 0f, dp(18f) + textWidth + dp(16f), tagSpace * 2)
+            rect.set(cardLeft + dp(14f), 0f, cardLeft + dp(14f) + textWidth + dp(16f), tagSpace * 2)
             canvas.drawRoundRect(rect, dp(8f), dp(8f), tagFill)
             canvas.drawRoundRect(rect, dp(8f), dp(8f), cardStroke)
             canvas.drawText(name, rect.left + dp(8f), rect.centerY() + dp(3f), tagText)
         }
 
-        // The apps.
-        val spots = shown()
-        val icon = drawnIcon
-        for (i in 0 until pages * columns) {
-            val app = spots.getOrNull(i)
-            val (cx, top) = slotCenter(i)
-            if (app == null) {
-                // A faint ring marks an empty spot.
-                rect.set(cx - icon / 2, top, cx + icon / 2, top + icon)
-                canvas.drawRoundRect(rect, dp(10f), dp(10f), gap)
-            } else if (app == dragged) {
-                // An outline marks the spot where the dragged app will land.
-                rect.set(cx - slotWidth / 2 + dp(2f), top - dp(4f), cx + slotWidth / 2 - dp(2f), top + icon + dp(18f))
-                canvas.drawRoundRect(rect, dp(12f), dp(12f), glow)
-            } else {
-                drawApp(canvas, app, cx, top, 1f)
+        // The rows that need a scroll to reach, under a note saying so.
+        if (hiddenRows > 0) {
+            val text = if (hiddenRows == 1) "▼  1 more row · scroll the strip to see it"
+            else "▼  $hiddenRows more rows · scroll the strip to see them"
+            canvas.drawText(text, width / 2f, cardBottom + noteHeight / 2 + dp(4f), note)
+            for (hidden in 0 until hiddenRows) {
+                hiddenBox(hidden, rect)
+                canvas.drawRoundRect(rect, dp(16f), dp(16f), hiddenStroke)
             }
         }
 
-        // The bar underneath: a hint, or the place to drop an app to remove it.
-        val zoneTop = cardsBottom + dp(8f)
+        // The apps, faded where they're out of view.
+        val spots = shown()
+        for (i in 0 until rows * columns) {
+            val app = spots.getOrNull(i)
+            val s = spot(i)
+            when {
+                app == null -> {
+                    // A faint ring marks an empty spot.
+                    rect.set(s.cx - s.icon / 2, s.top, s.cx + s.icon / 2, s.top + s.icon)
+                    canvas.drawRoundRect(rect, dp(9f), dp(9f), gap)
+                }
+                app == dragged -> {
+                    // An outline marks the spot where the dragged app will land.
+                    rect.set(s.cx - slotWidth / 2 + dp(2f), s.top - dp(4f), s.cx + slotWidth / 2 - dp(2f), s.top + s.icon + dp(18f))
+                    canvas.drawRoundRect(rect, dp(12f), dp(12f), glow)
+                }
+                else -> drawApp(canvas, app, s.cx, s.top, s.icon, if (s.hidden) HIDDEN_ALPHA else 255)
+            }
+        }
+
+        // The bar at the bottom: a hint, or the place to drop an app to remove it.
         rect.set(0f, zoneTop, width.toFloat(), zoneTop + zoneHeight)
         if (dragged != null) {
             zoneFill.color = if (overRemove) context.getColor(R.color.blood) else 0x33B3001B
@@ -229,37 +302,25 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         }
 
         // The picked-up app follows the finger, a little larger.
-        dragged?.let { drawApp(canvas, it, dragX, dragY - drawnIcon * 0.75f, 1.2f) }
+        dragged?.let { drawApp(canvas, it, dragX, dragY - iconSize * 0.9f, iconSize * 1.2f, 255) }
     }
 
-    /** Centre x and icon top of slot [i]. */
-    private fun slotCenter(i: Int): Pair<Float, Float> {
-        val page = i / columns
-        val cx = cardLeft(page) + padStart + slotWidth * (i % columns + 0.5f)
-        val top = cardTop(page / perRow) + (cardHeight - drawnIcon - dp(14f)) / 2
-        return cx to top
-    }
-
-    private fun drawApp(canvas: Canvas, app: ComponentName, cx: Float, top: Float, scale: Float) {
+    private fun drawApp(canvas: Canvas, app: ComponentName, cx: Float, top: Float, size: Float, alpha: Int) {
         val (icon, text) = lookup(app)
-        val size = drawnIcon * scale
         icon?.let {
             it.setBounds((cx - size / 2).toInt(), top.toInt(), (cx + size / 2).toInt(), (top + size).toInt())
+            it.alpha = alpha
             it.draw(canvas)
+            it.alpha = 255
         }
+        label.textSize = if (size < iconSize) dp(9f) else dp(10f)
+        label.alpha = alpha
         val shortened = TextUtils.ellipsize(text, label, slotWidth - dp(4f), TextUtils.TruncateAt.END)
-        canvas.drawText(shortened, 0, shortened.length, cx, top + size + dp(12f), label)
+        canvas.drawText(shortened, 0, shortened.length, cx, top + size + dp(11f), label)
+        label.alpha = 255
     }
 
-    /** The spot under a point, or -1 when it's not over one. */
-    private fun slotAt(x: Float, y: Float): Int {
-        if (y < tagSpace || y > cardsBottom) return -1
-        val row = ((y - tagSpace) / (cardHeight + cardGap)).toInt().coerceIn(0, rows - 1)
-        val page = row * perRow + (x / (cardWidth + cardGap)).toInt().coerceIn(0, perRow - 1)
-        if (page >= pages) return -1
-        val col = ((x - cardLeft(page) - padStart) / slotWidth).toInt().coerceIn(0, columns - 1)
-        return page * columns + col
-    }
+    // --- Touch ---
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
@@ -278,17 +339,14 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
                 }
                 dragX = event.x
                 dragY = event.y
-                overRemove = event.y > cardsBottom + dp(4f)
-                if (!overRemove) {
-                    slotAt(event.x, event.y.coerceIn(tagSpace, cardsBottom - 1)).takeIf { it >= 0 }?.let { target = it }
-                }
+                overRemove = event.y > zoneTop - dp(4f)
+                if (!overRemove) slotAt(event.x, event.y).takeIf { it >= 0 }?.let { target = it }
                 invalidate()
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 removeCallbacks(pickUp)
-                val app = dragged
-                if (app != null && event.actionMasked == MotionEvent.ACTION_UP) {
+                if (dragged != null && event.actionMasked == MotionEvent.ACTION_UP) {
                     val spots = StripStore.trim(shown())
                     apps.clear()
                     apps.addAll(spots)
@@ -304,5 +362,10 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
             }
         }
         return super.onTouchEvent(event)
+    }
+
+    private companion object {
+        /** Apps out of view on the home screen are drawn faded. */
+        const val HIDDEN_ALPHA = 120
     }
 }

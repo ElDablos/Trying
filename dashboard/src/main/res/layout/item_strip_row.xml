@@ -1,18 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One page of the App Strip: up to six apps, with page dots down the right edge. Its height is set in code. -->
+<!-- One row of the App Strip: up to six apps. Its height is set in code. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/strip_page"
+    android:id="@+id/strip_row"
     android:layout_width="match_parent"
     android:layout_height="80dp">
 
-
     <LinearLayout
-        android:id="@+id/strip_page_body"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="horizontal"
         android:paddingStart="6dp"
-        android:paddingEnd="20dp">
+        android:paddingEnd="10dp">
 
         <LinearLayout
             android:id="@+id/strip_slot_1"
@@ -176,67 +174,4 @@
                 android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/strip_dots"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end|center_vertical"
-        android:layout_marginEnd="9dp"
-        android:gravity="center_horizontal"
-        android:orientation="vertical">
-
-        <ImageView
-            android:id="@+id/strip_dot_1"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:layout_marginBottom="2dp"
-            android:src="@drawable/strip_dot_off" />
-
-        <ImageView
-            android:id="@+id/strip_dot_2"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:layout_marginBottom="2dp"
-            android:src="@drawable/strip_dot_off" />
-
-        <ImageView
-            android:id="@+id/strip_dot_3"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:layout_marginBottom="2dp"
-            android:src="@drawable/strip_dot_off" />
-
-        <ImageView
-            android:id="@+id/strip_dot_4"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:layout_marginBottom="2dp"
-            android:src="@drawable/strip_dot_off" />
-
-        <ImageView
-            android:id="@+id/strip_dot_5"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:layout_marginBottom="2dp"
-            android:src="@drawable/strip_dot_off" />
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/strip_page_count"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end|center_vertical"
-        android:layout_marginEnd="6dp"
-        android:gravity="center"
-        android:includeFontPadding="false"
-        android:lineSpacingExtra="1dp"
-        android:textColor="@color/dust"
-        android:textSize="9sp"
-        android:visibility="gone" />
 </FrameLayout>

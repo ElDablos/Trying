@@ -4,7 +4,7 @@
     <string name="glance_name">Crimson Glance</string>
     <string name="glance_description">Weather, steps, Buds battery and next alarm in one slim row</string>
     <string name="strip_name">Crimson App Strip</string>
-    <string name="strip_description">A row of apps, 1 to 6 wide. Swipe up or down for more</string>
+    <string name="strip_description">A folder of apps. Resize it to show more; scroll for the rest</string>
     <string name="buds_default_name">Galaxy Buds</string>
     <string name="buds_channel_name">Earbuds connection</string>
     <string name="buds_connecting">Connecting…</string>

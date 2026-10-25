@@ -15,8 +15,8 @@ import android.widget.RemoteViews
 import kotlin.math.roundToInt
 
 /**
- * Crimson App Strip: a row of apps that works like a folder. It shows one app per cell of its width;
- * scroll the strip up or down for the next page.
+ * Crimson App Strip: a folder of apps in rows. It shows one app per cell of its width and one row per
+ * cell of its height; scroll it up or down for the rows that don't fit.
  */
 class StripWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -69,10 +69,15 @@ class StripWidgetProvider : AppWidgetProvider() {
         }
 
         private const val NAME_DROP_DP = 7f
+        // Roughly one home screen row, for counting how many rows a strip is tall.
+        private const val ROW_DP = 88f
         // Keeps the name readable over the wallpaper even when the background is see-through.
         private const val MIN_TAG_ALPHA = 200
         private const val DEFAULT_WIDTH_DP = 380f
         private const val DEFAULT_HEIGHT_DP = 80f
+
+        /** How many rows of apps show at once in a strip [heightDp] tall: about one per home screen row. */
+        internal fun visibleRows(heightDp: Float): Int = maxOf(1, (heightDp / ROW_DP).roundToInt())
 
         /** How far the card sits below the strip's top edge: room for half the name tag, if there is one. */
         internal fun nameDropDp(name: String) = if (name.isEmpty()) 0f else NAME_DROP_DP

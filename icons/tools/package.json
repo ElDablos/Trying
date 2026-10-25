@@ -1,0 +1,12 @@
+{
+  "name": "crimson-icons-tools",
+  "private": true,
+  "description": "Generates the Crimson Icons PNGs and appfilter from icons.js",
+  "scripts": {
+    "generate": "node generate.js"
+  },
+  "dependencies": {
+    "@mdi/svg": "7.4.47",
+    "simple-icons": "16.33.0"
+  }
+}

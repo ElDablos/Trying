@@ -36,6 +36,7 @@ object Arcade {
 
     const val STATS_DAYS = 14
     private const val PLAYTIME_WEIGHT = 0.6f
+    private const val LAST_PLAYED_DAYS = 365L
     private val NEW_FOR = TimeUnit.DAYS.toMillis(7)
     private const val CRIMSON = 0xFFE01E37.toInt()
 
@@ -121,6 +122,18 @@ object Arcade {
             stats[game.component.packageName]
                 ?.takeIf { it.totalTimeInForeground > 0 }
                 ?.let { game.component.packageName to Played(game, it.totalTimeInForeground, it.lastTimeUsed) }
+        }.toMap()
+    }
+
+    /** When each game was last played, looking back up to a year; empty without usage access. */
+    fun lastPlayed(context: Context, games: List<Game>): Map<String, Long> {
+        if (!hasUsageAccess(context)) return emptyMap()
+        val now = System.currentTimeMillis()
+        val stats = context.getSystemService(UsageStatsManager::class.java)
+            ?.queryAndAggregateUsageStats(now - TimeUnit.DAYS.toMillis(LAST_PLAYED_DAYS), now)
+            .orEmpty()
+        return games.mapNotNull { game ->
+            stats[game.component.packageName]?.lastTimeUsed?.takeIf { it > 0 }?.let { game.component.packageName to it }
         }.toMap()
     }
 

@@ -161,6 +161,7 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
             val scene = ArcadeHero.Scene(
                 selected = selected?.let(::tile),
                 played = selected?.let { stats[it.component.packageName] },
+                lastPlayed = selected?.let { Arcade.lastPlayed(context, listOf(it))[it.component.packageName] },
                 rank = selected?.let { game -> ranked.indexOfFirst { it.game == game }.takeIf { it >= 0 }?.plus(1) },
                 longest = ranked.firstOrNull()?.millis ?: 0,
                 recommended = recommended.map(::tile),

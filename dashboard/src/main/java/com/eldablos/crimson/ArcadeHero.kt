@@ -39,10 +39,14 @@ object ArcadeHero {
 
     class Tile(val game: Arcade.Game, val icon: Bitmap?, val accent: Int)
 
-    /** What the panel shows. [played] is null when the game hasn't been played (or stats are off). */
+    /**
+     * What the panel shows. [played] is null when the game wasn't played in the stats window (or stats are
+     * off); [lastPlayed] looks further back.
+     */
     class Scene(
         val selected: Tile?,
         val played: Arcade.Played?,
+        val lastPlayed: Long?,
         val rank: Int?,
         val longest: Long,
         val recommended: List<Tile>,
@@ -55,6 +59,7 @@ object ArcadeHero {
     private const val BONE = 0xFFE8DCDC.toInt()
     private const val DUST = 0xFF9A8A8C.toInt()
     private const val MAX_SCALE = 2f
+    private const val MIN_TITLE = 12f
     private val DAY = java.util.concurrent.TimeUnit.DAYS.toMillis(1)
 
     fun draw(widthDp: Float, heightDp: Float, density: Float, scene: Scene): Art {
@@ -147,11 +152,10 @@ object ArcadeHero {
                 color = BONE
                 setShadowLayer(10f, 0f, 0f, withAlpha(accent, 0x88))
             }
-            iy += 4f
-            for (line in titleLines(selected.game.label.uppercase(), title, iw, min(26f, h * 0.095f))) {
-                iy += title.textSize * 1.02f
-                canvas.drawText(line, ix, iy, title)
-            }
+            // One line, shrunk to fit, so a long name never moves anything else.
+            val name = fitTitle(selected.game.label.uppercase(), title, iw, min(26f, h * 0.095f))
+            iy += 4f + min(26f, h * 0.095f) * 1.02f
+            canvas.drawText(name, ix, iy, title)
             iy += 9f
             val boxW = (iw - 12f) / 3
             val boxH = 30f
@@ -159,7 +163,7 @@ object ArcadeHero {
             val played = scene.played
             val boxes = listOf(
                 Triple(
-                    played?.let { Arcade.playtime(it.millis) } ?: "—",
+                    played?.let { Arcade.playtime(it.millis) } ?: if (scene.stats) "0M" else "—",
                     "PLAYED · ${Arcade.STATS_DAYS}D",
                     played?.let { it.millis.toFloat() / scene.longest.coerceAtLeast(1) } ?: 0f,
                 ),
@@ -168,8 +172,9 @@ object ArcadeHero {
                     "RANK",
                     scene.rank?.let { 1f - (it - 1f) / scene.games.coerceAtLeast(1) } ?: 0f,
                 ),
-                if (played != null) {
-                    Triple(Arcade.ago(played.lastUsed, now).removeSuffix(" AGO"), "LAST PLAYED", 1f - (now - played.lastUsed).toFloat() / (Arcade.STATS_DAYS * DAY))
+                if (scene.lastPlayed != null) {
+                    val last = scene.lastPlayed
+                    Triple(Arcade.ago(last, now).removeSuffix(" AGO"), "LAST PLAYED", 1f - (now - last).toFloat() / (Arcade.STATS_DAYS * DAY))
                 } else {
                     Triple(installed(selected.game.installed), "INSTALLED", 0f)
                 },
@@ -328,22 +333,15 @@ object ArcadeHero {
     private fun installed(time: Long): String =
         if (time <= 0) "—" else SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(time)).uppercase()
 
-    /** Splits a title into one or two lines at the largest size up to [maxSize] that fits [width]. */
-    private fun titleLines(title: String, paint: TextPaint, width: Float, maxSize: Float): List<String> {
+    /** The title on one line: at [maxSize] if it fits [width], smaller if not, and cut short as a last resort. */
+    private fun fitTitle(title: String, paint: TextPaint, width: Float, maxSize: Float): String {
         var size = maxSize
-        while (size > 10f) {
+        paint.textSize = size
+        while (size > MIN_TITLE && paint.measureText(title) > width) {
+            size -= 0.5f
             paint.textSize = size
-            if (paint.measureText(title) <= width) return listOf(title)
-            val words = title.split(' ')
-            for (split in words.size - 1 downTo 1) {
-                val first = words.take(split).joinToString(" ")
-                val second = words.drop(split).joinToString(" ")
-                if (paint.measureText(first) <= width && paint.measureText(second) <= width) return listOf(first, second)
-            }
-            size -= 1f
         }
-        paint.textSize = 10f
-        return listOf(fit(title, paint, width))
+        return fit(title, paint, width)
     }
 
     private fun fit(text: String, paint: TextPaint, width: Float): String =

@@ -24,6 +24,7 @@ private class StripFactory(private val context: Context, private val widgetId: I
     private var widthDp = 0f
     private var heightDp = 0f
     private var iconDp = 0f
+    private var columns = StripStore.MAX_COLUMNS
 
     override fun onCreate() {}
 
@@ -34,9 +35,12 @@ private class StripFactory(private val context: Context, private val widgetId: I
             widthDp = w
             heightDp = h
         }
-        // Icons as big as the strip's height allows, after the name tag and the label under them.
+        columns = StripWidgetProvider.columns(context, widthDp)
+        // Icons as big as the strip's height allows, after the name tag and the label under them, and
+        // no wider than their share of the strip.
         val drop = if (name.isNotEmpty()) NAME_DROP_DP else 0f
-        iconDp = (heightDp - drop - LABEL_SPACE_DP).coerceIn(MIN_ICON_DP, MAX_ICON_DP)
+        val slotDp = (widthDp - SIDE_PADDING_DP) / columns
+        iconDp = minOf(heightDp - drop - LABEL_SPACE_DP, slotDp - SLOT_MARGIN_DP).coerceIn(MIN_ICON_DP, MAX_ICON_DP)
         val pack = IconPack.load(context)
         val size = (iconDp * context.resources.displayMetrics.density).toInt().coerceAtMost(MAX_ICON_PX)
         pages = StripStore.spots(context, widgetId)
@@ -50,7 +54,7 @@ private class StripFactory(private val context: Context, private val widgetId: I
                 }
                 App(component, info.loadLabel(pm).toString(), pack.icon(context, component, size))
             }
-            .chunked(StripStore.PAGE_SIZE)
+            .chunked(columns)
             // A page with nothing left on it would be a blank card.
             .filter { page -> page.any { it != null } }
     }
@@ -82,6 +86,10 @@ private class StripFactory(private val context: Context, private val widgetId: I
         }
         val apps = pages.getOrNull(position).orEmpty()
         SLOTS.forEachIndexed { i, (slot, icon, label) ->
+            if (i >= columns) {
+                views.setViewVisibility(slot, View.GONE)
+                return@forEachIndexed
+            }
             val app = apps.getOrNull(i)
             if (app == null) {
                 views.setViewVisibility(slot, View.INVISIBLE)
@@ -95,8 +103,12 @@ private class StripFactory(private val context: Context, private val widgetId: I
             views.setOnClickFillInIntent(slot, OpenAppActivity.fillIn(app.component))
         }
 
-        // Page dots down the right edge; none when everything fits on one card.
-        views.setViewVisibility(R.id.strip_dots, if (pages.size > 1) View.VISIBLE else View.GONE)
+        // Page dots down the right edge; none when everything fits on one card, and a "2/9" count when
+        // there are more pages than dots (narrow strips can have many).
+        val counted = pages.size > DOTS.size
+        views.setViewVisibility(R.id.strip_dots, if (pages.size > 1 && !counted) View.VISIBLE else View.GONE)
+        views.setViewVisibility(R.id.strip_page_count, if (counted) View.VISIBLE else View.GONE)
+        if (counted) views.setTextViewText(R.id.strip_page_count, "${position + 1}\n${pages.size}")
         DOTS.forEachIndexed { i, dot ->
             views.setViewVisibility(dot, if (i < pages.size) View.VISIBLE else View.GONE)
             views.setImageViewResource(dot, if (i == position) R.drawable.strip_dot_on else R.drawable.strip_dot_off)
@@ -116,6 +128,9 @@ private class StripFactory(private val context: Context, private val widgetId: I
         private const val MIN_ICON_DP = 32f
         private const val MAX_ICON_DP = 58f
         private const val LABEL_SPACE_DP = 24f
+        // The card's padding either side of the apps, and room around each icon.
+        private const val SIDE_PADDING_DP = 26f
+        private const val SLOT_MARGIN_DP = 8f
         // Keeps each card well under the size a widget update may carry.
         private const val MAX_ICON_PX = 168
         private const val NAME_DROP_DP = 7f

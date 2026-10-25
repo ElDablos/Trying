@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.util.SizeF
 import android.util.TypedValue
 import android.widget.RemoteViews
+import kotlin.math.roundToInt
 
 /**
  * Crimson App Strip: a 6x1 row of apps that works like a folder. Six show at a time; swipe the strip
@@ -76,6 +77,16 @@ class StripWidgetProvider : AppWidgetProvider() {
             val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 }?.toFloat() ?: DEFAULT_WIDTH_DP
             val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 }?.toFloat() ?: DEFAULT_HEIGHT_DP
             return width to height
+        }
+
+        /**
+         * How many apps fit across a strip [widthDp] wide: one per home screen cell, judged against a
+         * six-column grid on the phone's portrait width.
+         */
+        internal fun columns(context: Context, widthDp: Float): Int {
+            val metrics = context.resources.displayMetrics
+            val cellDp = minOf(metrics.widthPixels, metrics.heightPixels) / metrics.density / StripStore.MAX_COLUMNS
+            return (widthDp / cellDp).roundToInt().coerceIn(1, StripStore.MAX_COLUMNS)
         }
 
         /** Redraws every strip, e.g. after the background slider moves. */

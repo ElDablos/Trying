@@ -232,6 +232,19 @@
             android:src="@drawable/strip_dot_off" />
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/strip_page_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="6dp"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:lineSpacingExtra="1dp"
+        android:textColor="@color/dust"
+        android:textSize="9sp"
+        android:visibility="gone" />
+
     <!-- The strip's name, as a small tag on the top-left edge. -->
     <FrameLayout
         android:id="@+id/strip_name"

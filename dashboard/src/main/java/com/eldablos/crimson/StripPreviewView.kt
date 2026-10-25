@@ -121,13 +121,28 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         }
     }
 
-    private val usedRows get() = maxOf(1, ceil(apps.size / StripStore.PAGE_SIZE.toFloat()).toInt())
+    /** How many apps the strip shows at once: one per cell of its width. */
+    var columns: Int = StripStore.MAX_COLUMNS
+        set(value) {
+            field = value.coerceIn(1, StripStore.MAX_COLUMNS)
+            changed()
+        }
+
+    // Narrow strips' pages sit side by side, so the preview stays about as tall as a full-width one.
+    private val perRow get() = maxOf(1, StripStore.MAX_COLUMNS / columns)
+    private val usedPages get() = maxOf(1, ceil(apps.size / columns.toFloat()).toInt())
 
     // While dragging, an extra empty page appears (up to the limit) so an app can be moved onto it.
-    private val rows get() =
-        if (dragged != null) minOf(usedRows + 1, StripStore.MAX_SPOTS / StripStore.PAGE_SIZE) else usedRows
+    private val pages get() =
+        if (dragged != null) minOf(usedPages + 1, StripStore.MAX_SPOTS / columns) else usedPages
+    private val rows get() = (pages + perRow - 1) / perRow
     private val cardsBottom get() = tagSpace + rows * cardHeight + (rows - 1) * cardGap
-    private val slotWidth get() = (width - padStart - padEnd) / StripStore.PAGE_SIZE
+    private val cardWidth get() = (width - cardGap * (perRow - 1)) / perRow
+    private val pageLabels get() = perRow == 1 && pages > 1
+    private val slotWidth get() = (cardWidth - padStart - (if (pageLabels) padEnd else padStart)) / columns
+    private val drawnIcon get() = minOf(iconSize, slotWidth - dp(6f))
+
+    private fun cardLeft(page: Int) = (page % perRow) * (cardWidth + cardGap)
 
     private fun changed() {
         requestLayout()
@@ -142,7 +157,7 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
     /** What's drawn where: the dragged app swapped into the spot it's over, or gone when over the bar. */
     private fun shown(): List<ComponentName?> {
         val app = dragged ?: return apps
-        val spots = MutableList(rows * StripStore.PAGE_SIZE) { apps.getOrNull(it) }
+        val spots = MutableList(pages * columns) { apps.getOrNull(it) }
         if (overRemove) {
             spots[from] = null
         } else if (target >= 0) {
@@ -156,15 +171,16 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
 
     override fun onDraw(canvas: Canvas) {
         // Cards, one per page.
-        for (row in 0 until rows) {
-            val top = cardTop(row)
-            rect.set(dp(0.5f), top, width - dp(0.5f), top + cardHeight)
+        for (page in 0 until pages) {
+            val top = cardTop(page / perRow)
+            val left = cardLeft(page)
+            rect.set(left + dp(0.5f), top, left + cardWidth - dp(0.5f), top + cardHeight)
             canvas.drawRoundRect(rect, radius, radius, cardFill)
             canvas.drawRoundRect(rect, radius, radius, cardStroke)
-            if (rows > 1) {
+            if (pageLabels) {
                 canvas.save()
                 canvas.rotate(90f, width - dp(10f), top + cardHeight / 2)
-                canvas.drawText("PAGE ${row + 1}", width - dp(10f), top + cardHeight / 2 + dp(3f), pageText)
+                canvas.drawText("PAGE ${page + 1}", width - dp(10f), top + cardHeight / 2 + dp(3f), pageText)
                 canvas.restore()
             }
         }
@@ -180,16 +196,17 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
 
         // The apps.
         val spots = shown()
-        for (i in 0 until rows * StripStore.PAGE_SIZE) {
+        val icon = drawnIcon
+        for (i in 0 until pages * columns) {
             val app = spots.getOrNull(i)
             val (cx, top) = slotCenter(i)
             if (app == null) {
                 // A faint ring marks an empty spot.
-                rect.set(cx - iconSize / 2, top, cx + iconSize / 2, top + iconSize)
+                rect.set(cx - icon / 2, top, cx + icon / 2, top + icon)
                 canvas.drawRoundRect(rect, dp(10f), dp(10f), gap)
             } else if (app == dragged) {
                 // An outline marks the spot where the dragged app will land.
-                rect.set(cx - slotWidth / 2 + dp(2f), top - dp(4f), cx + slotWidth / 2 - dp(2f), top + iconSize + dp(18f))
+                rect.set(cx - slotWidth / 2 + dp(2f), top - dp(4f), cx + slotWidth / 2 - dp(2f), top + icon + dp(18f))
                 canvas.drawRoundRect(rect, dp(12f), dp(12f), glow)
             } else {
                 drawApp(canvas, app, cx, top, 1f)
@@ -212,21 +229,20 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         }
 
         // The picked-up app follows the finger, a little larger.
-        dragged?.let { drawApp(canvas, it, dragX, dragY - iconSize * 0.75f, 1.2f) }
+        dragged?.let { drawApp(canvas, it, dragX, dragY - drawnIcon * 0.75f, 1.2f) }
     }
 
     /** Centre x and icon top of slot [i]. */
     private fun slotCenter(i: Int): Pair<Float, Float> {
-        val row = i / StripStore.PAGE_SIZE
-        val col = i % StripStore.PAGE_SIZE
-        val cx = padStart + slotWidth * (col + 0.5f)
-        val top = cardTop(row) + (cardHeight - iconSize - dp(14f)) / 2
+        val page = i / columns
+        val cx = cardLeft(page) + padStart + slotWidth * (i % columns + 0.5f)
+        val top = cardTop(page / perRow) + (cardHeight - drawnIcon - dp(14f)) / 2
         return cx to top
     }
 
     private fun drawApp(canvas: Canvas, app: ComponentName, cx: Float, top: Float, scale: Float) {
         val (icon, text) = lookup(app)
-        val size = iconSize * scale
+        val size = drawnIcon * scale
         icon?.let {
             it.setBounds((cx - size / 2).toInt(), top.toInt(), (cx + size / 2).toInt(), (top + size).toInt())
             it.draw(canvas)
@@ -235,12 +251,14 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         canvas.drawText(shortened, 0, shortened.length, cx, top + size + dp(12f), label)
     }
 
-    /** The slot under a point, or -1 when it's not over an app. */
+    /** The spot under a point, or -1 when it's not over one. */
     private fun slotAt(x: Float, y: Float): Int {
         if (y < tagSpace || y > cardsBottom) return -1
         val row = ((y - tagSpace) / (cardHeight + cardGap)).toInt().coerceIn(0, rows - 1)
-        val col = ((x - padStart) / slotWidth).toInt().coerceIn(0, StripStore.PAGE_SIZE - 1)
-        return row * StripStore.PAGE_SIZE + col
+        val page = row * perRow + (x / (cardWidth + cardGap)).toInt().coerceIn(0, perRow - 1)
+        if (page >= pages) return -1
+        val col = ((x - cardLeft(page) - padStart) / slotWidth).toInt().coerceIn(0, columns - 1)
+        return page * columns + col
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

@@ -58,6 +58,9 @@ class StripConfigActivity : Activity() {
         nameInput = findViewById(R.id.strip_name_input)
         nameInput.setText(StripStore.name(this, widgetId))
         preview = findViewById(R.id.strip_preview)
+        // Pages as wide as the strip is on the home screen.
+        val (widthDp, _) = StripWidgetProvider.sizeDp(AppWidgetManager.getInstance(this), widgetId)
+        preview.columns = StripWidgetProvider.columns(this, widthDp)
         pack = IconPack.load(this)
 
         val pm = packageManager
@@ -119,7 +122,7 @@ class StripConfigActivity : Activity() {
     }
 
     private fun render() {
-        val pages = (chosen.size + StripStore.PAGE_SIZE - 1) / StripStore.PAGE_SIZE
+        val pages = (chosen.size + preview.columns - 1) / preview.columns
         val apps = chosen.count { it != null }
         count.text = when {
             apps == 0 -> "No apps yet"

@@ -8,9 +8,11 @@ import android.content.Context
  * strip on the home screen has its own list.
  */
 object StripStore {
-    /** Five pages of six. */
+    /** Five pages of a full-width strip. */
     const val MAX_SPOTS = 30
-    const val PAGE_SIZE = 6
+
+    /** A full-width strip shows six apps; narrower ones show one per cell of width. */
+    const val MAX_COLUMNS = 6
     const val MAX_NAME = 14
 
     private fun prefs(context: Context) = context.getSharedPreferences("strip", Context.MODE_PRIVATE)

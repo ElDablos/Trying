@@ -89,7 +89,7 @@ object NowPlaying {
         val p = prefs(context)
         if (title == null) {
             if (p.contains("title")) {
-                p.edit().remove("title").remove("artist").remove("playing").remove("package").apply()
+                p.edit().remove("title").remove("artist").remove("playing").remove("package").remove("art_for").apply()
                 artFile(context).delete()
                 CrimsonWidgetProvider.refreshAll(context)
             }
@@ -98,38 +98,57 @@ object NowPlaying {
         val artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST)
             ?: meta.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) ?: ""
         val playing = controller.playbackState?.state == PlaybackState.STATE_PLAYING
+        val key = "$title\u0000$artist"
         val changed = p.getString("title", null) != title || p.getString("artist", null) != artist ||
             p.getBoolean("playing", !playing) != playing || p.getString("package", null) != controller.packageName
-        if (!changed) return
-        val newTrack = p.getString("title", null) != title || p.getString("artist", null) != artist
+        // Players often send the song first and its artwork in a later update, so save the art whenever
+        // this song doesn't have it yet, not only when the song changes.
+        val needsArt = p.getString("art_for", null) != key
+        if (!changed && !needsArt) return
         p.edit()
             .putString("title", title)
             .putString("artist", artist)
             .putBoolean("playing", playing)
             .putString("package", controller.packageName)
             .apply()
-        if (newTrack) saveArt(context, meta)
-        CrimsonWidgetProvider.refreshAll(context)
+        var artSaved = false
+        if (needsArt) {
+            artSaved = saveArt(context, meta)
+            if (artSaved) p.edit().putString("art_for", key).apply() else if (changed) artFile(context).delete()
+        }
+        if (changed || artSaved) CrimsonWidgetProvider.refreshAll(context)
     }
 
-    private fun saveArt(context: Context, meta: MediaMetadata) {
+    /** Saves the track's artwork as a small rounded square. Returns false if the player hasn't sent any yet. */
+    private fun saveArt(context: Context, meta: MediaMetadata): Boolean {
         val source = meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
             ?: meta.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
-        val file = artFile(context)
-        if (source == null) {
-            file.delete()
-            return
-        }
+            ?: artFromUri(context, meta)
+            ?: return false
         // Widgets can't round corners, so bake them into a small square bitmap.
         val scaled = Bitmap.createScaledBitmap(source, ART_SIZE, ART_SIZE, true)
         val rounded = Bitmap.createBitmap(ART_SIZE, ART_SIZE, Bitmap.Config.ARGB_8888)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = BitmapShader(scaled, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP) }
         Canvas(rounded).drawRoundRect(RectF(0f, 0f, ART_SIZE.toFloat(), ART_SIZE.toFloat()), 28f, 28f, paint)
-        try {
-            file.outputStream().use { rounded.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        return try {
+            artFile(context).outputStream().use { rounded.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            true
         } catch (e: Exception) {
             Log.w(TAG, "Couldn't save album art", e)
+            false
+        }
+    }
+
+    /** Some players only give a link to the artwork. Follows it if it's a local content link. */
+    private fun artFromUri(context: Context, meta: MediaMetadata): Bitmap? {
+        val uri = listOf(
+            MediaMetadata.METADATA_KEY_ALBUM_ART_URI, MediaMetadata.METADATA_KEY_ART_URI, MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI,
+        ).firstNotNullOfOrNull { meta.getString(it) } ?: return null
+        return try {
+            context.contentResolver.openInputStream(android.net.Uri.parse(uri))?.use { BitmapFactory.decodeStream(it) }
+        } catch (e: Exception) {
+            null
         }
     }
 

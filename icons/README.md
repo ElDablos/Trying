@@ -1,8 +1,8 @@
 # Crimson Icons
 
-A red-on-black icon pack that matches the [Crimson Widget](../dashboard/README.md): dark tiles, a crimson rim
-and a glowing crimson symbol for each app. Apps without their own icon get their normal icon on the same
-dark tile, so nothing looks out of place.
+An icon pack that matches the [Crimson Widget](../dashboard/README.md): every icon is a crimson tile with the
+app's logo in its own colours (Spotify's green, Instagram's gradient, Google's four colours). Logos that are
+red themselves, like YouTube's, are drawn in white so they stand out from the tile.
 
 ![Icons](preview.png)
 
@@ -10,9 +10,10 @@ dark tile, so nothing looks out of place.
 
 1. Download `CrimsonIcons.apk` from this repo's **Releases → Latest builds** and install it.
 2. Install **Good Lock** from the Galaxy Store, open it, and install the **Theme Park** module from its list.
-3. Open **Theme Park**, go to the **Icon** tab, and choose **Crimson Icons** from the icon packs.
+3. Open **Theme Park**, go to the **Icon** tab and tap **Create new**. Pick **Crimson Icons** as the icon pack.
    (You can also open **Crimson Icons** and tap **Open Good Lock to apply**.)
-4. Tap **Apply**. Your home screen and app drawer switch to the Crimson icons.
+4. Save it, then tap it on the Icon tab and tap **Apply**. Your home screen and app drawer switch to the
+   Crimson icons.
 
 To go back, open **Theme Park → Icon** and remove or switch the icon pack, or pick another icon theme in
 **Settings → Themes**.

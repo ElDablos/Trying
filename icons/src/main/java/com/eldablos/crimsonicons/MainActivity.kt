@@ -28,7 +28,7 @@ class MainActivity : Activity() {
 
         findViewById<TextView>(R.id.coverage_text).text =
             "${apps.size - missing.size} of your ${apps.size} apps have a Crimson icon. " +
-                "The rest get their usual icon in a matching dark frame."
+                "The rest keep their usual icon."
         findViewById<TextView>(R.id.missing_text).text =
             if (missing.isEmpty()) "Every app is covered." else missing.joinToString("\n") { it.label }
         missingList = missing.joinToString("\n") { "${it.label}: ${it.component}" }

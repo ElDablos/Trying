@@ -51,6 +51,9 @@ Samsung's free **Good Lock** app has a **Theme Park** module that builds a real 
 6. **Quick panel**: in Theme Park, go to **Quick panel**. Use background `#140C0F` (around 80% opacity) and active buttons `#B3001B`.
 7. Optional: in the **Keyboard** tab, pick black keys with `#E01E37` for the key text.
 
+For the full set (quick panel image, keyboard, volume panel and the Crimson icon pack) follow
+[theme-park/README.md](theme-park/README.md).
+
 ### 4. Always On Display (optional)
 **Settings → Lock screen and AOD → Always On Display**. Pick a thin clock style and set its colour to `#E01E37`.
 

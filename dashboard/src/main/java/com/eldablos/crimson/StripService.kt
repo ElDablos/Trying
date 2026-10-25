@@ -21,14 +21,24 @@ private class StripFactory(private val context: Context, private val widgetId: I
 
     private var pages: List<List<App>> = emptyList()
     private var name = ""
+    private var widthDp = 0f
+    private var heightDp = 0f
+    private var iconDp = 0f
 
     override fun onCreate() {}
 
     override fun onDataSetChanged() {
         val pm = context.packageManager
         name = StripStore.name(context, widgetId)
+        StripWidgetProvider.sizeDp(AppWidgetManager.getInstance(context), widgetId).let { (w, h) ->
+            widthDp = w
+            heightDp = h
+        }
+        // Icons as big as the strip's height allows, after the name tag and the label under them.
+        val drop = if (name.isNotEmpty()) NAME_DROP_DP else 0f
+        iconDp = (heightDp - drop - LABEL_SPACE_DP).coerceIn(MIN_ICON_DP, MAX_ICON_DP)
         val pack = IconPack.load(context)
-        val size = (ICON_DP * context.resources.displayMetrics.density).toInt().coerceAtMost(MAX_ICON_PX)
+        val size = (iconDp * context.resources.displayMetrics.density).toInt().coerceAtMost(MAX_ICON_PX)
         pages = StripStore.apps(context, widgetId)
             .mapNotNull { component ->
                 // Skips apps that have since been uninstalled.
@@ -61,6 +71,9 @@ private class StripFactory(private val context: Context, private val widgetId: I
         val drop = if (named) NAME_DROP_DP else 0f
         views.setViewLayoutMargin(R.id.strip_page_bg, RemoteViews.MARGIN_TOP, drop, TypedValue.COMPLEX_UNIT_DIP)
         views.setViewLayoutMargin(R.id.strip_page_body, RemoteViews.MARGIN_TOP, drop, TypedValue.COMPLEX_UNIT_DIP)
+        // The stack only offers each card "up to" its size, so the card asks for the whole strip outright.
+        views.setViewLayoutWidth(R.id.strip_page_body, widthDp - 1, TypedValue.COMPLEX_UNIT_DIP)
+        views.setViewLayoutHeight(R.id.strip_page_body, heightDp - drop - 1, TypedValue.COMPLEX_UNIT_DIP)
         val apps = pages.getOrNull(position).orEmpty()
         SLOTS.forEachIndexed { i, (slot, icon, label) ->
             val app = apps.getOrNull(i)
@@ -69,6 +82,8 @@ private class StripFactory(private val context: Context, private val widgetId: I
                 return@forEachIndexed
             }
             views.setViewVisibility(slot, View.VISIBLE)
+            views.setViewLayoutWidth(icon, iconDp, TypedValue.COMPLEX_UNIT_DIP)
+            views.setViewLayoutHeight(icon, iconDp, TypedValue.COMPLEX_UNIT_DIP)
             if (app.icon != null) views.setImageViewBitmap(icon, app.icon) else views.setImageViewResource(icon, R.mipmap.ic_launcher)
             views.setTextViewText(label, app.label)
             views.setOnClickFillInIntent(slot, OpenAppActivity.fillIn(app.component))
@@ -92,9 +107,11 @@ private class StripFactory(private val context: Context, private val widgetId: I
     override fun hasStableIds() = true
 
     companion object {
-        private const val ICON_DP = 44
+        private const val MIN_ICON_DP = 32f
+        private const val MAX_ICON_DP = 58f
+        private const val LABEL_SPACE_DP = 24f
         // Keeps each card well under the size a widget update may carry.
-        private const val MAX_ICON_PX = 144
+        private const val MAX_ICON_PX = 168
         private const val NAME_DROP_DP = 7f
         // Keeps the name readable over the wallpaper even when the background is see-through.
         private const val MIN_TAG_ALPHA = 200

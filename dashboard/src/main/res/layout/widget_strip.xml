@@ -4,10 +4,12 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- Sized past the widget's edges in code, so the front card fills the strip. -->
     <StackView
         android:id="@+id/strip_stack"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_gravity="top|start"
         android:loopViews="true" />
 
     <!-- Shown until apps are picked. -->

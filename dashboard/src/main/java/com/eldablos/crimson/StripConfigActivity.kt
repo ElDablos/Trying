@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.text.Editable
@@ -24,10 +25,11 @@ import com.eldablos.crimson.OpenAppActivity.Companion.component
 
 /**
  * Picks the apps for an App Strip. Opens when the strip is added, and again from the widget's
- * long-press Settings. Apps are tapped in the order they should appear.
+ * long-press Settings. Tapping an app in the list adds it to the end of the strip; the preview on top
+ * shows the strip and lets apps be dragged into a new order.
  */
 class StripConfigActivity : Activity() {
-    private class App(val component: ComponentName, val label: String, var icon: Drawable? = null)
+    private class App(val component: ComponentName, val label: String)
 
     private var widgetId = AppWidgetManager.INVALID_APPWIDGET_ID
     private val chosen = mutableListOf<ComponentName>()
@@ -36,6 +38,10 @@ class StripConfigActivity : Activity() {
     private lateinit var adapter: AppAdapter
     private lateinit var count: TextView
     private lateinit var nameInput: EditText
+    private lateinit var preview: StripPreviewView
+    private lateinit var pack: IconPack
+    private val labels = HashMap<ComponentName, String>()
+    private val icons = HashMap<ComponentName, Drawable?>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,6 +56,8 @@ class StripConfigActivity : Activity() {
         count = findViewById(R.id.strip_count)
         nameInput = findViewById(R.id.strip_name_input)
         nameInput.setText(StripStore.name(this, widgetId))
+        preview = findViewById(R.id.strip_preview)
+        pack = IconPack.load(this)
 
         val pm = packageManager
         all = OpenAppActivity.launcherApps(this)
@@ -57,8 +65,21 @@ class StripConfigActivity : Activity() {
             .distinctBy { it.component }
             .sortedBy { it.label.lowercase() }
         val installed = all.map { it.component }.toSet()
+        all.forEach { labels[it.component] = it.label }
         chosen += StripStore.apps(this, widgetId).filter { it in installed }
         shown = all
+
+        preview.lookup = { iconFor(it) to (labels[it] ?: it.packageName) }
+        preview.onChanged = { render() }
+        preview.apps = chosen
+        preview.name = nameInput.text.toString().trim().uppercase()
+        nameInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                preview.name = s?.toString()?.trim()?.uppercase().orEmpty()
+            }
+        })
 
         adapter = AppAdapter()
         findViewById<ListView>(R.id.strip_apps).apply {
@@ -74,10 +95,6 @@ class StripConfigActivity : Activity() {
                 adapter.notifyDataSetChanged()
             }
         })
-        findViewById<Button>(R.id.strip_clear).setOnClickListener {
-            chosen.clear()
-            render()
-        }
         findViewById<Button>(R.id.strip_save).setOnClickListener { save() }
         render()
     }
@@ -97,11 +114,20 @@ class StripConfigActivity : Activity() {
         val pages = (chosen.size + StripStore.PAGE_SIZE - 1) / StripStore.PAGE_SIZE
         count.text = when {
             chosen.isEmpty() -> "No apps yet"
+            chosen.size == 1 -> "1 app"
             pages <= 1 -> "${chosen.size} apps"
             else -> "${chosen.size} apps · $pages pages"
         }
         adapter.notifyDataSetChanged()
+        preview.apps = chosen
     }
+
+    /** The icon the strip will show: from Crimson Icons when the pack has one. */
+    private fun iconFor(component: ComponentName): Drawable? = icons.getOrPut(component) {
+        pack.icon(this, component, iconPx)?.let { BitmapDrawable(resources, it) }
+    }
+
+    private val iconPx by lazy { (ICON_DP * resources.displayMetrics.density).toInt() }
 
     private fun save() {
         if (chosen.isEmpty()) {
@@ -124,12 +150,7 @@ class StripConfigActivity : Activity() {
             val view = convertView
                 ?: LayoutInflater.from(parent.context).inflate(R.layout.item_strip_app, parent, false)
             val app = shown[position]
-            val icon = app.icon ?: try {
-                packageManager.getActivityIcon(app.component)
-            } catch (e: Exception) {
-                null
-            }.also { app.icon = it }
-            view.findViewById<ImageView>(R.id.strip_app_icon).setImageDrawable(icon)
+            view.findViewById<ImageView>(R.id.strip_app_icon).setImageDrawable(iconFor(app.component))
             view.findViewById<TextView>(R.id.strip_app_label).text = app.label
             // The badge shows where the app sits in the strip.
             val order = chosen.indexOf(app.component)
@@ -142,6 +163,7 @@ class StripConfigActivity : Activity() {
     }
 
     companion object {
+        private const val ICON_DP = 40
         /** Opens the picker for a strip, for its "Tap to choose apps" message. */
         fun pendingIntent(context: Context, widgetId: Int): PendingIntent =
             PendingIntent.getActivity(

@@ -39,11 +39,11 @@
                 android:layout_marginTop="3dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:maxWidth="60dp"
+                android:maxWidth="64dp"
                 android:shadowColor="#FF000000"
                 android:shadowRadius="3"
                 android:textColor="@color/bone"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -66,11 +66,11 @@
                 android:layout_marginTop="3dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:maxWidth="60dp"
+                android:maxWidth="64dp"
                 android:shadowColor="#FF000000"
                 android:shadowRadius="3"
                 android:textColor="@color/bone"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -93,11 +93,11 @@
                 android:layout_marginTop="3dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:maxWidth="60dp"
+                android:maxWidth="64dp"
                 android:shadowColor="#FF000000"
                 android:shadowRadius="3"
                 android:textColor="@color/bone"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -120,11 +120,11 @@
                 android:layout_marginTop="3dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:maxWidth="60dp"
+                android:maxWidth="64dp"
                 android:shadowColor="#FF000000"
                 android:shadowRadius="3"
                 android:textColor="@color/bone"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -147,11 +147,11 @@
                 android:layout_marginTop="3dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:maxWidth="60dp"
+                android:maxWidth="64dp"
                 android:shadowColor="#FF000000"
                 android:shadowRadius="3"
                 android:textColor="@color/bone"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -174,11 +174,11 @@
                 android:layout_marginTop="3dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:maxWidth="60dp"
+                android:maxWidth="64dp"
                 android:shadowColor="#FF000000"
                 android:shadowRadius="3"
                 android:textColor="@color/bone"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>
 

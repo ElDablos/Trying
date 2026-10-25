@@ -7,6 +7,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
+import android.util.SizeF
+import android.util.TypedValue
 import android.widget.RemoteViews
 
 /**
@@ -16,6 +19,10 @@ import android.widget.RemoteViews
 class StripWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         ids.forEach { update(context, manager, it) }
+    }
+
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, widgetId: Int, options: Bundle) {
+        update(context, manager, widgetId)
     }
 
     override fun onDeleted(context: Context, ids: IntArray) {
@@ -31,6 +38,14 @@ class StripWidgetProvider : AppWidgetProvider() {
             adapter.data = Uri.parse(adapter.toUri(Intent.URI_INTENT_SCHEME))
             @Suppress("DEPRECATION")
             views.setRemoteAdapter(R.id.strip_stack, adapter)
+
+            // The stack keeps each card to 90% of its size and shifts it down-right, leaving room for the cards
+            // behind. Growing the stack past the widget's edges (which clip it) makes the front card fill the strip.
+            val (width, height) = sizeDp(manager, widgetId)
+            val grown = height / CARD_FRACTION
+            views.setViewLayoutWidth(R.id.strip_stack, width / CARD_FRACTION, TypedValue.COMPLEX_UNIT_DIP)
+            views.setViewLayoutHeight(R.id.strip_stack, grown, TypedValue.COMPLEX_UNIT_DIP)
+            views.setViewLayoutMargin(R.id.strip_stack, RemoteViews.MARGIN_TOP, height - grown, TypedValue.COMPLEX_UNIT_DIP)
             views.setEmptyView(R.id.strip_stack, R.id.strip_empty)
             views.setInt(R.id.strip_empty_bg, "setImageAlpha", DashboardStore.opacity(context) * 255 / 100)
             views.setOnClickPendingIntent(R.id.strip_empty, StripConfigActivity.pendingIntent(context, widgetId))
@@ -44,6 +59,23 @@ class StripWidgetProvider : AppWidgetProvider() {
             manager.updateAppWidget(widgetId, views)
             @Suppress("DEPRECATION")
             manager.notifyAppWidgetViewDataChanged(widgetId, R.id.strip_stack)
+        }
+
+        /** Share of the stack's size that StackView gives each card. */
+        private const val CARD_FRACTION = 0.9f
+        private const val DEFAULT_WIDTH_DP = 380f
+        private const val DEFAULT_HEIGHT_DP = 80f
+
+        /** The strip's size in portrait, in dp. */
+        internal fun sizeDp(manager: AppWidgetManager, widgetId: Int): Pair<Float, Float> {
+            val options = manager.getAppWidgetOptions(widgetId)
+            @Suppress("DEPRECATION")
+            val sizes = options.getParcelableArrayList<SizeF>(AppWidgetManager.OPTION_APPWIDGET_SIZES)
+            // Portrait is the narrower of the sizes the home screen reports.
+            sizes?.minByOrNull { it.width }?.takeIf { it.width > 0 && it.height > 0 }?.let { return it.width to it.height }
+            val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 }?.toFloat() ?: DEFAULT_WIDTH_DP
+            val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 }?.toFloat() ?: DEFAULT_HEIGHT_DP
+            return width to height
         }
 
         /** Redraws every strip, e.g. after the background slider moves. */

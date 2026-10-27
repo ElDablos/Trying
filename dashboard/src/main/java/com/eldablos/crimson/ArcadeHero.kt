@@ -55,9 +55,10 @@ object ArcadeHero {
         val stats: Boolean,
     )
 
-    private const val CRIMSON = 0xFFB3182C.toInt()
-    private const val BONE = 0xFFE8DCDC.toInt()
-    private const val DUST = 0xFF9A8A8C.toInt()
+    // The palette, in the launcher's theme.
+    private val CRIMSON get() = WidgetTheme.color(0xFFB3182C.toInt())
+    private val BONE get() = WidgetTheme.color(0xFFE8DCDC.toInt())
+    private val DUST get() = WidgetTheme.color(0xFF9A8A8C.toInt())
     private const val MAX_SCALE = 2f
     private const val MIN_TITLE = 12f
     private val DAY = java.util.concurrent.TimeUnit.DAYS.toMillis(1)
@@ -295,7 +296,7 @@ object ArcadeHero {
             maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.OUTER)
         })
         canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(box.left, 0f, box.right, 0f, 0xFF760012.toInt(), CRIMSON, Shader.TileMode.CLAMP)
+            shader = LinearGradient(box.left, 0f, box.right, 0f, WidgetTheme.color(0xFF760012.toInt()), CRIMSON, Shader.TileMode.CLAMP)
         })
         val text = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = Typeface.create("sans-serif", Typeface.BOLD)

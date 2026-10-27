@@ -42,6 +42,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        // The launcher's theme, on this screen too.
+        WidgetTheme.apply(window.decorView)
         placeText = findViewById(R.id.place_text)
         stepsStatus = findViewById(R.id.steps_status)
         calendarStatus = findViewById(R.id.calendar_status)
@@ -238,7 +240,7 @@ class MainActivity : Activity() {
         }
         pill.text = label ?: text
         pill.setBackgroundResource(background)
-        pill.setTextColor(getColor(color))
+        pill.setTextColor(WidgetTheme.color(this, color))
     }
 
     private fun searchCity() {

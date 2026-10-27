@@ -52,7 +52,7 @@ class LauncherSettingsActivity : Activity() {
         // Themes.
         section("THEME")
         themes()
-        note("Recolours the launcher, Comms, the Hive, Game Hub, Crimson Weather, edge lighting, the handle and your Crimson icons. The Crimson Reactor wallpaper changes with it.")
+        note("Recolours everything: the launcher, Comms, the Hive, Game Hub, Crimson Weather, edge lighting, the handle, your Crimson icons, all the home-screen widgets and the app's own screens. The Crimson Reactor wallpaper changes with it.")
 
         // Edge lighting.
         section("EDGE LIGHTING")
@@ -149,6 +149,7 @@ class LauncherSettingsActivity : Activity() {
                             Theme.set(this@LauncherSettingsActivity, theme)
                             AppCatalog.clearIcons()
                             EdgeLight.clearAccents()
+                            com.eldablos.crimson.WidgetTheme.refreshWidgets(this@LauncherSettingsActivity)
                             EdgeHandle.update(this@LauncherSettingsActivity)
                             recreate()
                         }

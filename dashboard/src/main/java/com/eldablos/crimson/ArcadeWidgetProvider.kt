@@ -113,6 +113,8 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
         fun buildViews(context: Context, widgetId: Int): RemoteViews {
             val manager = AppWidgetManager.getInstance(context)
             val views = RemoteViews(context.packageName, R.layout.widget_arcade)
+            WidgetTheme.apply(context, views, images = intArrayOf(R.id.arcade_bg))
+            views.setTextColor(R.id.arcade_empty, WidgetTheme.color(context, R.color.crimson))
             views.setInt(R.id.arcade_bg, "setImageAlpha", DashboardStore.opacity(context) * 255 / 100)
             // Taps that miss everything do nothing, rather than opening this app.
             views.setOnClickPendingIntent(R.id.arcade_root, broadcast(context, widgetId, CODE_NOTHING, Intent(ACTION_NOTHING)))
@@ -137,7 +139,7 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
             // The letter rail: letters with games are lit and jump the grid to them.
             val present = games.map { it.letter }.toSet()
             LETTERS.forEachIndexed { i, letter ->
-                views.setTextColor(RAIL[i], if (letter in present) context.getColor(R.color.dust) else DIM_LETTER)
+                views.setTextColor(RAIL[i], if (letter in present) WidgetTheme.color(context, R.color.dust) else DIM_LETTER)
                 views.setOnClickPendingIntent(
                     RAIL[i],
                     broadcast(context, widgetId, CODE_RAIL + i, Intent(ACTION_JUMP).putExtra(EXTRA_LETTER, letter)),

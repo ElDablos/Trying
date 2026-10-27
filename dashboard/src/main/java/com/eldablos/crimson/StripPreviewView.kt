@@ -74,27 +74,27 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
     private val zoneGap = dp(10f)
     private val radius = dp(22f)
 
-    private val cardFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0F0A0B.toInt() }
+    private val cardFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = WidgetTheme.color(0xFF0F0A0B.toInt()) }
     private val cardStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(1f)
-        color = context.getColor(R.color.blood)
+        color = WidgetTheme.color(context, R.color.blood)
     }
     private val hiddenStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(1f)
-        color = 0x66760012
+        color = WidgetTheme.color(0x66760012)
         pathEffect = DashPathEffect(floatArrayOf(dp(4f), dp(4f)), 0f)
     }
-    private val tagFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = context.getColor(R.color.void_black) }
+    private val tagFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = WidgetTheme.color(context, R.color.void_black) }
     private val tagText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = context.getColor(R.color.crimson)
+        color = WidgetTheme.color(context, R.color.crimson)
         textSize = dp(9f)
         letterSpacing = 0.18f
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
     private val label = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = context.getColor(R.color.bone)
+        color = WidgetTheme.color(context, R.color.bone)
         textAlign = Paint.Align.CENTER
     }
     private val hint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -102,7 +102,7 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         textAlign = Paint.Align.CENTER
     }
     private val note = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = context.getColor(R.color.dust)
+        color = WidgetTheme.color(context, R.color.dust)
         textSize = dp(11f)
         letterSpacing = 0.06f
         textAlign = Paint.Align.CENTER
@@ -111,12 +111,12 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
     private val gap = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(1f)
-        color = 0x33E8DCDC
+        color = WidgetTheme.color(0x33E8DCDC)
     }
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(2f)
-        color = context.getColor(R.color.crimson)
+        color = WidgetTheme.color(context, R.color.crimson)
     }
     private val rect = RectF()
 
@@ -290,13 +290,13 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         // The bar at the bottom: a hint, or the place to drop an app to remove it.
         rect.set(0f, zoneTop, width.toFloat(), zoneTop + zoneHeight)
         if (dragged != null) {
-            zoneFill.color = if (overRemove) context.getColor(R.color.blood) else 0x33760012
+            zoneFill.color = if (overRemove) WidgetTheme.color(context, R.color.blood) else WidgetTheme.color(0x33760012)
             canvas.drawRoundRect(rect, dp(14f), dp(14f), zoneFill)
             canvas.drawRoundRect(rect, dp(14f), dp(14f), cardStroke)
-            hint.color = context.getColor(if (overRemove) R.color.bone else R.color.crimson)
+            hint.color = WidgetTheme.color(context, if (overRemove) R.color.bone else R.color.crimson)
             canvas.drawText("Drop here to remove", rect.centerX(), rect.centerY() + dp(4f), hint)
         } else {
-            hint.color = context.getColor(R.color.dust)
+            hint.color = WidgetTheme.color(context, R.color.dust)
             val text = if (apps.none { it != null }) "Tap apps below to add them" else "Hold an app and drag it to any spot"
             canvas.drawText(text, rect.centerX(), rect.centerY() + dp(4f), hint)
         }

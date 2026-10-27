@@ -33,9 +33,8 @@ that rushes towards you, with data pulses, warp streaks and drifting embers. Tap
 - With **Crimson Launcher** as your home screen it matches the launcher's theme and reacts: a shockwave in
   the app's colour for each message, the reactor spinning up with orbiting comets for an incoming call, a
   pulse when you open a node, a ripple where you tap, and calmer or livelier with the time-of-day mode.
-- Battery: it's drawn at under half the screen's resolution and scaled up, runs at 30 fps for a few
-  seconds after anything happens and 15 fps otherwise, stops completely while hidden, and in power saving
-  only draws when something happens.
+- Battery: it's drawn at under half the screen's resolution and scaled up, runs at a steady 30 fps (20
+  in power saving) with slow, calm motion, and stops completely while hidden.
 
 The shader is `src/main/res/raw/reactor.frag`.
 

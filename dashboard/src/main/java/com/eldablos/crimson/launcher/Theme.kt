@@ -80,8 +80,10 @@ enum class Theme(
     }
 
     companion object {
+        // Read from widget and wallpaper threads as well as the main one.
+        @Volatile
         private var current: Theme = CRIMSON
-        private val cache = HashMap<Int, Int>()
+        private val cache = java.util.concurrent.ConcurrentHashMap<Int, Int>()
 
         /** The theme in use. Set from settings, read by every screen as it draws. */
         val now: Theme get() = current
@@ -103,8 +105,9 @@ enum class Theme(
 
         /** [color] in the current theme, remembered so drawing stays quick. */
         fun tint(color: Int): Int {
-            if (current == CRIMSON) return color
-            return cache.getOrPut(color) { current.tint(color) }
+            val theme = current
+            if (theme == CRIMSON) return color
+            return cache.getOrPut(color) { theme.tint(color) }
         }
     }
 }

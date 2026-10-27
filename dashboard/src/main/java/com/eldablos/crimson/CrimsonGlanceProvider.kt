@@ -34,6 +34,14 @@ class CrimsonGlanceProvider : AppWidgetProvider() {
 
         private fun buildViews(context: Context): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_glance)
+            WidgetTheme.apply(
+                context, views,
+                images = intArrayOf(
+                    R.id.glance_bg, R.id.glance_weather_icon, R.id.theme_glance_divider_1, R.id.theme_glance_steps_icon,
+                    R.id.glance_buds_divider, R.id.theme_glance_buds_icon, R.id.theme_glance_divider_3, R.id.theme_glance_alarm_icon,
+                ),
+                bars = intArrayOf(R.id.glance_steps_bar),
+            )
             val locale = Locale.getDefault()
             views.setInt(R.id.glance_bg, "setImageAlpha", DashboardStore.opacity(context) * 255 / 100)
 

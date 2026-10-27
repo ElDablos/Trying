@@ -122,6 +122,12 @@ class HiveView(context: Context, private val u: Float) : View(context) {
     private var flinging = false
     private var glide: ValueAnimator? = null
     private val spacing = 48 * u
+
+    /**
+     * Pixels of finger travel per cell. The bulge spreads the middle out, which made the comb run ahead
+     * of the finger; this keeps the apps under it moving at the finger's pace, a touch calmer.
+     */
+    private val dragUnit get() = spacing * pullAt(scaleAt(0f)) * 1.15f
     private val chips = ArrayList<Pair<RectF, () -> Unit>>()
     private val hex = Path()
     private var openedAt = 0L
@@ -235,8 +241,8 @@ class HiveView(context: Context, private val u: Float) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         if (scroller.computeScrollOffset()) {
-            camX = scroller.currX / spacing
-            camY = scroller.currY / spacing
+            camX = scroller.currX / dragUnit
+            camY = scroller.currY / dragUnit
             postInvalidateOnAnimation()
         } else if (flinging) {
             flinging = false
@@ -389,7 +395,7 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         val toX = camX + HiveLayout.wrap(x - camX, periodX)
         val toY = camY + HiveLayout.wrap(y - camY, periodY)
         glide = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 520
+            duration = 640
             interpolator = DecelerateInterpolator(1.8f)
             addUpdateListener {
                 val t = it.animatedValue as Float
@@ -445,8 +451,8 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         }
 
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-            camX += distanceX / spacing
-            camY += distanceY / spacing
+            camX += distanceX / dragUnit
+            camY += distanceY / dragUnit
             invalidate()
             return true
         }
@@ -455,7 +461,7 @@ class HiveView(context: Context, private val u: Float) : View(context) {
             flung = true
             flinging = true
             val far = 1_000_000
-            scroller.fling((camX * spacing).toInt(), (camY * spacing).toInt(), (-vx).toInt(), (-vy).toInt(), -far, far, -far, far)
+            scroller.fling((camX * dragUnit).toInt(), (camY * dragUnit).toInt(), (-vx * FLING).toInt(), (-vy * FLING).toInt(), -far, far, -far, far)
             postInvalidateOnAnimation()
             return true
         }
@@ -489,5 +495,10 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         // A drag let go without a fling still settles onto a cell.
         if (event.actionMasked == MotionEvent.ACTION_UP && !flung && query.isEmpty()) snap()
         return handled
+    }
+
+    companion object {
+        /** Flings travel this much of the finger's speed, so they glide rather than whip away. */
+        private const val FLING = .7f
     }
 }

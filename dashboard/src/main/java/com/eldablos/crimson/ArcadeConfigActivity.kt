@@ -43,6 +43,8 @@ class ArcadeConfigActivity : Activity() {
         // Settings are optional when adding the widget, so leaving still keeps it.
         setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
         setContentView(R.layout.activity_arcade_config)
+        // The launcher's theme, on this screen too.
+        WidgetTheme.apply(window.decorView)
         pack = IconPack.load(this)
 
         val added = Arcade.added(this)

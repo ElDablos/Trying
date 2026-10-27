@@ -44,9 +44,9 @@ object WallpaperLink {
     /** How lively it is: calm for Work, normal, more for Night Ops. */
     fun mode(activity: Activity, mode: Mode) = send(activity, MODE, extras = Bundle().apply {
         putFloat("energy", when (mode) {
-            Mode.WORK -> .7f
+            Mode.WORK -> .8f
             Mode.MORNING -> 1f
-            Mode.NIGHT -> 1.3f
+            Mode.NIGHT -> 1.15f
         })
     })
 

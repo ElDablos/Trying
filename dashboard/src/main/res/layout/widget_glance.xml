@@ -66,6 +66,7 @@
             </LinearLayout>
         </LinearLayout>
         <ImageView
+        android:id="@+id/theme_glance_divider_1"
             android:layout_width="1dp"
             android:layout_height="match_parent"
             android:layout_marginTop="10dp"
@@ -83,6 +84,7 @@
             android:paddingEnd="6dp">
 
             <ImageView
+        android:id="@+id/theme_glance_steps_icon"
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:src="@drawable/ic_steps" />
@@ -145,6 +147,7 @@
             android:paddingEnd="6dp">
 
             <ImageView
+        android:id="@+id/theme_glance_buds_icon"
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:src="@drawable/ic_buds" />
@@ -180,6 +183,7 @@
             </LinearLayout>
         </LinearLayout>
         <ImageView
+        android:id="@+id/theme_glance_divider_3"
             android:layout_width="1dp"
             android:layout_height="match_parent"
             android:layout_marginTop="10dp"
@@ -197,6 +201,7 @@
             android:paddingEnd="6dp">
 
             <ImageView
+        android:id="@+id/theme_glance_alarm_icon"
                 android:layout_width="22dp"
                 android:layout_height="22dp"
                 android:src="@drawable/ic_alarm" />

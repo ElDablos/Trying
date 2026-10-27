@@ -108,10 +108,10 @@ vec3 tunnel(vec2 uv, float speed, vec3 col, vec3 col2) {
     float line = smoothstep(0.035, 0.0, e) + 0.35 * exp(-e * 14.0);
     // Some cells light up, flickering like data.
     vec2 cellId = floor(tp + 0.5);
-    float lit = step(0.93, hash(cellId + floor(uTime * 0.7))) * smoothstep(0.1, 0.3, e);
+    float lit = step(0.93, hash(cellId + floor(uTime * 0.3))) * smoothstep(0.1, 0.3, e);
     // Data pulses running along the walls towards you.
     float lane = floor(a / TAU * 28.0);
-    float band = pow(0.5 + 0.5 * sin(z * 1.6 - uTime * 3.0 * uEnergy + lane * 1.7), 24.0);
+    float band = pow(0.5 + 0.5 * sin(z * 1.6 - uTime * 1.3 * uEnergy + lane * 1.7), 24.0);
     float fog = smoothstep(0.08, 0.9, r) * (0.6 + 0.4 * smoothstep(1.6, 0.4, r));
     vec3 c = col * (line * (0.18 + 1.8 * band) + lit * 0.22) * fog;
     // Each cell a panel, shaded a little differently, so the walls read as surfaces.
@@ -119,7 +119,7 @@ vec3 tunnel(vec2 uv, float speed, vec3 col, vec3 col2) {
     // Warp streaks flying past.
     float sl = floor(a / TAU * 90.0);
     float sh = hash(vec2(sl, 3.0));
-    float sz = fract(z * 0.35 * (0.6 + sh) - uTime * 0.25 * uEnergy + sh * 7.0);
+    float sz = fract(z * 0.35 * (0.6 + sh) - uTime * 0.1 * uEnergy + sh * 7.0);
     c += mix(col, vec3(1.0), 0.4) * step(0.82, sh) * smoothstep(0.0, 0.04, sz) * smoothstep(0.12, 0.04, sz) * fog * 0.7;
     // A message: the walls light up in the app's colour as the wave passes out through them.
     float wave = uPulseT * 1.4;
@@ -140,20 +140,20 @@ void main() {
     float boot = clamp(uBoot / 1.6, 0.0, 1.0);
     gBoot = boot;
     float callSpin = 1.0 + 5.0 * uCall;
-    gSpin = uTime * 0.6 * uEnergy * callSpin + (1.0 - boot) * 6.0;
+    gSpin = uTime * 0.28 * uEnergy * callSpin + (1.0 - boot) * 6.0;
 
     vec3 col = uPrimary;
     vec3 col2 = uSecondary;
     if (uLow > 0.5) col *= 0.55 + 0.45 * pow(0.5 + 0.5 * sin(uTime * 2.2), 3.0);
 
     // Background tunnel, with a little parallax from the tilt.
-    vec3 c = tunnel(uv - uTilt * 0.06, 0.55 * uEnergy, col, col2) * boot;
+    vec3 c = tunnel(uv - uTilt * 0.06, 0.2 * uEnergy, col, col2) * boot;
 
     // Ray-march the reactor, tilted with the phone.
     vec3 ro = vec3(0.0, 0.0, -3.0);
     vec3 rd = normalize(vec3(uv * 0.52, 1.0));
-    mat2 tx = rot(uTilt.y * 0.35 + sin(uTime * 0.4) * 0.06);
-    mat2 ty = rot(uTilt.x * 0.35 + cos(uTime * 0.31) * 0.06);
+    mat2 tx = rot(uTilt.y * 0.35 + sin(uTime * 0.2) * 0.06);
+    mat2 ty = rot(uTilt.x * 0.35 + cos(uTime * 0.15) * 0.06);
     ro.yz = tx * ro.yz; rd.yz = tx * rd.yz;
     ro.xz = ty * ro.xz; rd.xz = ty * rd.xz;
     float scale = 0.55 + 0.45 * boot;
@@ -171,7 +171,7 @@ void main() {
         t += d * 0.9;
         if (t > 7.0) break;
     }
-    float corePulse = 0.75 + 0.25 * sin(uTime * 2.4) + 0.6 * exp(-uPulseT * 2.5);
+    float corePulse = 0.75 + 0.25 * sin(uTime * 1.5) + 0.6 * exp(-uPulseT * 2.5);
     vec3 hotCol = mix(col, vec3(1.0), 0.18) * corePulse;
     if (hit > 0.5) {
         vec3 p = ro + rd * t;
@@ -187,8 +187,8 @@ void main() {
             // Hotter towards the middle: a swirling white-hot core, the theme colour outside.
             float pr2 = length(p.xy);
             float heat = smoothstep(0.6, 0.0, pr2);
-            float swirl = 0.5 + 0.5 * sin(atan(p.y, p.x) * 3.0 + pr2 * 14.0 - uTime * 3.0 * uEnergy);
-            float rings = 0.5 + 0.5 * sin(pr2 * 60.0 - uTime * 6.0 * uEnergy);
+            float swirl = 0.5 + 0.5 * sin(atan(p.y, p.x) * 3.0 + pr2 * 14.0 - uTime * 1.4 * uEnergy);
+            float rings = 0.5 + 0.5 * sin(pr2 * 60.0 - uTime * 2.6 * uEnergy);
             c = mix(hotCol * (1.25 + 0.3 * swirl + 0.2 * rings), vec3(1.0, 0.97, 0.97) * 1.7, heat * 0.55) * boot;
         } else {
             // Dark metal lit by the core and a rim of the theme colour.
@@ -206,7 +206,7 @@ void main() {
     float rr = length(uv);
     c += col * 0.55 * exp(-rr * 3.0) * corePulse * boot;
     float ang = atan(uv.y, uv.x);
-    float rays = pow(0.5 + 0.5 * sin(ang * 10.0 + gSpin * 0.25 * 10.0), 6.0) * 0.6 + 0.4 * pow(0.5 + 0.5 * sin(ang * 23.0 - uTime * 0.7), 10.0);
+    float rays = pow(0.5 + 0.5 * sin(ang * 10.0 + gSpin * 0.25 * 10.0), 6.0) * 0.6 + 0.4 * pow(0.5 + 0.5 * sin(ang * 23.0 - uTime * 0.35), 10.0);
     c += col * rays * smoothstep(0.45, 0.75, rr) * exp(-(rr - 0.6) * 2.2) * 0.35 * corePulse * boot * (1.0 - hit);
 
     // A message: a shockwave in the app's colour.
@@ -216,7 +216,7 @@ void main() {
     // A call: two comets circling the reactor.
     if (uCall > 0.0) {
         for (int k = 0; k < 2; k++) {
-            float ang = uTime * 4.0 + float(k) * PI;
+            float ang = uTime * 2.6 + float(k) * PI;
             for (int j = 0; j < 8; j++) {
                 float aj = ang - float(j) * 0.09;
                 vec2 cp = vec2(cos(aj), sin(aj)) * 0.78;
@@ -233,13 +233,13 @@ void main() {
     // Embers drifting up on three depths.
     for (int k = 0; k < 3; k++) {
         float depth = 1.0 + float(k) * 0.8;
-        vec2 ep = (frag / uRes.x) * 9.0 * depth + vec2(float(k) * 13.1, uTime * (0.35 / depth) * uEnergy) + uTilt * 0.4 * float(k);
+        vec2 ep = (frag / uRes.x) * 9.0 * depth + vec2(float(k) * 13.1, uTime * (0.17 / depth) * uEnergy) + uTilt * 0.4 * float(k);
         vec2 cell = floor(ep);
         vec2 f = fract(ep) - 0.5;
         float h = hash(cell + float(k));
         vec2 off = vec2(h - 0.5, hash(cell * 1.7) - 0.5) * 0.6;
         float d = length(f - off);
-        float tw = 0.5 + 0.5 * sin(uTime * 3.0 + h * 40.0);
+        float tw = 0.5 + 0.5 * sin(uTime * 1.5 + h * 40.0);
         c += mix(col, col2, step(0.85, h)) * smoothstep(0.06 / depth, 0.0, d) * step(0.6, h) * tw * 0.9 * boot;
     }
 

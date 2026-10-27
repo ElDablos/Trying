@@ -128,7 +128,8 @@ back to One UI Home the same way at any time.
 - **Themes**: 16 in Launcher settings: Crimson, Blood Moon, Mark 42, Inferno, Rose Gold, Solar, Toxic,
   Venom, Matrix, Arctic, Jarvis, Cobalt, Ultraviolet, Synthwave, Phantom and Stealth. Each recolours the
   launcher, Comms, the Hive, Game Hub, Crimson Weather, edge lighting, the handle and the Crimson icons,
-  with its own strength, brightness and second accent; other apps' own colours stay as they are.
+  with its own strength, brightness and second accent; other apps' own colours stay as they are. The
+  home-screen widgets (Crimson, strip, glance and Arcade) and the app's own screens follow it too.
 - **Crimson Reactor wallpaper** (in the Crimson Live app): matches the theme and reacts to the launcher:
   message shockwaves in the app's colour, calls, taps, opening a node and the time-of-day mode.
 - **Battery**: idle effects run at 20 fps and rest after 40 seconds untouched (the next touch wakes

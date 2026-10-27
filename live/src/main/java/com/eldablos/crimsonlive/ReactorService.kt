@@ -28,9 +28,8 @@ import java.util.concurrent.TimeUnit
  * shockwave in the app's colour), calls, taps and the time-of-day mode. It watches the battery itself
  * (charging fills the tunnel, low battery beats) and powers up on each unlock.
  *
- * Battery: it renders at under half the screen's resolution, runs at 30 fps for a few seconds after
- * anything happens and 15 fps otherwise, stops completely whenever it's hidden, and in power saving
- * only draws when something changes.
+ * Battery: it renders at under half the screen's resolution, runs at a steady 30 fps (20 in power
+ * saving) and stops completely whenever it's hidden: apps open or the screen off.
  */
 class ReactorService : WallpaperService() {
     override fun onCreateEngine(): Engine = ReactorEngine()
@@ -50,7 +49,6 @@ class ReactorService : WallpaperService() {
         private var height = 1
         private var visible = false
         private val started = SystemClock.uptimeMillis()
-        private var activeUntil = 0L
 
         private var primary = prefs.getInt("primary", 0xFFE04358.toInt())
         private var secondary = prefs.getInt("secondary", 0xFFFFD27A.toInt())
@@ -84,11 +82,9 @@ class ReactorService : WallpaperService() {
             override fun run() {
                 draw()
                 if (!visible) return
+                // One steady pace, so the motion never stutters or pauses: a little slower in power saving.
                 val saver = power?.isPowerSaveMode == true
-                val busy = SystemClock.uptimeMillis() < activeUntil
-                // In power saving it only keeps going while something's happening.
-                if (saver && !busy) return
-                handler.postDelayed(this, if (busy) ACTIVE_MS else IDLE_MS)
+                handler.postDelayed(this, if (saver) SAVER_MS else FRAME_MS)
             }
         }
 
@@ -112,11 +108,9 @@ class ReactorService : WallpaperService() {
 
         private fun now() = (SystemClock.uptimeMillis() - started) / 1000f
 
-        /** Something happened: smooth frame rate for a few seconds, and restart the loop if it rested. */
-        private fun wake(seconds: Float = 5f) {
-            val was = SystemClock.uptimeMillis() < activeUntil
-            activeUntil = SystemClock.uptimeMillis() + (seconds * 1000).toLong()
-            if (visible && !was) {
+        /** Something happened: draw it straight away rather than waiting for the next frame. */
+        private fun wake() {
+            if (visible) {
                 handler.removeCallbacks(loop)
                 handler.post(loop)
             }
@@ -165,7 +159,6 @@ class ReactorService : WallpaperService() {
                     hasRest = false
                     registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.let { battery(it) }
                     tiltSensor?.let { sensors?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI, handler) }
-                    wake(2f)
                     handler.post(loop)
                 } else {
                     sensors?.unregisterListener(this)
@@ -189,7 +182,7 @@ class ReactorService : WallpaperService() {
                         secondary = extras?.getInt("secondary", secondary) ?: secondary
                         centerY = extras?.getFloat("centerY", centerY) ?: centerY
                         prefs.edit().putInt("primary", primary).putInt("secondary", secondary).putFloat("centerY", centerY).apply()
-                        wake(1f)
+                        wake()
                     }
                     PULSE -> {
                         pulseColor = extras?.getInt("color", primary) ?: primary
@@ -199,18 +192,18 @@ class ReactorService : WallpaperService() {
                     CALL -> {
                         callTarget = if (extras?.getBoolean("on") == true) 1f else 0f
                         callColor = extras?.getInt("color", callColor) ?: callColor
-                        wake(if (callTarget > 0f) 60f else 3f)
+                        wake()
                     }
                     MODE -> {
                         energyTarget = extras?.getFloat("energy", 1f) ?: 1f
                         prefs.edit().putFloat("energy", energyTarget).apply()
-                        wake(3f)
+                        wake()
                     }
                     WallpaperManager.COMMAND_TAP -> {
                         tapX = x / width.coerceAtLeast(1).toFloat()
                         tapY = y / height.coerceAtLeast(1).toFloat()
                         tapAt = now()
-                        wake(2f)
+                        wake()
                     }
                 }
             }
@@ -301,8 +294,8 @@ class ReactorService : WallpaperService() {
         const val PULSE = "com.eldablos.crimson.PULSE"
         const val CALL = "com.eldablos.crimson.CALL"
         const val MODE = "com.eldablos.crimson.MODE"
-        private const val ACTIVE_MS = 33L
-        private const val IDLE_MS = 66L
+        private const val FRAME_MS = 33L
+        private const val SAVER_MS = 50L
         private const val SCALE = .45f
         private const val REST_FOLLOW = 0.015f
         private const val TILT_RANGE = 0.3f

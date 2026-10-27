@@ -70,6 +70,7 @@ private class GridFactory(private val context: Context, private val widgetId: In
 
     override fun getViewAt(position: Int): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.item_arcade_row)
+        WidgetTheme.apply(context, views, backgrounds = TAGS)
         val cells = rows.getOrNull(position).orEmpty()
         SLOTS.forEachIndexed { i, slot ->
             if (i >= columns) {
@@ -86,7 +87,7 @@ private class GridFactory(private val context: Context, private val widgetId: In
             views.setViewLayoutWidth(slot.icon, iconDp, TypedValue.COMPLEX_UNIT_DIP)
             views.setViewLayoutHeight(slot.icon, iconDp, TypedValue.COMPLEX_UNIT_DIP)
             views.setTextViewText(slot.name, cell.game.label)
-            views.setTextColor(slot.name, if (cell.selected) cell.accent else context.getColor(R.color.bone))
+            views.setTextColor(slot.name, if (cell.selected) cell.accent else WidgetTheme.color(context, R.color.bone))
             views.setViewVisibility(slot.tag, if (cell.firstOfLetter) View.VISIBLE else View.GONE)
             views.setTextViewText(slot.tag, cell.game.letter.toString())
             views.setViewVisibility(slot.new, if (cell.new) View.VISIBLE else View.GONE)
@@ -119,5 +120,8 @@ private class GridFactory(private val context: Context, private val widgetId: In
             Slot(R.id.arcade_slot_4, R.id.arcade_icon_4, R.id.arcade_name_4, R.id.arcade_tag_4, R.id.arcade_new_4),
             Slot(R.id.arcade_slot_5, R.id.arcade_icon_5, R.id.arcade_name_5, R.id.arcade_tag_5, R.id.arcade_new_5),
         )
+
+        /** The tags under each game, which follow the theme. */
+        private val TAGS = SLOTS.flatMap { listOf(it.tag, it.new) }.toIntArray()
     }
 }

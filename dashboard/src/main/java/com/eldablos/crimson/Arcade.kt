@@ -198,7 +198,7 @@ object Arcade {
             canvas.drawBitmap(icon, Rect(0, 0, icon.width, icon.height), bounds, paint)
             canvas.restore()
         } else {
-            canvas.drawRoundRect(bounds, radius, radius, paint.apply { color = 0xFF3A0A14.toInt(); this.alpha = alpha })
+            canvas.drawRoundRect(bounds, radius, radius, paint.apply { color = WidgetTheme.color(0xFF3A0A14.toInt()); this.alpha = alpha })
         }
         if (lit) {
             canvas.drawRoundRect(bounds, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply {

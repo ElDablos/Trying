@@ -21,6 +21,8 @@ class QueueActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_queue)
+        // The launcher's theme, on this screen too.
+        WidgetTheme.apply(window.decorView)
         findViewById<View>(R.id.queue_close).setOnClickListener { finish() }
         findViewById<Button>(R.id.queue_open_app).setOnClickListener {
             val player = NowPlaying.activeController(this)?.packageName ?: NowPlaying.SPOTIFY
@@ -43,8 +45,8 @@ class QueueActivity : Activity() {
 
     /** Lights the shuffle and repeat tiles crimson when they're on. */
     private fun renderModes() {
-        val on = getColor(R.color.crimson)
-        val off = getColor(R.color.dust)
+        val on = WidgetTheme.color(this, R.color.crimson)
+        val off = WidgetTheme.color(this, R.color.dust)
         val shuffle = NowPlaying.shuffle(this)
         findViewById<ImageView>(R.id.queue_shuffle_icon).setColorFilter(if (shuffle) on else off)
         findViewById<TextView>(R.id.queue_shuffle_label).setTextColor(if (shuffle) on else off)
@@ -96,7 +98,7 @@ class QueueActivity : Activity() {
             val playing = item.queueId == current
             view.findViewById<TextView>(R.id.queue_item_title).apply {
                 text = d.title
-                setTextColor(getColor(if (playing) R.color.crimson else R.color.bone))
+                setTextColor(WidgetTheme.color(context, if (playing) R.color.crimson else R.color.bone))
             }
             view.findViewById<TextView>(R.id.queue_item_artist).text = d.subtitle ?: ""
             val art = view.findViewById<ImageView>(R.id.queue_item_art)

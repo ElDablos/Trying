@@ -57,6 +57,8 @@ class StripConfigActivity : Activity() {
             return
         }
         setContentView(R.layout.activity_strip_config)
+        // The launcher's theme, on this screen too.
+        WidgetTheme.apply(window.decorView)
         val list = findViewById<ListView>(R.id.strip_apps)
         header = layoutInflater.inflate(R.layout.strip_config_header, list, false)
         list.addHeaderView(header, null, false)

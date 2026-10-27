@@ -69,6 +69,7 @@
                         android:orientation="horizontal">
 
                         <ImageView
+        android:id="@+id/theme_alarm_icon"
                             android:layout_width="16dp"
                             android:layout_height="16dp"
                             android:src="@drawable/ic_alarm" />
@@ -163,6 +164,7 @@
             </LinearLayout>
 
             <ImageView
+        android:id="@+id/theme_divider_1"
                 android:layout_width="1dp"
                 android:layout_height="match_parent"
                 android:layout_marginStart="10dp"
@@ -982,6 +984,7 @@
             android:visibility="gone">
 
             <ImageView
+        android:id="@+id/theme_buds_icon"
                 android:layout_width="18dp"
                 android:layout_height="18dp"
                 android:src="@drawable/ic_buds" />
@@ -1051,6 +1054,7 @@
                 android:orientation="horizontal">
 
                 <ImageView
+        android:id="@+id/theme_steps_icon"
                     android:layout_width="18dp"
                     android:layout_height="18dp"
                     android:src="@drawable/ic_steps" />

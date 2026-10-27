@@ -141,6 +141,9 @@ object EdgeLight {
 
     private fun locked(context: Context) = context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
 
+    /** Forgets the apps' colours, after the theme changes. */
+    fun clearAccents() = accents.clear()
+
     /** The colour a message lights up in: the most common colour of the app's logo, or crimson. */
     fun withAccent(context: Context, packageName: String, then: (Int) -> Unit) {
         if (!appColours(context)) return then(Hud.CRIMSON)

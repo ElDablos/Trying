@@ -148,6 +148,7 @@ class LauncherSettingsActivity : Activity() {
                         if (theme != Theme.now) {
                             Theme.set(this@LauncherSettingsActivity, theme)
                             AppCatalog.clearIcons()
+                            EdgeLight.clearAccents()
                             EdgeHandle.update(this@LauncherSettingsActivity)
                             recreate()
                         }

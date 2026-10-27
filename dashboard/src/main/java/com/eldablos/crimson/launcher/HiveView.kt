@@ -281,7 +281,7 @@ class HiveView(context: Context, private val u: Float) : View(context) {
                 }
                 val icon = AppCatalog.icon(context, app.component)
                 if (icon != null) Hud.bitmap(canvas, icon, rect, (255 * alpha).toInt())
-                else canvas.drawRoundRect(rect, size * .24f, size * .24f, Hud.fill(Hud.alpha(0xFF3A0A14.toInt(), alpha)))
+                else canvas.drawRoundRect(rect, size * .24f, size * .24f, Hud.fill(Hud.alpha(Hud.tint(0xFF3A0A14.toInt()), alpha)))
                 // Names under the big ones in the bulge, where there's room for them.
                 if (!dimmed && s > .95f) {
                     val paint = if (focus > 1.2f) focusLabel else label
@@ -360,7 +360,7 @@ class HiveView(context: Context, private val u: Float) : View(context) {
     private fun drawJumpBar(canvas: Canvas) {
         val top = height - jumpBarH + 8 * u
         val bar = RectF(10 * u, top, width - 10 * u, top + 40 * u)
-        canvas.drawRoundRect(bar, 20 * u, 20 * u, Hud.fill(Hud.alpha(0xFF140609.toInt(), .9f)))
+        canvas.drawRoundRect(bar, 20 * u, 20 * u, Hud.fill(Hud.alpha(Hud.tint(0xFF140609.toInt()), .9f)))
         canvas.drawRoundRect(bar, 20 * u, 20 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .45f), u))
         val names = clusters.map { it.name } + "A–Z"
         val slot = (bar.width() - 12 * u) / names.size

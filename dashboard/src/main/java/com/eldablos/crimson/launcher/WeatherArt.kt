@@ -10,7 +10,7 @@ import kotlin.math.sin
 /** Glowing crimson weather icons, drawn rather than images so they match the HUD at any size. */
 object WeatherArt {
     fun draw(canvas: Canvas, icon: WeatherIcon, cx: Float, cy: Float, r: Float) {
-        val red = 0xFFFF3B52.toInt()
+        val red = Hud.tint(0xFFFF3B52.toInt())
         val glow = Hud.glow(Hud.fill(red), r * .5f)
         val line = Hud.glow(Hud.stroke(red, r * .14f).apply { strokeCap = Paint.Cap.ROUND }, r * .3f)
         fun cloud(dy: Float = 0f) {

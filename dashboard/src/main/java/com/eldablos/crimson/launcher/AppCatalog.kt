@@ -73,7 +73,9 @@ object AppCatalog {
         val app = context.applicationContext
         worker.execute {
             val iconPack = pack ?: IconPack.load(app).also { pack = it }
-            val bitmap = iconPack.icon(app, component, ICON_PX)
+            val theme = Theme.now
+            // Pack icons follow the theme; other apps' own icons keep their colours.
+            val bitmap = iconPack.icon(app, component, ICON_PX)?.let { if (theme != Theme.CRIMSON && iconPack.packed(component)) theme.tint(it) else it }
             main.post {
                 synchronized(loading) { loading.remove(component) }
                 if (bitmap != null) {

@@ -121,19 +121,19 @@ object EdgeLight {
     }
 
     fun lowBattery(context: Context) {
-        if (enabled(context, Kind.LOW_BATTERY) && screenOn(context) && !locked(context)) show(context, Kind.LOW_BATTERY, 0xFFFF2D45.toInt())
+        if (enabled(context, Kind.LOW_BATTERY) && screenOn(context) && !locked(context)) show(context, Kind.LOW_BATTERY, Hud.tint(0xFFFF2D45.toInt()))
     }
 
     /** Plays [kind] now, from the settings screen. */
     fun test(context: Context, kind: Kind) {
         when (kind) {
-            Kind.MESSAGE -> show(context, kind, 0xFF25D366.toInt())
+            Kind.MESSAGE -> show(context, kind, Hud.tint(0xFF25D366.toInt()))
             Kind.CALL -> {
                 show(context, kind, Hud.HOT)
                 main.postDelayed({ view?.stop(Kind.CALL) }, 5000)
             }
             Kind.CHARGING -> show(context, kind, Hud.GOLD)
-            Kind.LOW_BATTERY -> show(context, kind, 0xFFFF2D45.toInt())
+            Kind.LOW_BATTERY -> show(context, kind, Hud.tint(0xFFFF2D45.toInt()))
         }
     }
 
@@ -142,7 +142,7 @@ object EdgeLight {
     private fun locked(context: Context) = context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
 
     /** The colour a message lights up in: the most common colour of the app's logo, or crimson. */
-    private fun withAccent(context: Context, packageName: String, then: (Int) -> Unit) {
+    fun withAccent(context: Context, packageName: String, then: (Int) -> Unit) {
         if (!appColours(context)) return then(Hud.CRIMSON)
         accents[packageName]?.let { return then(it) }
         val app = context.applicationContext

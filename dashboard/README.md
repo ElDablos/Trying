@@ -125,6 +125,12 @@ back to One UI Home the same way at any time.
   hologram flicker when a node deploys, target-lock brackets when an app opens, radar pings for new
   messages, a mode-shift sweep, the music visualiser and a spark along the steps line once the goal is
   hit. Turn the boot sequence or idle effects off in Launcher settings (⚙ in the Comms Centre).
+- **Themes**: 16 in Launcher settings: Crimson, Blood Moon, Mark 42, Inferno, Rose Gold, Solar, Toxic,
+  Venom, Matrix, Arctic, Jarvis, Cobalt, Ultraviolet, Synthwave, Phantom and Stealth. Each recolours the
+  launcher, Comms, the Hive, Game Hub, Crimson Weather, edge lighting, the handle and the Crimson icons,
+  with its own strength, brightness and second accent; other apps' own colours stay as they are.
+- **Crimson Reactor wallpaper** (in the Crimson Live app): matches the theme and reacts to the launcher:
+  message shockwaves in the app's colour, calls, taps, opening a node and the time-of-day mode.
 - **Battery**: idle effects run at 20 fps and rest after 40 seconds untouched (the next touch wakes
   them), and switch off while Android's power saving is on. The Comms handle only redraws under a
   finger, the phone's readings are taken every 5 seconds (every second only while music plays), the

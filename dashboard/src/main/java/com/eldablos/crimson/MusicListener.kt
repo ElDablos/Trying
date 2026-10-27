@@ -14,6 +14,7 @@ import android.service.notification.StatusBarNotification
 import com.eldablos.crimson.launcher.Comms
 import com.eldablos.crimson.launcher.EdgeHandle
 import com.eldablos.crimson.launcher.EdgeLight
+import com.eldablos.crimson.launcher.Theme
 
 /**
  * Runs while the app has notification access. The access lets it follow the phone's media sessions, so
@@ -47,6 +48,7 @@ class MusicListener : NotificationListenerService() {
     }
 
     override fun onListenerConnected() {
+        Theme.load(this)
         Comms.attach(this)
         EdgeHandle.update(this)
         if (!powerRegistered) {

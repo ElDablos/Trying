@@ -55,7 +55,13 @@ class HomeView(context: Context) : View(context) {
         fun openHealth()
         fun openGames()
         fun modeMenu(anchorX: Float, anchorY: Float)
+
+        /** A node opened: the wallpaper answers with a pulse. */
+        fun nodeOpened() {}
     }
+
+    /** How far down the screen the ring sits, for lining the wallpaper's reactor up behind it. */
+    val ringFraction: Float get() = if (height > 0 && ringY > 0f) ringY / height else .43f
 
     var host: Host? = null
 
@@ -249,6 +255,7 @@ class HomeView(context: Context) : View(context) {
     private fun openNode(index: Int, direction: Int = 0) {
         if (index !in ring.indices) return
         performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+        host?.nodeOpened()
         spinAnim?.cancel()
         orbitOffset = 0f
         if (open >= 0 && open != index) {
@@ -385,9 +392,9 @@ class HomeView(context: Context) : View(context) {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val cx = w / 2f
-        c.drawColor(Hud.alpha(0xFF050203.toInt(), .52f))
+        c.drawColor(Hud.alpha(Hud.tint(0xFF050203.toInt()), .52f))
         c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), Paint().apply {
-            shader = RadialGradient(cx, ringY, 260 * u, Hud.alpha(0xFF8C1426.toInt(), .38f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            shader = RadialGradient(cx, ringY, 260 * u, Hud.alpha(Hud.tint(0xFF8C1426.toInt()), .38f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         })
         // Dot grid that fades out away from the ring.
         val dot = Hud.fill(0)
@@ -530,7 +537,7 @@ class HomeView(context: Context) : View(context) {
         canvas.drawCircle(cx, ringY, 106 * u, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = RadialGradient(
                 cx, ringY, 106 * u,
-                intArrayOf(Hud.alpha(Hud.BLOOD, .9f), Hud.alpha(0xFF1C080C.toInt(), .95f), 0xFF0A0506.toInt()),
+                intArrayOf(Hud.alpha(Hud.BLOOD, .9f), Hud.alpha(Hud.tint(0xFF1C080C.toInt()), .95f), Hud.tint(0xFF0A0506.toInt())),
                 floatArrayOf(0f, .6f, 1f), Shader.TileMode.CLAMP,
             )
         })
@@ -581,11 +588,11 @@ class HomeView(context: Context) : View(context) {
 
         // The reactor: search.
         val r = 30 * u * coreT.coerceAtMost(1.1f)
-        canvas.drawCircle(cx, ringY, r, Hud.fill(0xFF14070A.toInt()))
+        canvas.drawCircle(cx, ringY, r, Hud.fill(Hud.tint(0xFF14070A.toInt())))
         canvas.drawCircle(cx, ringY, r, Hud.glow(Hud.stroke(Hud.HOT, 2 * u), 6 * u))
-        canvas.drawCircle(cx, ringY, 22 * u, Hud.stroke(Hud.alpha(0xFFFF788C.toInt(), .5f), 5 * u, floatArrayOf(6 * u, 3 * u)))
-        canvas.drawCircle(cx, ringY, 11 * u, Hud.glow(Hud.fill(Hud.alpha(0xFFFF8CA0.toInt(), .25f)), 6 * u))
-        canvas.drawCircle(cx, ringY, 11 * u, Hud.stroke(0xFFFFB3BE.toInt(), 1.2f * u))
+        canvas.drawCircle(cx, ringY, 22 * u, Hud.stroke(Hud.alpha(Hud.tint(0xFFFF788C.toInt()), .5f), 5 * u, floatArrayOf(6 * u, 3 * u)))
+        canvas.drawCircle(cx, ringY, 11 * u, Hud.glow(Hud.fill(Hud.alpha(Hud.tint(0xFFFF8CA0.toInt()), .25f)), 6 * u))
+        canvas.drawCircle(cx, ringY, 11 * u, Hud.stroke(Hud.tint(0xFFFFB3BE.toInt()), 1.2f * u))
         if (open < 0 || openT < .5f) {
             val m = Hud.stroke(Color.WHITE, 1.4f * u).apply { strokeCap = Paint.Cap.ROUND }
             canvas.drawCircle(cx - 1.5f * u, ringY - 1.5f * u, 4 * u, m)
@@ -603,7 +610,7 @@ class HomeView(context: Context) : View(context) {
         val dim = if (rn.node.name.uppercase() in this.dim) .4f else 1f
         val a = alpha * dim
         canvas.drawCircle(x, y, r, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = RadialGradient(x, y, r, 0xFF3A0A12.toInt(), 0xFF120608.toInt(), Shader.TileMode.CLAMP)
+            shader = RadialGradient(x, y, r, Hud.tint(0xFF3A0A12.toInt()), Hud.tint(0xFF120608.toInt()), Shader.TileMode.CLAMP)
             this.alpha = (255 * a).toInt()
         })
         canvas.drawCircle(x, y, r, Hud.glow(Hud.stroke(Hud.alpha(Hud.CRIMSON, .8f * a), 1.5f * u), 8 * u, Hud.alpha(Hud.CRIMSON, .45f * a)))
@@ -637,7 +644,7 @@ class HomeView(context: Context) : View(context) {
         val phase = ((System.currentTimeMillis() - incomingAt) % 1400) / 1400f
         for (k in 0..2) {
             val p = (phase + k / 3f) % 1f
-            canvas.drawCircle(x, y, s + p * 22 * u, Hud.stroke(Hud.alpha(0xFF25D366.toInt(), .7f * (1 - p)), 1.5f * u))
+            canvas.drawCircle(x, y, s + p * 22 * u, Hud.stroke(Hud.alpha(Hud.tint(0xFF25D366.toInt()), .7f * (1 - p)), 1.5f * u))
         }
     }
 
@@ -657,7 +664,7 @@ class HomeView(context: Context) : View(context) {
         }
         val coreR = (if (two) 50 else 62) * u
         canvas.drawCircle(cx, ringY, coreR, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = RadialGradient(cx, ringY, coreR, Hud.alpha(Hud.BLOOD, .95f), 0xFF0A0506.toInt(), Shader.TileMode.CLAMP)
+            shader = RadialGradient(cx, ringY, coreR, Hud.alpha(Hud.BLOOD, .95f), Hud.tint(0xFF0A0506.toInt()), Shader.TileMode.CLAMP)
             alpha = (255 * t).toInt()
         })
         canvas.drawCircle(cx, ringY, coreR, Hud.glow(Hud.stroke(Hud.alpha(Hud.CRIMSON, t), 2 * u), 8 * u))
@@ -718,7 +725,7 @@ class HomeView(context: Context) : View(context) {
             val left = 14 * u + i * slotW + 2 * u
             val r = RectF(left, chipY, left + slotW - 4 * u, chipY + 26 * u)
             val on = i == open
-            Hud.panel(canvas, r, 5 * u, u, if (on) Hud.CRIMSON else Hud.alpha(Hud.CRIMSON, .35f * t), if (on) Hud.alpha(Hud.RED, .55f * t) else Hud.alpha(0xFF140609.toInt(), .7f * t))
+            Hud.panel(canvas, r, 5 * u, u, if (on) Hud.CRIMSON else Hud.alpha(Hud.CRIMSON, .35f * t), if (on) Hud.alpha(Hud.RED, .55f * t) else Hud.alpha(Hud.tint(0xFF140609.toInt()), .7f * t))
             chip.color = Hud.alpha(if (on) Color.WHITE else Hud.DUST, t)
             chip.textSize = Hud.text(7.5f * u, 0).textSize
             val label = other.node.name.uppercase()
@@ -730,13 +737,13 @@ class HomeView(context: Context) : View(context) {
     private fun drawIcon(canvas: Canvas, component: ComponentName, rect: RectF, alpha: Int, glow: Boolean = false) {
         if (alpha <= 2) return
         if (glow) {
-            canvas.drawRoundRect(rect, rect.width() * .24f, rect.width() * .24f, Hud.glow(Hud.fill(Hud.alpha(0xFF14070A.toInt(), alpha / 255f * .9f)), rect.width() * .22f, Hud.alpha(Hud.CRIMSON, .5f * alpha / 255f)))
+            canvas.drawRoundRect(rect, rect.width() * .24f, rect.width() * .24f, Hud.glow(Hud.fill(Hud.alpha(Hud.tint(0xFF14070A.toInt()), alpha / 255f * .9f)), rect.width() * .22f, Hud.alpha(Hud.CRIMSON, .5f * alpha / 255f)))
         }
         val icon = AppCatalog.icon(context, component)
         if (icon != null) {
             Hud.bitmap(canvas, icon, rect, alpha)
         } else {
-            canvas.drawRoundRect(rect, rect.width() * .24f, rect.width() * .24f, Hud.fill(Hud.alpha(0xFF3A0A14.toInt(), alpha / 255f)))
+            canvas.drawRoundRect(rect, rect.width() * .24f, rect.width() * .24f, Hud.fill(Hud.alpha(Hud.tint(0xFF3A0A14.toInt()), alpha / 255f)))
         }
     }
 
@@ -778,10 +785,10 @@ class HomeView(context: Context) : View(context) {
     private fun drawMusic(canvas: Canvas, t: Telemetry) {
         val top = y(MUSIC_TOP)
         val r = RectF(20 * u, top, width - 20 * u, top + MUSIC_H * u)
-        Hud.panel(canvas, r, 14 * u, u, Hud.alpha(Hud.CRIMSON, .45f), Hud.alpha(0xFF140609.toInt(), .75f))
+        Hud.panel(canvas, r, 14 * u, u, Hud.alpha(Hud.CRIMSON, .45f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .75f))
         val art = RectF(r.left + 12 * u, top + 10 * u, r.left + 56 * u, top + 54 * u)
         canvas.drawRoundRect(art, 8 * u, 8 * u, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(art.left, art.top, art.right, art.bottom, Hud.BLOOD, 0xFF1A0508.toInt(), Shader.TileMode.CLAMP)
+            shader = LinearGradient(art.left, art.top, art.right, art.bottom, Hud.BLOOD, Hud.tint(0xFF1A0508.toInt()), Shader.TileMode.CLAMP)
         })
         canvas.drawRoundRect(art, 8 * u, 8 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .5f), u))
         val track = t.track
@@ -880,10 +887,10 @@ class HomeView(context: Context) : View(context) {
 
     /** A call in progress (any app): who, how long, End, and tap to go back to it. */
     private fun drawCall(canvas: Canvas, call: StatusBarNotification) {
-        val green = 0xFF3DDC84.toInt()
+        val green = Hud.tint(0xFF3DDC84.toInt())
         val top = y(802f)
         val r = RectF(14 * u, top, width - 14 * u, top + 60 * u)
-        Hud.panel(canvas, r, 12 * u, u, Hud.alpha(green, .7f), Hud.alpha(0xFF0A1A10.toInt(), .9f))
+        Hud.panel(canvas, r, 12 * u, u, Hud.alpha(green, .7f), Hud.alpha(Hud.tint(0xFF0A1A10.toInt()), .9f))
         val pulse = .5f + .5f * sin(now() / 260.0).toFloat()
         canvas.drawCircle(r.left + 18 * u, r.centerY(), (4 + 2 * pulse) * u, Hud.glow(Hud.fill(green), 8 * u))
         val ringing = Comms.ringing(call)
@@ -895,7 +902,7 @@ class HomeView(context: Context) : View(context) {
         val name = Hud.text(15 * u, Color.WHITE, Hud.BOLD)
         canvas.drawText(Hud.ellipsize(Comms.caller(call), name, textRight - r.left - 34 * u), r.left + 32 * u, r.top + 45 * u, name)
         if (end != null) {
-            canvas.drawRoundRect(endR, 18 * u, 18 * u, Hud.glow(Hud.fill(0xFFD0102E.toInt()), 8 * u))
+            canvas.drawRoundRect(endR, 18 * u, 18 * u, Hud.glow(Hud.fill(Hud.tint(0xFFD0102E.toInt())), 8 * u))
             canvas.drawText((end.title?.toString() ?: "END").uppercase(), endR.centerX(), endR.centerY() + 4 * u, Hud.fit((end.title?.toString() ?: "END").uppercase(), Hud.text(9 * u, Color.WHITE, Hud.MONO_BOLD, .1f, Paint.Align.CENTER), endR.width() - 10 * u))
             hits.add(0, endR to { Comms.fire(context, end.actionIntent) })
         }
@@ -929,9 +936,9 @@ class HomeView(context: Context) : View(context) {
         val a = (1f - popOffset / (110 * u)).coerceIn(.15f, 1f)
         val save = canvas.saveLayerAlpha(r.left - 30 * u, r.top - 30 * u, r.right + 30 * u, r.bottom + 30 * u, (255 * a).toInt())
         val path = Hud.cut(r, 14 * u)
-        canvas.drawPath(path, Hud.glow(Hud.fill(0xF2280810.toInt()), 16 * u, Hud.alpha(Hud.CRIMSON, .55f)))
+        canvas.drawPath(path, Hud.glow(Hud.fill(Hud.tint(0xF2280810.toInt())), 16 * u, Hud.alpha(Hud.CRIMSON, .55f)))
         canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(0f, r.top, 0f, r.bottom, 0xF23C0812.toInt(), 0xF20E0507.toInt(), Shader.TileMode.CLAMP)
+            shader = LinearGradient(0f, r.top, 0f, r.bottom, Hud.tint(0xF23C0812.toInt()), Hud.tint(0xF20E0507.toInt()), Shader.TileMode.CLAMP)
         })
         canvas.drawPath(path, Hud.stroke(Hud.HOT, u))
         // Grab handle.
@@ -952,14 +959,14 @@ class HomeView(context: Context) : View(context) {
         val reply = Comms.replyAction(sbn) != null
         val replyRect = RectF(r.right - 66 * u, r.top + 42 * u, r.right - 14 * u, r.top + 66 * u)
         val title = Hud.text(13 * u, Color.WHITE, Hud.BOLD)
-        val body = Hud.text(11.5f * u, 0xFFDCCFD1.toInt(), Hud.SANS)
+        val body = Hud.text(11.5f * u, Hud.tint(0xFFDCCFD1.toInt()), Hud.SANS)
         val textW = (if (reply) replyRect.left - 8 * u else r.right - 14 * u) - icon.right - 10 * u
         canvas.drawText(Hud.ellipsize(Comms.title(sbn), title, textW), icon.right + 10 * u, r.top + 51 * u, title)
         canvas.drawText(Hud.ellipsize(Comms.text(sbn).replace('\n', ' '), body, textW), icon.right + 10 * u, r.top + 67 * u, body)
         if (reply) {
             canvas.drawRect(replyRect, Hud.fill(Hud.alpha(Hud.CRIMSON, .12f)))
             canvas.drawRect(replyRect, Hud.stroke(Hud.alpha(Hud.CRIMSON, .5f), u))
-            canvas.drawText("REPLY", replyRect.centerX(), replyRect.centerY() + 2.6f * u, Hud.text(7.5f * u, 0xFFFF8A9A.toInt(), Hud.MONO, .14f, Paint.Align.CENTER))
+            canvas.drawText("REPLY", replyRect.centerX(), replyRect.centerY() + 2.6f * u, Hud.text(7.5f * u, Hud.tint(0xFFFF8A9A.toInt()), Hud.MONO, .14f, Paint.Align.CENTER))
             incomingReply.set(replyRect)
         } else {
             incomingReply.setEmpty()

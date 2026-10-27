@@ -11,19 +11,23 @@ import android.graphics.Typeface
 import android.text.TextPaint
 import android.text.TextUtils
 
-/** The launcher's look: the crimson HUD palette, fonts and the shapes everything is drawn from. */
+/** The launcher's look: the HUD palette (in the current [Theme]), fonts and the shapes everything is drawn from. */
 object Hud {
-    const val CRIMSON = 0xFFE04358.toInt()
-    const val HOT = 0xFFFF5A6E.toInt()
-    const val RED = 0xFFC8243A.toInt()
-    const val DEEP = 0xFF8C1426.toInt()
-    const val BLOOD = 0xFF5C0C1A.toInt()
-    const val BONE = 0xFFEDE6E6.toInt()
-    const val DUST = 0xFF9A8A8C.toInt()
-    const val SOFT = 0xFFCDBFC1.toInt()
-    const val GOLD = 0xFFFFD27A.toInt()
-    const val PANEL = 0xB8140609.toInt()
-    const val VOID = 0xFF070304.toInt()
+    // The palette, designed in crimson and turned to the current theme's colours as it's read.
+    val CRIMSON: Int get() = Theme.tint(0xFFE04358.toInt())
+    val HOT: Int get() = Theme.tint(0xFFFF5A6E.toInt())
+    val RED: Int get() = Theme.tint(0xFFC8243A.toInt())
+    val DEEP: Int get() = Theme.tint(0xFF8C1426.toInt())
+    val BLOOD: Int get() = Theme.tint(0xFF5C0C1A.toInt())
+    val BONE: Int get() = Theme.tint(0xFFEDE6E6.toInt())
+    val DUST: Int get() = Theme.tint(0xFF9A8A8C.toInt())
+    val SOFT: Int get() = Theme.tint(0xFFCDBFC1.toInt())
+    val GOLD: Int get() = Theme.tint(0xFFFFD27A.toInt())
+    val PANEL: Int get() = Theme.tint(0xB8140609.toInt())
+    val VOID: Int get() = Theme.tint(0xFF070304.toInt())
+
+    /** Any colour in the current theme: reds to its colour, golds to its second accent. */
+    fun tint(color: Int): Int = Theme.tint(color)
 
     val MONO: Typeface = Typeface.MONOSPACE
     val MONO_BOLD: Typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)

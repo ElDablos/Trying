@@ -69,6 +69,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             val now = currentMode()
             if (now != mode) {
                 mode = now
+                WallpaperLink.mode(this@LauncherActivity, now)
                 showNodes()
             }
             handler.postDelayed(this, 1000L - System.currentTimeMillis() % 1000L)
@@ -95,8 +96,14 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         override fun onPackagesUnavailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) = appsChanged()
     }
 
+    /** The theme this screen was built in; another one picked in settings rebuilds it. */
+    private var builtIn: Theme? = null
+    private var ringing = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Theme.load(this)
+        builtIn = Theme.now
         window.setDecorFitsSystemWindows(false)
         window.attributes = window.attributes.apply {
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -173,7 +180,12 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         // Samsung's panel brings its status bar back; hide it again once we're on top.
-        if (hasFocus) window.insetsController?.hide(WindowInsets.Type.statusBars())
+        if (hasFocus) {
+            window.insetsController?.hide(WindowInsets.Type.statusBars())
+            // Back on the home screen: bring the wallpaper up to date.
+            WallpaperLink.theme(this, home.ringFraction)
+            WallpaperLink.mode(this, mode)
+        }
     }
 
     override fun onDestroy() {
@@ -189,6 +201,13 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     override fun onResume() {
         super.onResume()
+        // A new theme from settings: rebuild everything in its colours, icons too.
+        Theme.load(this)
+        if (builtIn != Theme.now) {
+            AppCatalog.clearIcons()
+            recreate()
+            return
+        }
         resumed = true
         window.insetsController?.hide(WindowInsets.Type.statusBars())
         Comms.addListener(this)
@@ -278,12 +297,20 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     }
 
     override fun onComms() {
-        home.setComms(Comms.groups(), Comms.calls())
+        val calls = Comms.calls()
+        home.setComms(Comms.groups(), calls)
+        // The wallpaper's reactor spins up while a call rings.
+        val nowRinging = calls.any { Comms.ringing(it) }
+        if (nowRinging != ringing && resumed) {
+            ringing = nowRinging
+            WallpaperLink.call(this, nowRinging, Hud.tint(0xFF3DDC84.toInt()))
+        }
         comms.refresh()
     }
 
     override fun onIncoming(sbn: StatusBarNotification) {
         effects.wake()
+        if (resumed) EdgeLight.withAccent(this, sbn.packageName) { WallpaperLink.pulse(this, it) }
         if (resumed && comms.visibility != View.VISIBLE && apps.visibility != View.VISIBLE) home.showIncoming(sbn)
     }
 
@@ -291,10 +318,25 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private fun effectsOn(): Boolean = getSharedPreferences("launcher", MODE_PRIVATE).getBoolean(LauncherSettingsActivity.EFFECTS, true) &&
         getSystemService(android.os.PowerManager::class.java)?.isPowerSaveMode != true
 
+    private var downX = 0f
+    private var downY = 0f
+
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) effects.wake()
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                effects.wake()
+                downX = ev.rawX
+                downY = ev.rawY
+            }
+            // A tap on the home screen ripples the wallpaper.
+            android.view.MotionEvent.ACTION_UP -> if (!overlayOpen() && kotlin.math.hypot(ev.rawX - downX, ev.rawY - downY) < 12 * Hud.u) {
+                WallpaperLink.tap(this, ev.rawX.toInt(), ev.rawY.toInt())
+            }
+        }
         return super.dispatchTouchEvent(ev)
     }
+
+    override fun nodeOpened() = WallpaperLink.pulse(this, Hud.HOT)
 
     // --- Overlays ---
 

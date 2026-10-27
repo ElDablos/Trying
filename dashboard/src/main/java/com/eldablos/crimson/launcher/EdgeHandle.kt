@@ -116,10 +116,10 @@ class HandleView(context: Context, private val left: Boolean) : View(context) {
         val inner = if (left) w else width - w
         val top = 10 * dp
         val bottom = height - 10 * dp
-        glow.shader = LinearGradient(0f, top, 0f, bottom, intArrayOf(Color.TRANSPARENT, Hud.alpha(0xFFFF2E4A.toInt(), .55f * a), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
-        glow.setShadowLayer(10 * dp, 0f, 0f, Hud.alpha(0xFFFF2E4A.toInt(), .8f * a))
+        glow.shader = LinearGradient(0f, top, 0f, bottom, intArrayOf(Color.TRANSPARENT, Hud.alpha(Hud.tint(0xFFFF2E4A.toInt()), .55f * a), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+        glow.setShadowLayer(10 * dp, 0f, 0f, Hud.alpha(Hud.tint(0xFFFF2E4A.toInt()), .8f * a))
         canvas.drawRoundRect(RectF(minOf(edge, inner) - 2 * dp, top, maxOf(edge, inner) + 2 * dp, bottom), 4 * dp, 4 * dp, glow)
-        core.shader = LinearGradient(0f, top + 14 * dp, 0f, bottom - 14 * dp, intArrayOf(Color.TRANSPARENT, Hud.alpha(0xFFFFC8D0.toInt(), a), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+        core.shader = LinearGradient(0f, top + 14 * dp, 0f, bottom - 14 * dp, intArrayOf(Color.TRANSPARENT, Hud.alpha(Hud.tint(0xFFFFC8D0.toInt()), a), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
         val cw = 1.6f * dp
         val cx = if (left) w * .55f else width - w * .55f
         canvas.drawRoundRect(RectF(cx - cw, top + 14 * dp, cx + cw, bottom - 14 * dp), cw, cw, core)

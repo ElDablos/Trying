@@ -34,7 +34,7 @@ class StatusHud {
         tickerColor: Int,
     ) {
         val low = t.battery in 0..14 && !t.charging
-        val accent = if (low) 0xFFFF2D45.toInt() else Hud.HOT
+        val accent = if (low) Hud.tint(0xFFFF2D45.toInt()) else Hud.HOT
         fun x(v: Float) = v * u
 
         // The two side panels and the links to the camera ring.
@@ -47,7 +47,7 @@ class StatusHud {
             moveTo(x(398f), 8 * u); lineTo(x(252f), 8 * u); lineTo(x(244f), 16 * u); lineTo(x(244f), 36 * u)
             lineTo(x(252f), 44 * u); lineTo(x(390f), 44 * u); lineTo(x(398f), 36 * u); close()
         }
-        val panelFill = Hud.fill(Hud.alpha(0xFF140609.toInt(), .72f))
+        val panelFill = Hud.fill(Hud.alpha(Hud.tint(0xFF140609.toInt()), .72f))
         val panelEdge = Hud.stroke(Hud.alpha(Hud.CRIMSON, .45f), u)
         for (p in listOf(left, right)) {
             canvas.drawPath(p, panelFill)
@@ -60,7 +60,7 @@ class StatusHud {
         canvas.drawLine(cameraX + 22 * u * k, cameraY, x(244f), 26 * u, link)
 
         // Battery reactor round the camera.
-        canvas.drawCircle(cameraX, cameraY, 21 * u * k, Hud.fill(Hud.alpha(0xFF0A0405.toInt(), .85f)))
+        canvas.drawCircle(cameraX, cameraY, 21 * u * k, Hud.fill(Hud.alpha(Hud.tint(0xFF0A0405.toInt()), .85f)))
         canvas.drawCircle(cameraX, cameraY, 21 * u * k, Hud.stroke(Hud.alpha(Hud.CRIMSON, .3f), u))
         val tick = Hud.stroke(0, 1.2f * u)
         for (i in 0 until 24) {
@@ -76,7 +76,7 @@ class StatusHud {
         canvas.drawOval(ring, Hud.stroke(Hud.alpha(Hud.CRIMSON, .15f), 2.4f * u * k))
         val arc = Hud.glow(Hud.stroke(if (t.charging) Hud.GOLD else accent, 2.4f * u * k).apply { strokeCap = Paint.Cap.ROUND }, 3 * u)
         canvas.drawArc(ring, -90f, 360f * t.battery / 100f, false, arc)
-        canvas.drawCircle(cameraX, cameraY, 6.5f * u * k, Hud.fill(0xFF000000.toInt()))
+        canvas.drawCircle(cameraX, cameraY, 6.5f * u * k, Hud.fill(Hud.tint(0xFF000000.toInt())))
 
         // Glow line under the bar, with a bracket under the camera.
         val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -94,7 +94,7 @@ class StatusHud {
         canvas.drawPath(path, Hud.stroke(Hud.HOT, u))
 
         // Left: time, seconds, notification diamonds.
-        val timePaint = Hud.glow(Hud.text(15 * u, 0xFFFFFFFF.toInt(), Hud.MONO_BOLD, .04f), 6 * u, Hud.alpha(Hud.CRIMSON, .9f))
+        val timePaint = Hud.glow(Hud.text(15 * u, Hud.tint(0xFFFFFFFF.toInt()), Hud.MONO_BOLD, .04f), 6 * u, Hud.alpha(Hud.CRIMSON, .9f))
         val time = "%02d:%02d".format(now.hour, now.minute)
         var cx = x(24f)
         canvas.drawText(time, cx, 31 * u, timePaint)
@@ -155,8 +155,8 @@ class StatusHud {
                 close()
             }
             canvas.drawPath(shield, Hud.glow(Hud.fill(Hud.alpha(Hud.GOLD, .9f)), 4 * u, Hud.alpha(Hud.GOLD, .6f)))
-            canvas.drawLine(sx - 1.6f * u, 26.6f * u, sx - .2f * u, 28.2f * u, Hud.stroke(0xFF1A0A0D.toInt(), 1.2f * u))
-            canvas.drawLine(sx - .2f * u, 28.2f * u, sx + 2 * u, 24.8f * u, Hud.stroke(0xFF1A0A0D.toInt(), 1.2f * u))
+            canvas.drawLine(sx - 1.6f * u, 26.6f * u, sx - .2f * u, 28.2f * u, Hud.stroke(Hud.tint(0xFF1A0A0D.toInt()), 1.2f * u))
+            canvas.drawLine(sx - .2f * u, 28.2f * u, sx + 2 * u, 24.8f * u, Hud.stroke(Hud.tint(0xFF1A0A0D.toInt()), 1.2f * u))
             rx -= 8 * u + 6 * u
         }
         val net = Hud.text(8 * u, Hud.DUST, Hud.MONO, align = Paint.Align.RIGHT)

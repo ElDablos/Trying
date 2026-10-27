@@ -142,7 +142,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             style(chip, 6.5f, Hud.BONE, .08f)
             chip.text = label
             chip.gravity = Gravity.CENTER
-            chip.background = Outline(u, Hud.alpha(0xFF140609.toInt(), .7f))
+            chip.background = Outline(u, Hud.alpha(Hud.tint(0xFF140609.toInt()), .7f))
             chip.setPadding((2 * u).toInt(), (9 * u).toInt(), (2 * u).toInt(), (9 * u).toInt())
             chip.maxLines = 1
             chip.letterSpacing = 0f
@@ -193,7 +193,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Hud.fill(Hud.alpha(0xFF050203.toInt(), .8f)))
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Hud.fill(Hud.alpha(Hud.tint(0xFF050203.toInt()), .8f)))
         canvas.drawRect(0f, 0f, width.toFloat(), height * .5f, Paint().apply {
             shader = RadialGradient(width / 2f, 0f, width.toFloat(), Hud.alpha(Hud.DEEP, .25f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         })
@@ -631,8 +631,8 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
                 b.maxLines = 1
                 b.setPadding((6 * u).toInt(), (12 * u).toInt(), (6 * u).toInt(), (12 * u).toInt())
                 b.background = Outline(u, when {
-                    danger -> Hud.alpha(0xFFD0102E.toInt(), .85f)
-                    accept -> Hud.alpha(0xFF1E9E4A.toInt(), .85f)
+                    danger -> Hud.alpha(Hud.tint(0xFFD0102E.toInt()), .85f)
+                    accept -> Hud.alpha(Hud.tint(0xFF1E9E4A.toInt()), .85f)
                     else -> Hud.alpha(Hud.CRIMSON, .14f)
                 })
                 b.setOnClickListener {
@@ -748,7 +748,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         }
 
         private fun button(label: String) = TextView(context).apply {
-            style(this, 7.5f, 0xFFFF8A9A.toInt(), .14f)
+            style(this, 7.5f, Hud.tint(0xFFFF8A9A.toInt()), .14f)
             text = label
             setPadding((8 * u).toInt(), (5 * u).toInt(), (8 * u).toInt(), (5 * u).toInt())
             background = Outline(u)
@@ -873,7 +873,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 
     companion object {
-        private val CALL_GREEN = 0xFF3DDC84.toInt()
+        private val CALL_GREEN = Hud.tint(0xFF3DDC84.toInt())
         private const val REPLY_ID = 0x7f0c1001
     }
 }
@@ -913,12 +913,12 @@ class HexButton(context: Context, private val u: Float, private val hex: Hex) : 
             moveTo(cx, top); lineTo(cx + w / 2, top + h * .25f); lineTo(cx + w / 2, top + h * .75f)
             lineTo(cx, top + h); lineTo(cx - w / 2, top + h * .75f); lineTo(cx - w / 2, top + h * .25f); close()
         }
-        canvas.drawPath(p, Hud.fill(if (hex.on) 0xFF4A0C18.toInt() else 0xFF14070A.toInt()))
+        canvas.drawPath(p, Hud.fill(if (hex.on) Hud.tint(0xFF4A0C18.toInt()) else Hud.tint(0xFF14070A.toInt())))
         canvas.drawPath(p, if (hex.on) Hud.glow(Hud.stroke(Hud.HOT, 1.6f * u), 6 * u) else Hud.stroke(Hud.alpha(Hud.CRIMSON, .35f), 1.2f * u))
         val g = Hud.text(13 * u, if (hex.on) Color.WHITE else Hud.DUST, Hud.SANS, align = Paint.Align.CENTER)
         if (hex.on) Hud.glow(g, 6 * u, Hud.HOT)
         canvas.drawText(hex.glyph, cx, top + h / 2 + 4.5f * u, g)
-        if (hex.external) canvas.drawText("↗", cx + w * .26f, top + h * .3f, Hud.text(7 * u, 0xFFFF8A9A.toInt(), Hud.SANS, align = Paint.Align.CENTER))
+        if (hex.external) canvas.drawText("↗", cx + w * .26f, top + h * .3f, Hud.text(7 * u, Hud.tint(0xFFFF8A9A.toInt()), Hud.SANS, align = Paint.Align.CENTER))
         canvas.drawText(hex.label, cx, top + h + 13 * u, Hud.fit(hex.label, Hud.text(5.5f * u, if (hex.on) Color.WHITE else Hud.DUST, Hud.MONO, .04f, Paint.Align.CENTER), width - 2 * u))
     }
 }
@@ -1008,7 +1008,7 @@ class MusicCard(context: Context, private val u: Float) : View(context) {
     override fun onDraw(canvas: Canvas) {
         hits.clear()
         val r = RectF(0f, 0f, width.toFloat(), height.toFloat())
-        Hud.panel(canvas, r, 12 * u, u, Hud.alpha(Hud.CRIMSON, .45f), Hud.alpha(0xFF280810.toInt(), .6f))
+        Hud.panel(canvas, r, 12 * u, u, Hud.alpha(Hud.CRIMSON, .45f), Hud.alpha(Hud.tint(0xFF280810.toInt()), .6f))
         val track = NowPlaying.read(context)
         val art = RectF(12 * u, r.centerY() - 18 * u, 48 * u, r.centerY() + 18 * u)
         val bitmap = if (track != null) NowPlaying.art(context) else null
@@ -1106,7 +1106,7 @@ class CardShape(private val u: Float, private val accent: Int = Hud.HOT) : Drawa
         val r = RectF(bounds)
         val path = Hud.cut(r, 12 * u)
         canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(r.left, 0f, r.right, 0f, Hud.alpha(Hud.BLOOD, .55f), Hud.alpha(0xFF140609.toInt(), .85f), Shader.TileMode.CLAMP)
+            shader = LinearGradient(r.left, 0f, r.right, 0f, Hud.alpha(Hud.BLOOD, .55f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .85f), Shader.TileMode.CLAMP)
         })
         canvas.drawPath(path, Hud.stroke(Hud.alpha(Hud.CRIMSON, .45f), u))
         canvas.drawRect(r.left, r.top + 12 * u, r.left + 2 * u, r.bottom - 12 * u, Hud.glow(Hud.fill(accent), 5 * u))

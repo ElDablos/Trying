@@ -16,6 +16,7 @@ class CommsActivity : Activity(), Comms.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Theme.load(this)
         val u = resources.displayMetrics.widthPixels / 412f
         Hud.u = u
         window.setDecorFitsSystemWindows(false)

@@ -64,7 +64,19 @@
         android:background="@drawable/button_primary"
         android:letterSpacing="0.12"
         android:stateListAnimator="@null"
-        android:text="SET AS WALLPAPER"
+        android:text="SET ROSE WINDOW"
+        android:textColor="@color/bone"
+        android:textSize="15sp" />
+
+    <Button
+        android:id="@+id/reactor_button"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/button_primary"
+        android:letterSpacing="0.12"
+        android:stateListAnimator="@null"
+        android:text="SET CRIMSON REACTOR (3D)"
         android:textColor="@color/bone"
         android:textSize="15sp" />
 

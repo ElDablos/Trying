@@ -23,6 +23,7 @@ class LauncherSettingsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Theme.load(this)
         u = resources.displayMetrics.widthPixels / 412f
         Hud.u = u
         column = LinearLayout(this).apply {
@@ -47,6 +48,11 @@ class LauncherSettingsActivity : Activity() {
         val prefs = getSharedPreferences("launcher", MODE_PRIVATE)
         column.addView(text("◆ CRIMSON LAUNCHER // SETTINGS", 10f, Hud.CRIMSON))
         column.addView(line())
+
+        // Themes.
+        section("THEME")
+        themes()
+        note("Recolours the launcher, Comms, the Hive, Game Hub, Crimson Weather, edge lighting, the handle and your Crimson icons. The Crimson Reactor wallpaper changes with it.")
 
         // Edge lighting.
         section("EDGE LIGHTING")
@@ -131,6 +137,52 @@ class LauncherSettingsActivity : Activity() {
         status("HOME APP", "CHANGE") { startActivity(Intent(Settings.ACTION_HOME_SETTINGS)) }
     }
 
+    /** Every theme as a swatch, four to a row; tap one to switch. */
+    private fun themes() {
+        val perRow = 4
+        Theme.entries.chunked(perRow).forEach { rowThemes ->
+            val r = LinearLayout(this)
+            rowThemes.forEach { theme ->
+                r.addView(Swatch(theme, theme == Theme.now).apply {
+                    setOnClickListener {
+                        if (theme != Theme.now) {
+                            Theme.set(this@LauncherSettingsActivity, theme)
+                            AppCatalog.clearIcons()
+                            EdgeHandle.update(this@LauncherSettingsActivity)
+                            recreate()
+                        }
+                    }
+                }, LinearLayout.LayoutParams(0, (74 * u).toInt(), 1f).apply {
+                    marginStart = (3 * u).toInt()
+                    marginEnd = (3 * u).toInt()
+                })
+            }
+            repeat(perRow - rowThemes.size) { r.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f)) }
+            column.addView(r, params(6f))
+        }
+    }
+
+    /** A theme's colours as a glowing orb with its name, outlined when it's the one in use. */
+    private inner class Swatch(private val theme: Theme, private val on: Boolean) : View(this@LauncherSettingsActivity) {
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            val primary = theme.tint(0xFFE04358.toInt())
+            val hot = theme.tint(0xFFFF5A6E.toInt())
+            val second = theme.tint(0xFFFFD27A.toInt())
+            val box = android.graphics.RectF(u, u, width - u, height - u)
+            canvas.drawRoundRect(box, 8 * u, 8 * u, Hud.fill(theme.tint(0xFF140609.toInt())))
+            canvas.drawRoundRect(box, 8 * u, 8 * u, Hud.stroke(if (on) Color.WHITE else android.graphics.Color.argb(90, Color.red(primary), Color.green(primary), Color.blue(primary)), if (on) 2 * u else u))
+            val cx = width / 2f
+            val cy = 28 * u
+            canvas.drawCircle(cx, cy, 15 * u, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                shader = android.graphics.RadialGradient(cx - 4 * u, cy - 4 * u, 18 * u, intArrayOf(Color.WHITE, hot, primary, theme.tint(0xFF5C0C1A.toInt())), floatArrayOf(0f, .25f, .6f, 1f), android.graphics.Shader.TileMode.CLAMP)
+                setShadowLayer(10 * u, 0f, 0f, primary)
+            })
+            canvas.drawCircle(cx + 13 * u, cy + 11 * u, 5 * u, Hud.glow(Hud.fill(second), 4 * u))
+            val label = Hud.text(6.5f * u, if (on) Color.WHITE else hot, Hud.MONO_BOLD, .06f, android.graphics.Paint.Align.CENTER)
+            canvas.drawText(theme.label, cx, height - 12 * u, Hud.fit(theme.label, label, width - 6 * u))
+        }
+    }
+
     // --- Builders ---
 
     private fun text(value: String, sp: Float, color: Int, face: android.graphics.Typeface = Hud.MONO, spacing: Float = .18f) = TextView(this).apply {
@@ -156,7 +208,7 @@ class LauncherSettingsActivity : Activity() {
 
     private fun row(): LinearLayout = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
-        background = Outline(u, Hud.alpha(0xFF140609.toInt(), .8f))
+        background = Outline(u, Hud.alpha(Hud.tint(0xFF140609.toInt()), .8f))
         setPadding((12 * u).toInt(), (6 * u).toInt(), (8 * u).toInt(), (6 * u).toInt())
         minimumHeight = (46 * u).toInt()
     }

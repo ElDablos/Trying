@@ -170,7 +170,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         hits.clear()
-        canvas.drawColor(Hud.alpha(0xFF050203.toInt(), .94f))
+        canvas.drawColor(Hud.alpha(Hud.tint(0xFF050203.toInt()), .94f))
         val f = forecast
         // A soft red haze behind the readout.
         canvas.drawCircle(width * .3f, 150 * u, 230 * u, Paint().apply {
@@ -330,7 +330,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
         fun r(i: Int, k: Int) = ((i * 73 + k * 151) % 997) / 997f
         when (icon) {
             WeatherIcon.RAIN, WeatherIcon.STORM -> {
-                val p = Hud.stroke(Hud.alpha(0xFF8FB4FF.toInt(), .28f), u).apply { strokeCap = Paint.Cap.ROUND }
+                val p = Hud.stroke(Hud.alpha(Hud.tint(0xFF8FB4FF.toInt()), .28f), u).apply { strokeCap = Paint.Cap.ROUND }
                 for (i in 0 until 46) {
                     val x = (r(i, 1) * w + now * 30 * u) % w
                     val y = (r(i, 2) * h + now * (260 + r(i, 3) * 140) * u) % h
@@ -398,7 +398,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
             val r = RectF(x - cardW / 2, y, x + cardW / 2, y + h)
             val first = i == 0
             val midnight = hour.time.hour == 0
-            Hud.panel(canvas, r, 8 * u, u, if (first) Hud.alpha(Hud.HOT, .9f) else Hud.alpha(Hud.CRIMSON, if (midnight) .55f else .25f), Hud.alpha(if (first) 0xFF2A0A10.toInt() else 0xFF140609.toInt(), .75f))
+            Hud.panel(canvas, r, 8 * u, u, if (first) Hud.alpha(Hud.HOT, .9f) else Hud.alpha(Hud.CRIMSON, if (midnight) .55f else .25f), Hud.alpha(if (first) Hud.tint(0xFF2A0A10.toInt()) else Hud.tint(0xFF140609.toInt()), .75f))
             val label = when {
                 first -> "NOW"
                 midnight -> hour.time.format(dayF).uppercase()
@@ -448,7 +448,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
         val w = (width - 28 * u - gap * (cols - 1)) / cols
         tiles.forEachIndexed { i, tile ->
             val r = RectF(14 * u + (i % cols) * (w + gap), y + (i / cols) * (h + gap), 14 * u + (i % cols) * (w + gap) + w, y + (i / cols) * (h + gap) + h)
-            Hud.panel(canvas, r, 8 * u, u, Hud.alpha(Hud.CRIMSON, .3f), Hud.alpha(0xFF140609.toInt(), .75f))
+            Hud.panel(canvas, r, 8 * u, u, Hud.alpha(Hud.CRIMSON, .3f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .75f))
             canvas.drawText(tile.label, r.left + 10 * u, r.top + 17 * u, Hud.fit(tile.label, Hud.text(7.5f * u, Hud.CRIMSON, Hud.MONO, .12f), w - 16 * u))
             val vp = Hud.text(22 * u, Color.WHITE, Hud.LIGHT)
             canvas.drawText(tile.value, r.left + 10 * u, r.top + 46 * u, Hud.fit(tile.value, vp, w - (if (tile.wind >= 0) 44 else 16) * u))
@@ -459,7 +459,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
                 tile.uv >= 0 -> {
                     val track = RectF(r.left + 10 * u, barY - 2 * u, r.right - 10 * u, barY + 2 * u)
                     canvas.drawRoundRect(track, 2 * u, 2 * u, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        shader = LinearGradient(track.left, 0f, track.right, 0f, intArrayOf(0xFF5AD27A.toInt(), Hud.GOLD, 0xFFFF8A3D.toInt(), Hud.RED, 0xFFB04ADB.toInt()), null, Shader.TileMode.CLAMP)
+                        shader = LinearGradient(track.left, 0f, track.right, 0f, intArrayOf(Hud.tint(0xFF5AD27A.toInt()), Hud.GOLD, Hud.tint(0xFFFF8A3D.toInt()), Hud.RED, Hud.tint(0xFFB04ADB.toInt())), null, Shader.TileMode.CLAMP)
                     })
                     val x = track.left + track.width() * (tile.uv / 11f).coerceIn(0f, 1f)
                     canvas.drawCircle(x, barY, 4 * u, Hud.glow(Hud.fill(Color.WHITE), 4 * u))
@@ -501,7 +501,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
         val rise = day.sunrise ?: return y
         val set = day.sunset ?: return y
         val r0 = RectF(14 * u, y, width - 14 * u, y + 108 * u)
-        Hud.panel(canvas, r0, 10 * u, u, Hud.alpha(Hud.CRIMSON, .3f), Hud.alpha(0xFF140609.toInt(), .75f))
+        Hud.panel(canvas, r0, 10 * u, u, Hud.alpha(Hud.CRIMSON, .3f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .75f))
         val tf = DateTimeFormatter.ofPattern("HH:mm", Locale.getDefault())
         canvas.drawText("SUNRISE", r0.left + 14 * u, y + 24 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .12f))
         canvas.drawText(rise.format(tf), r0.left + 14 * u, y + 46 * u, Hud.text(20 * u, Color.WHITE, Hud.LIGHT))
@@ -538,7 +538,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
             val r = RectF(14 * u, y + i * rowH, width - 14 * u, y + i * rowH + rowH - 5 * u)
             val past = d.date.isBefore(today)
             val isToday = d.date == today
-            Hud.panel(canvas, r, 7 * u, u, Hud.alpha(if (isToday) Hud.HOT else Hud.CRIMSON, if (isToday) .7f else .22f), Hud.alpha(0xFF140609.toInt(), .7f))
+            Hud.panel(canvas, r, 7 * u, u, Hud.alpha(if (isToday) Hud.HOT else Hud.CRIMSON, if (isToday) .7f else .22f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .7f))
             val dim = if (past) .5f else 1f
             val cy = r.centerY()
             val name = when {
@@ -616,7 +616,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
         val day = f.days.indexOfFirst { it.date == date }
         if (day >= 0) {
             val r = RectF(14 * u, y, width - 14 * u, y + 46 * u)
-            Hud.panel(canvas, r, 8 * u, u, Hud.alpha(Hud.HOT, .6f), Hud.alpha(0xFF2A0A10.toInt(), .7f))
+            Hud.panel(canvas, r, 8 * u, u, Hud.alpha(Hud.HOT, .6f), Hud.alpha(Hud.tint(0xFF2A0A10.toInt()), .7f))
             canvas.drawText("◆ ${date.format(dayF).uppercase()} · FULL DAY ›", r.centerX(), r.centerY() + 4 * u, Hud.fit("◆ ${date.format(dayF).uppercase()} · FULL DAY ›", Hud.text(9.5f * u, Color.WHITE, Hud.MONO_BOLD, .1f, Paint.Align.CENTER), r.width() - 20 * u))
             hit(r) {
                 dayIndex = day
@@ -633,7 +633,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
         canvas.drawText(title, width / 2f, y + 24 * u, Hud.fit(title, p, width - 120 * u))
         val arrow = { x: Float, label: String, on: Boolean ->
             val r = RectF(x - 22 * u, y, x + 22 * u, y + 40 * u)
-            Hud.panel(canvas, r, 6 * u, u, Hud.alpha(Hud.CRIMSON, if (on) .55f else .15f), Hud.alpha(0xFF140609.toInt(), .7f))
+            Hud.panel(canvas, r, 6 * u, u, Hud.alpha(Hud.CRIMSON, if (on) .55f else .15f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .7f))
             canvas.drawText(label, x, y + 27 * u, Hud.text(16 * u, if (on) Hud.HOT else Hud.alpha(Hud.DUST, .4f), Hud.MONO_BOLD, align = Paint.Align.CENTER))
             r
         }
@@ -650,7 +650,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
         val first = f.hours.indexOfFirst { it.time.toLocalDate() == date }
         val hours = f.hoursOf(date)
         val box = RectF(14 * u, y, width - 14 * u, y + 170 * u)
-        Hud.panel(canvas, box, 10 * u, u, Hud.alpha(Hud.CRIMSON, .3f), Hud.alpha(0xFF140609.toInt(), .75f))
+        Hud.panel(canvas, box, 10 * u, u, Hud.alpha(Hud.CRIMSON, .3f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .75f))
         if (hours.size < 2 || first < 0) return box.bottom
         val left = box.left + 18 * u
         val right = box.right - 18 * u
@@ -715,7 +715,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
         f.days.forEachIndexed { i, d ->
             val r = RectF(14 * u + i * chipW + 1.5f * u, y, 14 * u + (i + 1) * chipW - 1.5f * u, y + 58 * u)
             val on = i == dayIndex
-            Hud.panel(canvas, r, 4 * u, u, Hud.alpha(if (on) Hud.HOT else Hud.CRIMSON, if (on) .9f else .2f), Hud.alpha(if (on) 0xFF3A0C16.toInt() else 0xFF140609.toInt(), .75f))
+            Hud.panel(canvas, r, 4 * u, u, Hud.alpha(if (on) Hud.HOT else Hud.CRIMSON, if (on) .9f else .2f), Hud.alpha(if (on) Hud.tint(0xFF3A0C16.toInt()) else Hud.tint(0xFF140609.toInt()), .75f))
             val c = if (d.date.isBefore(today)) Hud.alpha(Hud.DUST, .6f) else if (on) Color.WHITE else Hud.SOFT
             canvas.drawText(d.date.format(dayF).uppercase().take(3), r.centerX(), r.top + 14 * u, Hud.fit(d.date.format(dayF).uppercase().take(3), Hud.text(7 * u, c, Hud.MONO, align = Paint.Align.CENTER), r.width() - 2 * u))
             canvas.drawText("${d.date.dayOfMonth}", r.centerX(), r.top + 30 * u, Hud.text(12 * u, c, Hud.MEDIUM, align = Paint.Align.CENTER))
@@ -743,7 +743,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
             Triple("NIGHT", Weather.describe(nightCode, false), day.low),
         ).forEachIndexed { i, (label, condition, temp) ->
             val r = RectF(14 * u + i * (half + 8 * u), y, 14 * u + i * (half + 8 * u) + half, y + 120 * u)
-            Hud.panel(canvas, r, 10 * u, u, Hud.alpha(if (i == 0) Hud.GOLD else Hud.CRIMSON, .4f), Hud.alpha(0xFF140609.toInt(), .78f))
+            Hud.panel(canvas, r, 10 * u, u, Hud.alpha(if (i == 0) Hud.GOLD else Hud.CRIMSON, .4f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .78f))
             canvas.drawText(label, r.left + 12 * u, r.top + 18 * u, Hud.text(8 * u, if (i == 0) Hud.GOLD else Hud.CRIMSON, Hud.MONO, .2f))
             WeatherArt.draw(canvas, condition.icon, r.left + 36 * u, r.top + 58 * u, 20 * u)
             canvas.drawText("$temp°", r.left + 66 * u, r.top + 72 * u, Hud.glow(Hud.text(38 * u, Color.WHITE, Hud.LIGHT), 12 * u, Hud.alpha(Hud.CRIMSON, .6f)))

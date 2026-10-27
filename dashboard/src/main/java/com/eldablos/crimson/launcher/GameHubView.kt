@@ -139,7 +139,7 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         hits.clear()
-        canvas.drawColor(Hud.alpha(0xFF050203.toInt(), .94f))
+        canvas.drawColor(Hud.alpha(Hud.tint(0xFF050203.toInt()), .94f))
         if (scroller.computeScrollOffset()) {
             scroll = scroller.currY.toFloat().coerceIn(0f, maxScroll())
             postInvalidateOnAnimation()
@@ -198,7 +198,7 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
             canvas.concat(matrix)
             val r = RectF(x - w / 2, cy - h / 2, x + w / 2, cy + h / 2)
             val alpha = (1f - .38f * dist).coerceIn(.15f, 1f)
-            canvas.drawRoundRect(r, 16 * u, 16 * u, Hud.fill(Hud.alpha(0xFF1A0608.toInt(), alpha)))
+            canvas.drawRoundRect(r, 16 * u, 16 * u, Hud.fill(Hud.alpha(Hud.tint(0xFF1A0608.toInt()), alpha)))
             AppCatalog.icon(context, g.component)?.let {
                 canvas.save()
                 canvas.clipPath(Path().apply { addRoundRect(r, 16 * u, 16 * u, Path.Direction.CW) })
@@ -246,7 +246,7 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
         val bw = (width - 40 * u - 12 * u) / 3
         boxes.forEachIndexed { i, (value, label) ->
             val r = RectF(20 * u + i * (bw + 6 * u), 286 * u, 20 * u + i * (bw + 6 * u) + bw, 326 * u)
-            canvas.drawRect(r, Hud.fill(Hud.alpha(0xFF140609.toInt(), .7f)))
+            canvas.drawRect(r, Hud.fill(Hud.alpha(Hud.tint(0xFF140609.toInt()), .7f)))
             canvas.drawRect(r, Hud.stroke(Hud.alpha(Hud.CRIMSON, .35f), u))
             canvas.drawText(value, r.left + 9 * u, r.top + 18 * u, Hud.fit(value, Hud.text(13 * u, Color.WHITE, Hud.MEDIUM), bw - 14 * u))
             canvas.drawText(label, r.left + 9 * u, r.top + 32 * u, Hud.fit(label, Hud.text(6 * u, Hud.DUST, Hud.MONO, .08f), bw - 14 * u))
@@ -310,7 +310,7 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
         val top = 30 * u
         val r = RectF(10 * u, top, width - 10 * u, top + pinH * u)
         val save = canvas.saveLayerAlpha(r.left - 20 * u, r.top - 20 * u, r.right + 20 * u, r.bottom + 20 * u, (255 * t).toInt())
-        Hud.panel(canvas, r, 12 * u, u, Hud.CRIMSON, Hud.alpha(0xFF1E070C.toInt(), .97f))
+        Hud.panel(canvas, r, 12 * u, u, Hud.CRIMSON, Hud.alpha(Hud.tint(0xFF1E070C.toInt()), .97f))
         val ir = RectF(r.left + 10 * u, r.top + 8 * u, r.left + 48 * u, r.top + 46 * u)
         drawGame(canvas, game, ir, false)
         val playR = RectF(r.right - 118 * u, r.top + 9 * u, r.right - 10 * u, r.bottom - 9 * u)
@@ -326,7 +326,7 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
     private fun drawGame(canvas: Canvas, g: Arcade.Game, r: RectF, lit: Boolean) {
         val bmp = AppCatalog.icon(context, g.component)
         if (lit) canvas.drawRoundRect(RectF(r).apply { inset(-4 * u, -4 * u) }, 14 * u, 14 * u, Hud.glow(Hud.stroke(Hud.HOT, 2 * u), 10 * u))
-        if (bmp != null) Hud.bitmap(canvas, bmp, r) else canvas.drawRoundRect(r, 11 * u, 11 * u, Hud.fill(0xFF3A0A14.toInt()))
+        if (bmp != null) Hud.bitmap(canvas, bmp, r) else canvas.drawRoundRect(r, 11 * u, 11 * u, Hud.fill(Hud.tint(0xFF3A0A14.toInt())))
     }
 
     private fun jumpTo(letter: Char) {

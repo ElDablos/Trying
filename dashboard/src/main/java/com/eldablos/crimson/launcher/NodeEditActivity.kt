@@ -40,6 +40,7 @@ class NodeEditActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Theme.load(this)
         u = resources.displayMetrics.widthPixels / 412f
         Hud.u = u
         dockMode = intent.getBooleanExtra(EXTRA_DOCK, false)
@@ -102,7 +103,7 @@ class NodeEditActivity : Activity() {
             // Place on the ring.
             val place = LinearLayout(this).apply {
                 gravity = Gravity.CENTER_VERTICAL
-                background = Outline(u, Hud.alpha(0xFF140609.toInt(), .7f))
+                background = Outline(u, Hud.alpha(Hud.tint(0xFF140609.toInt()), .7f))
                 setPadding((12 * u).toInt(), 0, (6 * u).toInt(), 0)
             }
             positionText = label("", 8f, Hud.BONE)
@@ -296,12 +297,12 @@ class OrderList(
 
     private fun drawRow(canvas: Canvas, i: Int, c: ComponentName, top: Float, lifted: Boolean) {
         val r = RectF(if (lifted) 6 * u else 0f, top, width.toFloat(), top + rowH)
-        canvas.drawRect(r, Hud.fill(if (lifted) Hud.alpha(Hud.BLOOD, .8f) else Hud.alpha(0xFF140609.toInt(), .8f)))
+        canvas.drawRect(r, Hud.fill(if (lifted) Hud.alpha(Hud.BLOOD, .8f) else Hud.alpha(Hud.tint(0xFF140609.toInt()), .8f)))
         canvas.drawRect(r, if (lifted) Hud.glow(Hud.stroke(Hud.HOT, u), 8 * u) else Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f), u))
         canvas.drawText("≡", r.left + 14 * u, r.centerY() + 5 * u, Hud.text(15 * u, Hud.CRIMSON, Hud.SANS, align = Paint.Align.CENTER))
         val icon = AppCatalog.icon(context, c)
         val ir = RectF(r.left + 32 * u, r.centerY() - 16 * u, r.left + 64 * u, r.centerY() + 16 * u)
-        if (icon != null) Hud.bitmap(canvas, icon, ir) else canvas.drawRoundRect(ir, 8 * u, 8 * u, Hud.fill(0xFF3A0A14.toInt()))
+        if (icon != null) Hud.bitmap(canvas, icon, ir) else canvas.drawRoundRect(ir, 8 * u, 8 * u, Hud.fill(Hud.tint(0xFF3A0A14.toInt())))
         val name = AppCatalog.entry(c)?.label ?: c.packageName
         val tp = Hud.text(12.5f * u, Color.WHITE, Hud.MEDIUM)
         canvas.drawText(Hud.ellipsize(name, tp, r.width() - 140 * u), ir.right + 12 * u, r.centerY() + 4.5f * u, tp)

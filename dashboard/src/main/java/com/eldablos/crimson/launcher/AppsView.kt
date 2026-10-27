@@ -58,7 +58,7 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
 
         val box = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
-            background = Outline(u, Hud.alpha(0xFF140609.toInt(), .85f))
+            background = Outline(u, Hud.alpha(Hud.tint(0xFF140609.toInt()), .85f))
             setPadding((14 * u).toInt(), 0, (10 * u).toInt(), 0)
         }
         val glass = TextView(context).apply {
@@ -156,7 +156,7 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(Hud.alpha(0xFF050203.toInt(), .9f))
+        canvas.drawColor(Hud.alpha(Hud.tint(0xFF050203.toInt()), .9f))
     }
 
     /** Hive Map or the A–Z list. */
@@ -239,7 +239,7 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
             }
             val app = shown[position]
             val first = position == 0 && query.isNotEmpty()
-            row.background = if (first) Outline(u, Hud.alpha(Hud.BLOOD, .55f)) else Outline(u, Hud.alpha(0xFF140609.toInt(), .6f))
+            row.background = if (first) Outline(u, Hud.alpha(Hud.BLOOD, .55f)) else Outline(u, Hud.alpha(Hud.tint(0xFF140609.toInt()), .6f))
             val icon = row.getChildAt(0) as ImageView
             val bitmap = AppCatalog.icon(context, app.component)
             if (bitmap != null) icon.setImageBitmap(bitmap) else icon.setImageDrawable(null)

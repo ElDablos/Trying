@@ -29,6 +29,10 @@ class IconPack private constructor(
         return render(drawable, sizePx)
     }
 
+    /** Whether [component]'s icon comes from the pack (rather than the app's own). */
+    fun packed(component: ComponentName): Boolean =
+        (byComponent[component.flattenToString()] ?: byPackage[component.packageName])?.let { drawable(it) } != null
+
     private fun drawable(name: String): Drawable? {
         val res = res ?: return null
         val id = res.getIdentifier(name, "drawable", PACKAGE)

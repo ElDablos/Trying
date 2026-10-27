@@ -567,7 +567,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             if (actions.childCount > 0) addView(actions, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (7 * u).toInt() })
 
             setOnClickListener {
-                send(sbn.notification.contentIntent) ?: app?.let { AppCatalog.launch(context, it.component) }
+                Comms.open(context, sbn)
                 onClose?.invoke()
             }
             if (startReply) replyRow?.findViewById<EditText>(REPLY_ID)?.let { post { focus(it) } }
@@ -637,19 +637,14 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             val intent = Intent()
             RemoteInput.addResultsToIntent(inputs, intent, results)
             try {
-                action.actionIntent.send(context, 0, intent)
+                if (!Comms.fire(context, action.actionIntent, intent)) throw IllegalStateException()
             } catch (e: Exception) {
                 android.widget.Toast.makeText(context, "Couldn't send that", android.widget.Toast.LENGTH_SHORT).show()
             }
         }
 
-        private fun send(intent: android.app.PendingIntent?): Unit? {
-            intent ?: return null
-            return try {
-                intent.send()
-            } catch (e: Exception) {
-                null
-            }
+        private fun send(intent: android.app.PendingIntent?) {
+            Comms.fire(context, intent)
         }
 
         // Swipe sideways to dismiss.

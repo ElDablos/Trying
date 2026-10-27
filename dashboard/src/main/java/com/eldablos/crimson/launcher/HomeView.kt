@@ -967,11 +967,7 @@ class HomeView(context: Context) : View(context) {
                         if (!incomingReply.isEmpty && incomingReply.contains(e.x, e.y)) {
                             host?.openComms(sbn.packageName)
                         } else {
-                            try {
-                                sbn.notification.contentIntent?.send() ?: AppCatalog.forPackage(sbn.packageName)?.let { AppCatalog.launch(context, it.component) }
-                            } catch (ex: Exception) {
-                                AppCatalog.forPackage(sbn.packageName)?.let { AppCatalog.launch(context, it.component) }
-                            }
+                            Comms.open(context, sbn)
                         }
                     }
                     else -> ValueAnimator.ofFloat(popOffset, 0f).apply {

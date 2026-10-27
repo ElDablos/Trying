@@ -1,6 +1,10 @@
 package com.eldablos.crimson.launcher
 
+import android.app.ActivityOptions
 import android.app.Notification
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import java.lang.ref.WeakReference
@@ -87,6 +91,31 @@ object Comms {
 
     /** Unread count for each app. */
     fun counts(): Map<String, Int> = groups().associate { it.packageName to it.count }
+
+    /**
+     * Fires a notification's PendingIntent the way a launcher must on Android 14+: saying it may start
+     * the app's screen, which Android otherwise blocks. Returns false if it couldn't be sent.
+     */
+    fun fire(context: Context, intent: PendingIntent?, fillIn: Intent? = null): Boolean {
+        intent ?: return false
+        val options = ActivityOptions.makeBasic()
+            .setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+            .toBundle()
+        return try {
+            intent.send(context, 0, fillIn, null, null, null, options)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Opens a notification: its own target, or else its app. Clears it if the app asked for that. */
+    fun open(context: Context, sbn: StatusBarNotification) {
+        if (!fire(context, sbn.notification.contentIntent)) {
+            AppCatalog.forPackage(sbn.packageName)?.let { AppCatalog.launch(context, it.component) }
+        }
+        if (sbn.notification.flags and Notification.FLAG_AUTO_CANCEL != 0) dismiss(sbn)
+    }
 
     fun dismiss(group: Group) {
         val s = service?.get() ?: return

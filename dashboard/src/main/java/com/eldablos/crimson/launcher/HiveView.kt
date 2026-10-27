@@ -19,7 +19,7 @@ import kotlin.math.hypot
 import kotlin.math.sqrt
 
 /**
- * The Hive Map: every app as a cell in a honeycomb, grouped round each node's tag, biggest near the
+ * The Hive Map: every app as a cell in one round honeycomb ball, in patches round each node's tag, biggest near the
  * middle of the screen and shrinking towards the edges. Drag to fly round it, tap a node in the jump bar
  * to glide there, and searching lights up the matches and centres the best one.
  */
@@ -53,51 +53,73 @@ class HiveView(context: Context, private val u: Float) : View(context) {
     private val areaCx get() = width / 2f
     private val areaCy get() = (height - jumpBarH) / 2f
 
-    /** Lays out [apps]: [groups] (node name and its apps, in ring order) as clusters, then the rest A–Z round them. */
+    /**
+     * Lays out [apps] as one round honeycomb ball that grows with the number of apps: [groups] (node name
+     * and its apps, in ring order) as patches, the first in the middle and the rest round it, then
+     * everything else A–Z filling the ball out.
+     */
     fun setApps(apps: List<AppEntry>, groups: List<Pair<String, List<ComponentName>>>) {
         val byComponent = apps.associateBy { it.component }
-        val occupied = HashMap<Long, AppEntry>()
         val placed = HashSet<ComponentName>()
-        val newClusters = ArrayList<Cluster>()
-        val newCells = ArrayList<Cell>()
-        fun key(q: Int, r: Int) = (q.toLong() shl 32) or (r.toLong() and 0xffffffffL)
-        val spiral = spiral(40)
-        for ((name, members) in groups) {
-            val list = members.mapNotNull { byComponent[it] }.filter { it.component !in placed }
-            if (list.isEmpty()) continue
-            var radius = 0
-            while (1 + 3 * radius * (radius + 1) < list.size) radius++
-            // The first spot, spiralling out from the middle, with room for the whole cluster and a gap.
-            val centre = spiral.first { (q, r) -> ring(q, r, radius + 1).none { (a, b) -> occupied.containsKey(key(a, b)) } }
-            val around = ring(centre.first, centre.second, radius)
-            list.forEachIndexed { i, app ->
-                val (q, r) = around[i]
-                occupied[key(q, r)] = app
-                placed += app.component
-                newCells += cell(app, q, r)
-            }
-            val (cx, cy) = world(centre.first, centre.second)
-            newClusters += Cluster(name, cx, cy, cy - radius * sqrt(3f) / 2f - .72f)
+        val lists = groups.mapNotNull { (name, members) ->
+            val list = members.mapNotNull { byComponent[it] }.filter { placed.add(it.component) }
+            if (list.isEmpty()) null else name to list
         }
-        // Everything else fills the gaps and the outside, A–Z.
         val rest = apps.filter { it.component !in placed }.sortedBy { it.label.lowercase() }
-        var next = 0
-        for (app in rest) {
-            while (occupied.containsKey(key(spiral[next].first, spiral[next].second))) next++
-            val (q, r) = spiral[next]
-            occupied[key(q, r)] = app
-            newCells += cell(app, q, r)
+        val slots = ball(apps.size)
+        val ballR = slots.maxOfOrNull { hypot(it.first, it.second) } ?: 0f
+        val free = slots.toMutableList()
+        val newCells = ArrayList<Cell>()
+        val newClusters = ArrayList<Cluster>()
+        lists.forEachIndexed { i, (name, list) ->
+            // The first group sits in the middle; the others spread evenly round it.
+            val blobR = blobRadius(list.size)
+            val seed = if (i == 0) 0f to 0f else {
+                val r = (ballR - blobR - .4f).coerceAtLeast(blobRadius(lists[0].second.size) + blobR + .6f).coerceAtMost(ballR)
+                val a = Math.toRadians(-90.0 + (i - 1) * 360.0 / (lists.size - 1).coerceAtLeast(1))
+                r * kotlin.math.cos(a).toFloat() to r * kotlin.math.sin(a).toFloat()
+            }
+            val mine = free.sortedBy { hypot(it.first - seed.first, it.second - seed.second) }.take(list.size)
+                // Nearest the patch's middle first, so its first apps sit in the centre.
+                .let { claimed ->
+                    val mx = claimed.map { it.first }.average().toFloat()
+                    val my = claimed.map { it.second }.average().toFloat()
+                    claimed.sortedBy { hypot(it.first - mx, it.second - my) }
+                }
+            free.removeAll(mine.toSet())
+            list.zip(mine).forEach { (app, at) -> newCells += Cell(app, at.first, at.second) }
+            val mx = mine.map { it.first }.average().toFloat()
+            val my = mine.map { it.second }.average().toFloat()
+            newClusters += Cluster(name, mx, my, my - blobR - .15f)
         }
+        // The rest fill the ball from the inside out, A–Z.
+        rest.zip(free).forEach { (app, at) -> newCells += Cell(app, at.first, at.second) }
         cells = newCells
         clusters = newClusters
-        minX = cells.minOfOrNull { it.wx } ?: 0f
-        maxX = cells.maxOfOrNull { it.wx } ?: 0f
-        minY = cells.minOfOrNull { it.wy } ?: 0f
-        maxY = cells.maxOfOrNull { it.wy } ?: 0f
+        radius = ballR
+        minX = -ballR
+        maxX = ballR
+        minY = -ballR
+        maxY = ballR
         camX = 0f
         camY = 0f
         invalidate()
     }
+
+    /** How far the ball reaches from its middle, in cells. */
+    private var radius = 0f
+
+    /** The [count] hex cells nearest the middle: a round ball rather than a hexagon. */
+    private fun ball(count: Int): List<Pair<Float, Float>> {
+        var r = 1
+        while (1 + 3 * r * (r + 1) < count * 1.3f + 7) r++
+        return ring(0, 0, r).map { (q, rr) -> world(q, rr) }
+            .sortedWith(compareBy({ hypot(it.first, it.second) }, { kotlin.math.atan2(it.second, it.first) }))
+            .take(count)
+    }
+
+    /** The radius of a round patch of [count] cells. */
+    private fun blobRadius(count: Int) = sqrt(count * .866f / Math.PI.toFloat())
 
     fun setQuery(q: String) {
         query = q.trim().lowercase()
@@ -132,11 +154,6 @@ class HiveView(context: Context, private val u: Float) : View(context) {
     /** Cell centre in world units, neighbours exactly 1 apart. */
     private fun world(q: Int, r: Int): Pair<Float, Float> = (q + r / 2f) to (sqrt(3f) / 2f * r)
 
-    private fun cell(app: AppEntry, q: Int, r: Int): Cell {
-        val (x, y) = world(q, r)
-        return Cell(app, x, y)
-    }
-
     private val directions = listOf(1 to 0, 1 to -1, 0 to -1, -1 to 0, -1 to 1, 0 to 1)
 
     /** Every cell within [radius] of (q, r), nearest first. */
@@ -156,14 +173,13 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         return out
     }
 
-    private fun spiral(radius: Int) = ring(0, 0, radius)
-
     // --- Drawing ---
 
     override fun onDraw(canvas: Canvas) {
         if (scroller.computeScrollOffset()) {
             camX = scroller.currX / spacing
             camY = scroller.currY / spacing
+            keepInBall()
             postInvalidateOnAnimation()
         }
         chips.clear()
@@ -174,6 +190,18 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         val label = Hud.text(7.5f * u, Color.WHITE, Hud.SANS, align = Paint.Align.CENTER).apply { setShadowLayer(3 * u, 0f, 0f, Color.BLACK) }
         canvas.save()
         canvas.clipRect(0f, 0f, width.toFloat(), height - jumpBarH)
+        // The ball's glow and rim, squeezed by the same fisheye as the cells.
+        run {
+            val dx = -camX * spacing
+            val dy = -camY * spacing
+            val ex = cx + dx * .85f
+            val ey = cy + dy * .85f
+            val rr = (radius + .45f) * spacing * .85f
+            canvas.drawCircle(ex, ey, rr, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = android.graphics.RadialGradient(ex, ey, rr, intArrayOf(Hud.alpha(Hud.BLOOD, .35f), Hud.alpha(Hud.BLOOD, .18f), Color.TRANSPARENT), floatArrayOf(0f, .8f, 1f), android.graphics.Shader.TileMode.CLAMP)
+            })
+            canvas.drawCircle(ex, ey, rr, Hud.glow(Hud.stroke(Hud.alpha(Hud.CRIMSON, .35f), u, floatArrayOf(4 * u, 6 * u)), 6 * u))
+        }
         for (c in cells) {
             val dx = (c.wx - camX) * spacing
             val dy = (c.wy - camY) * spacing
@@ -257,6 +285,16 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         }
     }
 
+    /** Keeps the camera over the ball: never further out than its edge. */
+    private fun keepInBall() {
+        val d = hypot(camX, camY)
+        val max = radius + .5f
+        if (d > max) {
+            camX *= max / d
+            camY *= max / d
+        }
+    }
+
     private fun glideTo(x: Float, y: Float) {
         scroller.forceFinished(true)
         glide?.cancel()
@@ -303,8 +341,9 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         }
 
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-            camX = (camX + distanceX / spacing).coerceIn(minX - 1, maxX + 1)
-            camY = (camY + distanceY / spacing).coerceIn(minY - 1, maxY + 1)
+            camX += distanceX / spacing
+            camY += distanceY / spacing
+            keepInBall()
             invalidate()
             return true
         }

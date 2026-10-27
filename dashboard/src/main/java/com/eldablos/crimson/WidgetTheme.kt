@@ -82,38 +82,85 @@ object WidgetTheme {
     private fun mode(): BlendMode = if (Theme.now.saturation <= 0f) BlendMode.COLOR else BlendMode.HUE
 
     /**
-     * Themes an app screen built from XML: every text, picture, background and bar under [root]. Call
-     * after the screen is laid out; pictures marked with the tag "keep" (app icons, art) are left alone.
+     * Styles an app screen built from XML in the launcher's HUD look and the current theme: the views'
+     * tags (set by the styles: hud_card, hud_primary…) pick their panels and text colours, and anything
+     * untagged gets readable themed text and accent-coloured icons and bars. App icons and art can be
+     * tagged "keep" to be left alone.
      */
     fun apply(root: View) {
         Theme.load(root.context)
-        if (Theme.now == Theme.CRIMSON) return
-        val tint = ColorStateList.valueOf(hue())
-        val mode = mode()
+        val dp = root.resources.displayMetrics.density
+        val accent = readable(Theme.tint(0xFFE04358.toInt()))
+        val hot = com.eldablos.crimson.launcher.Hud.HOT
+        val bone = 0xFFEDE6E6.toInt()
+        val dust = 0xFF9A8A8C.toInt()
+        fun hud(kind: HudDrawable.Kind) = HudDrawable(kind, dp)
         fun walk(v: View) {
-            if (v.tag == "keep") return
-            if (v is TextView) {
-                v.setTextColor(readable(Theme.tint(v.currentTextColor)))
-                v.setHintTextColor(readable(Theme.tint(v.currentHintTextColor)))
-            }
-            if (v is ImageView && v.drawable != null) {
-                v.imageTintList = tint
-                v.imageTintBlendMode = mode
-            }
-            if (v is ProgressBar) {
-                v.progressTintList = tint
-                v.progressTintBlendMode = mode
-                v.thumbTint(tint, mode)
-            }
-            if (v.background != null) {
-                v.backgroundTintList = tint
-                v.backgroundTintBlendMode = mode
-                // A button or pill: make sure its text reads against the themed background.
-                if (v is TextView) backgroundColor(v)?.let { bg -> v.setTextColor(contrast(v.currentTextColor, bg)) }
+            when (v.tag) {
+                "keep" -> return
+                "hud_screen" -> v.background = hud(HudDrawable.Kind.BACKDROP)
+                "hud_card" -> v.background = hud(HudDrawable.Kind.CARD)
+                "hud_primary" -> {
+                    v.background = hud(HudDrawable.Kind.PRIMARY)
+                    (v as? TextView)?.setTextColor(Theme.on(Theme.tint(0xFF9A1A2C.toInt())))
+                }
+                "hud_outline" -> {
+                    v.background = hud(HudDrawable.Kind.OUTLINE)
+                    (v as? TextView)?.setTextColor(readable(hot))
+                }
+                "hud_input" -> {
+                    v.background = android.graphics.drawable.StateListDrawable().apply {
+                        addState(intArrayOf(android.R.attr.state_focused), hud(HudDrawable.Kind.INPUT_FOCUSED))
+                        addState(intArrayOf(), hud(HudDrawable.Kind.INPUT))
+                    }
+                    (v as? TextView)?.apply {
+                        setTextColor(bone)
+                        setHintTextColor(dust)
+                        highlightColor = com.eldablos.crimson.launcher.Hud.alpha(hot, .35f)
+                    }
+                }
+                "hud_glow" -> (v as? TextView)?.apply {
+                    setTextColor(readable(hot))
+                    setShadowLayer(18 * dp, 0f, 0f, hot)
+                }
+                "hud_title" -> (v as? TextView)?.setTextColor(bone)
+                "hud_body" -> (v as? TextView)?.setTextColor(bone)
+                "hud_note" -> (v as? TextView)?.setTextColor(dust)
+                "hud_icon" -> (v as? ImageView)?.apply {
+                    imageTintList = ColorStateList.valueOf(hot)
+                    imageTintBlendMode = BlendMode.SRC_IN
+                }
+                "hud_pill" -> Unit // set as its state changes, by [pill]
+                else -> {
+                    if (v is TextView && v.background == null) v.setTextColor(readable(Theme.tint(v.currentTextColor)))
+                    if (v is ProgressBar) {
+                        v.progressTintList = ColorStateList.valueOf(hot)
+                        v.progressBackgroundTintList = ColorStateList.valueOf(com.eldablos.crimson.launcher.Hud.alpha(accent, .25f))
+                        v.thumbTint(ColorStateList.valueOf(hot), BlendMode.SRC_IN)
+                    }
+                }
             }
             if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
         }
         walk(root)
+    }
+
+    /** A status pill: on, partly or off, in the HUD look. */
+    fun pill(view: TextView, on: Boolean?, partly: Boolean = false) {
+        val dp = view.resources.displayMetrics.density
+        val kind = when {
+            partly -> HudDrawable.Kind.PILL_WARN
+            on == true -> HudDrawable.Kind.PILL_ON
+            else -> HudDrawable.Kind.PILL_OFF
+        }
+        view.background = HudDrawable(kind, dp)
+        view.setTextColor(
+            when (kind) {
+                HudDrawable.Kind.PILL_ON -> Theme.on(Theme.tint(0xFF7A1222.toInt()))
+                HudDrawable.Kind.PILL_WARN -> readable(com.eldablos.crimson.launcher.Hud.GOLD)
+                else -> 0xFF9A8A8C.toInt()
+            },
+        )
     }
 
     /** The average colour of [v]'s themed background, over the dark screen, or null if it's see-through. */

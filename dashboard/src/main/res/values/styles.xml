@@ -1,5 +1,6 @@
 <resources>
     <style name="Card">
+        <item name="android:tag">hud_card</item>
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">16dp</item>
@@ -9,6 +10,7 @@
     </style>
 
     <style name="CardTitle">
+        <item name="android:tag">hud_title</item>
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
@@ -21,11 +23,13 @@
     </style>
 
     <style name="CardIcon">
+        <item name="android:tag">hud_icon</item>
         <item name="android:layout_width">20dp</item>
         <item name="android:layout_height">20dp</item>
     </style>
 
     <style name="Pill">
+        <item name="android:tag">hud_pill</item>
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:fontFamily">sans-serif-medium</item>
@@ -39,6 +43,7 @@
     </style>
 
     <style name="BodyText">
+        <item name="android:tag">hud_body</item>
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">12dp</item>
@@ -47,6 +52,7 @@
     </style>
 
     <style name="NoteText">
+        <item name="android:tag">hud_note</item>
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">10dp</item>
@@ -67,16 +73,19 @@
     </style>
 
     <style name="ButtonPrimary" parent="ButtonBase">
+        <item name="android:tag">hud_primary</item>
         <item name="android:background">@drawable/button_primary</item>
         <item name="android:textColor">@color/bone</item>
     </style>
 
     <style name="ButtonOutline" parent="ButtonBase">
+        <item name="android:tag">hud_outline</item>
         <item name="android:background">@drawable/button_outline</item>
         <item name="android:textColor">@color/crimson</item>
     </style>
 
     <style name="Input">
+        <item name="android:tag">hud_input</item>
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">48dp</item>
         <item name="android:layout_weight">1</item>

@@ -233,14 +233,13 @@ class MainActivity : Activity() {
     }
 
     private fun setPill(pill: TextView, status: Status, label: String? = null) {
-        val (text, background, color) = when (status) {
-            Status.ON -> Triple("On", R.drawable.pill_on, R.color.bone)
-            Status.PARTIAL -> Triple("Partly", R.drawable.pill_warn, R.color.crimson)
-            Status.OFF -> Triple("Off", R.drawable.pill_off, R.color.dust)
+        val text = when (status) {
+            Status.ON -> "On"
+            Status.PARTIAL -> "Partly"
+            Status.OFF -> "Off"
         }
-        pill.text = label ?: text
-        pill.setBackgroundResource(background)
-        pill.setTextColor(WidgetTheme.text(this, color))
+        pill.text = (label ?: text).uppercase()
+        WidgetTheme.pill(pill, status == Status.ON, partly = status == Status.PARTIAL)
     }
 
     private fun searchCity() {

@@ -53,13 +53,14 @@ Each strip keeps its own apps, and the background follows the same slider as the
 
 A 6×5 games widget. Long-press the home screen → Widgets → Crimson Widget → **Crimson Arcade**.
 
-- **Panel**: the selected game, console style: its cover in target brackets, playtime over the last 14
-  days, its most-played rank and when you last played it, and **▶ Play**. Under it, a row of recommended
+- **Panel**: the selected game, mission-control style: its cover on a holo pad in gold target-lock
+  brackets, playtime over the last 14 days, its most-played rank and when you last played it, and
+  **Launch**. Under it, a row of recommended
   games (your most played). **⚄** picks a random game.
 - **All games**: every game A–Z, with letter tags and NEW badges for games installed this week. Scroll
   it, or tap a letter on the rail to jump.
 - Tapping a game, in the grid or the recommended row, only **selects** it; nothing launches until you
-  press **▶ Play**. Taps on empty parts of the widget do nothing.
+  press **Launch**. Taps on empty parts of the widget do nothing.
 - Playtime needs usage access (Settings → Usage access → Crimson Widget, or **◈ Enable play stats** in
   the panel); without it, the recommendations are your newest games.
 - Games are found automatically from the category apps declare. Long-press → **Settings** to add any it
@@ -99,18 +100,25 @@ back to One UI Home the same way at any time.
 - **Swipes**: down for the Comms Centre, up for the Hive Map, right for the Game Hub, left for the
   Command Deck.
 - **Command Deck**: Ask Claude at the top (type or speak; it starts a new chat in the Claude app, and your
-  recent questions are a tap away), then the day at a glance: battery, steps and screen time rings, the
-  day/week/month/year in progress, music, the agenda, unread messages, weather and a quick note, the
-  battery over the last 24 hours with temperature and health, data used today, markets (BTC, ETH, SOL),
-  the most used apps, the Buds, quick actions (torch, Do Not Disturb, a 5-minute timer, alarms,
-  calculator, phone settings) and the phone's systems. ⚙ opens Launcher settings. Screen time, data and
+  recent questions are a tap away), then what's next and down to reference readouts: agenda, comms,
+  vitals (battery, steps, screen time), audio, quick actions, sky, notes, links, markets, most used today,
+  the Buds, power over 24 hours, data, time in progress and systems. Tap a card's title row to expand it
+  (the full agenda, each message, battery cells and a week of steps, the queue, hourly and daily
+  weather, battery stats, device details). **Notes** is a checklist; **Links** are your own web
+  shortcuts (hold one to remove it). **Markets** is a crypto watchlist with week-long sparklines: tap a
+  coin for its page, with 1H/24H/7D/30D/1Y charts you can scrub, its stats, CoinGecko and TradingView,
+  and *Trade in …* for the first exchange app you have. **✎** rearranges the deck: drag sections, turn
+  them on or off and pick the six quick actions. ⚙ opens Launcher settings. Screen time, data and
   most-used need Usage access (tap a card to allow it).
 - **Hive Map**: every app in a honeycomb that repeats for ever in every direction (no edge), in patches round tags for the dock and each node, big in the
   middle and shrinking outwards. The middle bulges big with the apps spread apart and named; a sight marks the centre and it settles onto a cell after a fling. Drag to fly round it, tap a tag in the jump bar to glide there, or
   switch to the A–Z list. Typing lights up the matches and centres the best one; Enter opens it.
-- **Game Hub**: a 3D shelf of your games (most played and last played first), the selected game's
-  playtime, last played and install date, **▶ Play** and **⚄** random, the recommended row and every
-  game A–Z with a letter rail. Tapping a game only selects it. The GAMES node opens it too.
+- **Arcade (Game Hub)**: mission control for your games. Readouts for games, today, the week and your
+  streak; a holo projector with your games on a shelf (most played and last played first), the selected
+  one in a gold target lock; its playtime, this week and last played; **Launch** and **⚄** random; then
+  every game as hex tiles with playtime bars, filtered by ALL / RECENT / MOST PLAYED / NEW / A–Z (with a
+  letter rail). **Player stats** shows your level and rank, the week's playtime by day, top games and
+  achievements. Tapping a game only selects it. The GAMES node opens it too.
 - **Messages on the home screen** slide up into the space under the music bar: tap to open, REPLY to
   answer in the Comms Centre, or swipe it down to dismiss it (it stays in the Comms Centre).
 - **Comms Centre**: Samsung's quick controls and your notifications in one panel: twelve toggles (Wi-Fi,

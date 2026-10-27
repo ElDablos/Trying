@@ -61,4 +61,34 @@ class ArcadeTest {
         val stats = mapOf("com.played" to Arcade.Played(played, minutes(30), now))
         assertEquals(listOf(played, fresh, old), Arcade.recommended(listOf(old, fresh, played), stats, 3, now))
     }
+
+    @Test
+    fun sessionsJoinShortGapsAndCloseOpenOnes() {
+        val events = listOf(
+            Arcade.Event("a", true, 0), Arcade.Event("a", false, minutes(10)),
+            Arcade.Event("a", true, minutes(10) + 30_000), Arcade.Event("a", false, minutes(20)),
+            Arcade.Event("b", true, minutes(30)),
+        )
+        val s = Arcade.sessions(events, minutes(45))
+        assertEquals(2, s.size)
+        assertEquals(minutes(20), s[0].millis)
+        assertEquals(minutes(15), s[1].millis)
+    }
+
+    @Test
+    fun perDaySplitsAtMidnight() {
+        val zone = java.time.ZoneOffset.UTC
+        val today = java.time.LocalDate.of(2026, 10, 27)
+        val midnight = today.atStartOfDay(zone).toInstant().toEpochMilli()
+        val s = listOf(Arcade.Session("a", midnight - minutes(30), midnight + minutes(45)))
+        val days = Arcade.perDay(s, 3, today, zone)
+        assertEquals(listOf(0L, minutes(30), minutes(45)), days.toList())
+    }
+
+    @Test
+    fun streakCountsBackFromTodayOrYesterday() {
+        assertEquals(3, Arcade.streak(longArrayOf(0, 5, 5, 5)))
+        assertEquals(2, Arcade.streak(longArrayOf(5, 0, 5, 5, 0)))
+        assertEquals(0, Arcade.streak(longArrayOf(5, 0, 0)))
+    }
 }

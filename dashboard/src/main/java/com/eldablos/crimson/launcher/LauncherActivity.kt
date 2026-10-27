@@ -67,7 +67,10 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             val playing = lastTelemetry?.track?.playing == true
             val fresh = ticks++ % 5 == 0 || playing || lastTelemetry == null
             val t = if (fresh) Telemetry.read(this@LauncherActivity).also { lastTelemetry = it } else lastTelemetry!!
-            if (fresh) DeckData.recordBattery(this@LauncherActivity, t.battery, t.charging)
+            if (fresh) {
+                DeckData.recordBattery(this@LauncherActivity, t.battery, t.charging)
+                t.steps?.let { DeckStore.recordSteps(this@LauncherActivity, it) }
+            }
             home.setTelemetry(t)
             if (deck.visibility == View.VISIBLE) deck.setTelemetry(t)
             val now = currentMode()
@@ -260,9 +263,9 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
-            deck.visibility == View.VISIBLE -> if (!deck.dismissKeyboard()) closeDeck()
+            deck.visibility == View.VISIBLE -> if (!deck.back()) closeDeck()
             weather.visibility == View.VISIBLE -> if (!weather.back()) closeWeather()
-            hub.visibility == View.VISIBLE -> closeGames()
+            hub.visibility == View.VISIBLE -> if (!hub.back()) closeGames()
             apps.visibility == View.VISIBLE -> closeApps()
             comms.visibility == View.VISIBLE -> closeComms()
             else -> home.closeNode()

@@ -1,6 +1,7 @@
 package com.eldablos.crimson
 
 import android.app.AppOpsManager
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Context
@@ -15,6 +16,8 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Process
 import com.eldablos.crimson.OpenAppActivity.Companion.component
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
 /**
@@ -231,6 +234,110 @@ object Arcade {
             }, p)
         }
         return bitmap
+    }
+
+    // --- Sessions, for the player stats page ---
+
+    /** One stretch of play: [pkg] in front from [start] to [end]. */
+    class Session(val pkg: String, val start: Long, val end: Long) {
+        val millis: Long get() = end - start
+    }
+
+    /** A game coming to the front ([resumed]) or leaving it, at [time]. */
+    class Event(val pkg: String, val resumed: Boolean, val time: Long)
+
+    /**
+     * Joins front/back events into sessions. Gaps under a minute (a permission dialog, a quick look at a
+     * message) don't break a session; a game still in front at [now] runs until then.
+     */
+    fun sessions(events: List<Event>, now: Long): List<Session> {
+        val open = HashMap<String, Long>()
+        val out = ArrayList<Session>()
+        for (e in events.sortedBy { it.time }) {
+            if (e.resumed) {
+                if (e.pkg !in open) {
+                    val last = out.lastOrNull()
+                    if (last != null && last.pkg == e.pkg && e.time - last.end < 60_000) {
+                        out.removeAt(out.size - 1)
+                        open[e.pkg] = last.start
+                    } else {
+                        open[e.pkg] = e.time
+                    }
+                }
+            } else {
+                val start = open.remove(e.pkg) ?: continue
+                if (e.time > start) out += Session(e.pkg, start, e.time)
+            }
+        }
+        open.forEach { (pkg, start) -> if (now > start) out += Session(pkg, start, now) }
+        return out.sortedBy { it.start }
+    }
+
+    /** Play per day over the [days] days ending [today], oldest first; sessions over midnight are split. */
+    fun perDay(sessions: List<Session>, days: Int, today: LocalDate, zone: ZoneId = ZoneId.systemDefault()): LongArray {
+        val out = LongArray(days)
+        for (d in 0 until days) {
+            val day = today.minusDays((days - 1 - d).toLong())
+            val from = day.atStartOfDay(zone).toInstant().toEpochMilli()
+            val to = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            out[d] = sessions.sumOf { (minOf(it.end, to) - maxOf(it.start, from)).coerceAtLeast(0) }
+        }
+        return out
+    }
+
+    /** Days in a row with some play, counting back from today (or from yesterday, if today has none yet). */
+    fun streak(daily: LongArray): Int {
+        var i = daily.size - 1
+        if (i >= 0 && daily[i] == 0L) i--
+        var n = 0
+        while (i >= 0 && daily[i] > 0) { n++; i-- }
+        return n
+    }
+
+    /** The last [days] days of game sessions, from the phone's usage events; empty without usage access. */
+    fun recentSessions(context: Context, games: List<Game>, days: Int = 7): List<Session> {
+        if (!hasUsageAccess(context)) return emptyList()
+        val packages = games.map { it.component.packageName }.toSet()
+        val now = System.currentTimeMillis()
+        val from = LocalDate.now().minusDays((days - 1).toLong()).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val usage = context.getSystemService(UsageStatsManager::class.java) ?: return emptyList()
+        val events = ArrayList<Event>()
+        try {
+            val stream = usage.queryEvents(from - TimeUnit.HOURS.toMillis(6), now)
+            val e = UsageEvents.Event()
+            while (stream.hasNextEvent()) {
+                stream.getNextEvent(e)
+                if (e.packageName !in packages) continue
+                when (e.eventType) {
+                    UsageEvents.Event.ACTIVITY_RESUMED -> events += Event(e.packageName, true, e.timeStamp)
+                    UsageEvents.Event.ACTIVITY_PAUSED, UsageEvents.Event.ACTIVITY_STOPPED -> events += Event(e.packageName, false, e.timeStamp)
+                }
+            }
+        } catch (e: Exception) {
+            return emptyList()
+        }
+        return sessions(events, now).filter { it.end > from }
+    }
+
+    /** A badge on the stats page: [progress] towards [goal], earned when it gets there. */
+    class Achievement(val glyph: String, val title: String, val detail: String, val progress: Float, val goal: Float) {
+        val earned: Boolean get() = progress >= goal
+        val fraction: Float get() = (progress / goal).coerceIn(0f, 1f)
+    }
+
+    fun achievements(sessions: List<Session>, daily: LongArray, played: Int, owned: Int): List<Achievement> {
+        val longest = sessions.maxOfOrNull { it.millis } ?: 0L
+        val zone = ZoneId.systemDefault()
+        val owl = sessions.count { java.time.Instant.ofEpochMilli(it.end).atZone(zone).hour in 0..4 }
+        val week = daily.sum()
+        return listOf(
+            Achievement("⏱", "MARATHON", "ONE SESSION OVER AN HOUR", TimeUnit.MILLISECONDS.toMinutes(longest).toFloat(), 60f),
+            Achievement("✦", "ON A STREAK", "PLAY 5 DAYS IN A ROW", streak(daily).toFloat(), 5f),
+            Achievement("◈", "EXPLORER", "PLAY 5 GAMES IN 2 WEEKS", played.toFloat(), 5f),
+            Achievement("▦", "COLLECTOR", "HAVE 20 GAMES", owned.toFloat(), 20f),
+            Achievement("☾", "NIGHT OWL", "PLAY PAST MIDNIGHT", owl.toFloat(), 1f),
+            Achievement("⚡", "COMMITTED", "10 HOURS IN A WEEK", TimeUnit.MILLISECONDS.toMinutes(week) / 60f, 10f),
+        )
     }
 
     /** "14H 20M", "35M", or "" for nothing. */

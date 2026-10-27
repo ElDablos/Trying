@@ -6,6 +6,9 @@
         <item name="android:windowBackground">@color/void_black</item>
         <item name="android:statusBarColor">@color/void_black</item>
         <item name="android:navigationBarColor">@color/void_black</item>
+        <!-- The screens draw their own HUD header, so no title bar. -->
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
     </style>
 
     <style name="AppTheme.NoTitle">

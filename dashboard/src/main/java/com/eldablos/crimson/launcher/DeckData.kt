@@ -36,12 +36,12 @@ object DeckData {
     class Event(val id: Long, val title: String, val begin: Long, val end: Long, val allDay: Boolean, val location: String)
 
     /** The next events over the coming two days, soonest first, without declined ones. */
-    fun agenda(context: Context, limit: Int = 4): List<Event> {
+    fun agenda(context: Context, limit: Int = 4, hours: Int = 48): List<Event> {
         if (!CalendarMonth.hasPermission(context)) return emptyList()
         val now = System.currentTimeMillis()
         val uri = Instances.CONTENT_URI.buildUpon().also {
             ContentUris.appendId(it, now - 6 * 3600_000L)
-            ContentUris.appendId(it, now + 48 * 3600_000L)
+            ContentUris.appendId(it, now + hours * 3600_000L)
         }.build()
         val projection = arrayOf(Instances.EVENT_ID, Instances.TITLE, Instances.BEGIN, Instances.END, Instances.ALL_DAY, Instances.EVENT_LOCATION)
         val selection = "${Instances.VISIBLE} = 1 AND ${Instances.SELF_ATTENDEE_STATUS} != ${CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED}"
@@ -143,7 +143,7 @@ object DeckData {
                 .map { it.packageName to it.totalTimeInForeground }
                 .filter { (pkg, _) -> AppCatalog.forPackage(pkg) != null }
                 .sortedByDescending { it.second }
-            Usage(apps.sumOf { it.second }, apps.take(6))
+            Usage(apps.sumOf { it.second }, apps.take(10))
         } catch (e: Exception) {
             null
         }

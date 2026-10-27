@@ -30,4 +30,24 @@ class DeckTest {
         assertEquals("1.5 GB", DeckView.bytesText(1610612736L))
         assertEquals("20 MB", DeckView.bytesText(20L * 1024 * 1024))
     }
+
+    @Test
+    fun readsStepHistory() {
+        val h = DeckStore.parseSteps("2026-10-26=8120;junk;2026-10-27=x;2026-10-25=400")
+        assertEquals(2, h.size)
+        assertEquals(8120L, h[java.time.LocalDate.of(2026, 10, 26)])
+        assertTrue(DeckStore.parseSteps(null).isEmpty())
+    }
+
+    @Test
+    fun readsCoinsAndCharts() {
+        val coins = Markets.parseCoins("""[{"id":"bitcoin","symbol":"btc","name":"Bitcoin","current_price":51234.5,"price_change_percentage_24h":-1.25,"market_cap_rank":1,"sparkline_in_7d":{"price":[1.0,2.0]}}]""")
+        assertEquals("BTC", coins[0].symbol)
+        assertEquals(-1.25, coins[0].changePct, 1e-9)
+        assertEquals(listOf(1.0, 2.0), coins[0].spark)
+        val chart = Markets.parseChart("""{"prices":[[1000,1.5],[2000,2.5]]}""")
+        assertEquals(listOf(1000L to 1.5, 2000L to 2.5), chart)
+        assertTrue(Markets.parseCoins("nope").isEmpty())
+        assertEquals("https://bbc.co.uk", DeckStore.normaliseUrl(" bbc.co.uk "))
+    }
 }

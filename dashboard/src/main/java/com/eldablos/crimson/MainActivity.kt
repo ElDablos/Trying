@@ -85,6 +85,7 @@ class MainActivity : Activity() {
         }
         findViewById<Button>(R.id.goal_button).setOnClickListener { saveGoal() }
         findViewById<Button>(R.id.add_widget_button).setOnClickListener { pinWidget() }
+        findViewById<Button>(R.id.launcher_button).setOnClickListener { chooseLauncher() }
         goalInput.setText(DashboardStore.goal(this).toString())
 
         opacityPill = findViewById(R.id.opacity_pill)
@@ -353,6 +354,16 @@ class MainActivity : Activity() {
             manager.requestPinAppWidget(ComponentName(this, CrimsonWidgetProvider::class.java), null, null)
         } else {
             toast("Long-press your home screen → Widgets → Crimson Widget")
+        }
+    }
+
+    /** Opens the home app setting, where Crimson Launcher can be picked. */
+    private fun chooseLauncher() {
+        try {
+            startActivity(android.content.Intent(android.provider.Settings.ACTION_HOME_SETTINGS))
+            toast("Pick Crimson Launcher")
+        } catch (e: Exception) {
+            toast("Settings → Apps → Default apps → Home app → Crimson Launcher")
         }
     }
 

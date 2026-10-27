@@ -1,0 +1,142 @@
+package com.eldablos.crimson.launcher
+
+import android.app.Notification
+import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
+import java.lang.ref.WeakReference
+
+/**
+ * The phone's notifications for the launcher: the Comms Centre, unread badges and the incoming pop-up.
+ * Fed by the app's notification listener (the same access the widget's music row uses).
+ */
+object Comms {
+    /** One app's notifications, newest first. */
+    class Group(val packageName: String, val items: List<StatusBarNotification>) {
+        val latest: StatusBarNotification get() = items.first()
+
+        /** Messages waiting: what the apps report, or one per notification. */
+        val count: Int get() = items.sumOf { maxOf(1, it.notification.number) }
+    }
+
+    private var service: WeakReference<NotificationListenerService>? = null
+    private val listeners = LinkedHashSet<Listener>()
+
+    interface Listener {
+        /** The notifications changed. */
+        fun onComms()
+
+        /** A new notification arrived that's worth a pop-up. */
+        fun onIncoming(sbn: StatusBarNotification) {}
+    }
+
+    fun addListener(listener: Listener) {
+        listeners += listener
+    }
+
+    fun removeListener(listener: Listener) {
+        listeners -= listener
+    }
+
+    val connected: Boolean get() = service?.get() != null
+
+    fun attach(listener: NotificationListenerService) {
+        service = WeakReference(listener)
+        changed()
+    }
+
+    fun detach() {
+        service = null
+        changed()
+    }
+
+    fun posted(sbn: StatusBarNotification) {
+        changed()
+        if (shows(sbn) && !sbn.isOngoing && sbn.notification.flags and Notification.FLAG_ONLY_ALERT_ONCE == 0) {
+            listeners.toList().forEach { it.onIncoming(sbn) }
+        }
+    }
+
+    fun changed() {
+        listeners.toList().forEach { it.onComms() }
+    }
+
+    /** Whether a notification belongs in the Comms Centre: not media players, group headers or silent system notes. */
+    fun shows(sbn: StatusBarNotification): Boolean {
+        val n = sbn.notification
+        if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return false
+        if (n.category == Notification.CATEGORY_TRANSPORT) return false
+        if (n.extras?.containsKey(Notification.EXTRA_MEDIA_SESSION) == true) return false
+        if (sbn.isOngoing && n.extras?.getInt(Notification.EXTRA_PROGRESS_MAX, 0) == 0) return false
+        val title = n.extras?.getCharSequence(Notification.EXTRA_TITLE)
+        val text = n.extras?.getCharSequence(Notification.EXTRA_TEXT)
+        return !title.isNullOrBlank() || !text.isNullOrBlank()
+    }
+
+    fun active(): List<StatusBarNotification> = try {
+        service?.get()?.activeNotifications.orEmpty().filter { shows(it) }.sortedByDescending { it.postTime }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /** Notifications grouped by app, the most recent app first. */
+    fun groups(): List<Group> = active().groupBy { it.packageName }.map { (pkg, items) -> Group(pkg, items) }
+
+    /** Unread count for each app. */
+    fun counts(): Map<String, Int> = groups().associate { it.packageName to it.count }
+
+    fun dismiss(group: Group) {
+        val s = service?.get() ?: return
+        group.items.filter { it.isClearable }.forEach { s.cancelNotification(it.key) }
+    }
+
+    fun dismiss(sbn: StatusBarNotification) {
+        if (sbn.isClearable) service?.get()?.cancelNotification(sbn.key)
+    }
+
+    fun clearAll() {
+        val s = service?.get() ?: return
+        active().filter { it.isClearable }.forEach { s.cancelNotification(it.key) }
+    }
+
+    /** Do Not Disturb, which the notification listener is allowed to switch. */
+    var doNotDisturb: Boolean
+        get() = (service?.get()?.currentInterruptionFilter ?: NotificationListenerService.INTERRUPTION_FILTER_ALL) !=
+            NotificationListenerService.INTERRUPTION_FILTER_ALL
+        set(on) {
+            service?.get()?.requestInterruptionFilter(
+                if (on) NotificationListenerService.INTERRUPTION_FILTER_PRIORITY else NotificationListenerService.INTERRUPTION_FILTER_ALL,
+            )
+        }
+
+    fun title(sbn: StatusBarNotification): String =
+        sbn.notification.extras?.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
+
+    fun text(sbn: StatusBarNotification): String {
+        val e = sbn.notification.extras ?: return ""
+        return (e.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: e.getCharSequence(Notification.EXTRA_TEXT))
+            ?.toString()?.trim().orEmpty()
+    }
+
+    /** Live progress (a delivery, a download), as 0–1, or null. */
+    fun progress(sbn: StatusBarNotification): Float? {
+        val e = sbn.notification.extras ?: return null
+        val max = e.getInt(Notification.EXTRA_PROGRESS_MAX, 0)
+        if (max <= 0) return null
+        return (e.getInt(Notification.EXTRA_PROGRESS, 0).toFloat() / max).coerceIn(0f, 1f)
+    }
+
+    /** The notification's reply action, if it has one with a text box. */
+    fun replyAction(sbn: StatusBarNotification): Notification.Action? =
+        sbn.notification.actions?.firstOrNull { a -> a.remoteInputs?.any { it.allowFreeFormInput } == true }
+
+    /** "2M", "1H", "NOW". */
+    fun ago(postTime: Long, now: Long = System.currentTimeMillis()): String {
+        val minutes = (now - postTime) / 60_000
+        return when {
+            minutes < 1 -> "NOW"
+            minutes < 60 -> "${minutes}M"
+            minutes < 60 * 24 -> "${minutes / 60}H"
+            else -> "${minutes / (60 * 24)}D"
+        }
+    }
+}

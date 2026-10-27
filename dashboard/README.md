@@ -65,6 +65,35 @@ A 6×5 games widget. Long-press the home screen → Widgets → Crimson Widget �
 - Games are found automatically from the category apps declare. Long-press → **Settings** to add any it
   missed or hide any you don't want.
 
+## Crimson Launcher
+
+A whole home screen in the same style, built into the Crimson Widget app. Turn it on with **Use Crimson
+Launcher as home** in the app (or Settings → Apps → Default apps → Home app → Crimson Launcher). Switch
+back to One UI Home the same way at any time.
+
+- **Status bar**: the launcher hides Android's and draws its own: time, the apps with notifications,
+  the battery as a ring round the camera (gold while charging, red under 15%), signal, Buds and battery.
+  Inside other apps you still see Samsung's own status bar.
+- **The ring**: your folders as nodes. Tap one and its apps fly out in orbit round the core (two orbits
+  for more than eight). Swipe sideways or tap the chips to hop between nodes, tap the core to close.
+  The first time, the nodes are built from the old home-screen folders (MAIN, AI, WORK, APPS, GOOGLE,
+  SAMSUNG) plus GAMES, which fills itself with your Arcade games, most played first.
+- **The core**: the old dock (WhatsApp, Messenger, Messages, Phone, Camera, Play Store, Chrome) orbits
+  the centre with unread counts. The centre button searches every app.
+- **Modes**: Morning (05:00–07:00) and Night Ops (from 17:00) put MAIN at the top of the ring; Work
+  (07:00–17:00) puts WORK there and dims GAMES.
+- **Around it**: weather (tap for the Weather app), the date and next alarm (tap for the calendar or
+  alarms), the steps line (tap for Samsung Health) and the music bar with shuffle, skip, repeat and the
+  queue button.
+- **Swipes**: down for the Comms Centre (quick toggles, brightness, notifications you can open, reply
+  to inline or swipe away), up for all apps, right for the GAMES node.
+- **Editing**: hold a node to rename it, drag its apps into order, add or remove apps, move it round the
+  ring or delete it. Hold an app in orbit to move it to another node. Hold an empty spot for a new
+  node, the dock, or the wallpaper.
+- Notifications, unread counts and the music bar need notification access (the same switch the
+  widget's music row uses). Brightness and rotation ask for permission to change settings the first
+  time.
+
 ## Good to know
 
 - The clock and date update live. Weather and steps refresh every 15 minutes, the most often Android allows.

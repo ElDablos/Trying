@@ -6,10 +6,13 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
+import com.eldablos.crimson.launcher.Comms
 
 /**
- * Runs while the app has notification access. It doesn't read notifications: the access is what lets it
- * follow the phone's media sessions, so the widget's music row updates as songs change, play or pause.
+ * Runs while the app has notification access. The access lets it follow the phone's media sessions, so
+ * the widget's music row updates as songs change, play or pause, and it hands notifications to the
+ * Crimson Launcher's Comms Centre.
  */
 class MusicListener : NotificationListenerService() {
     private var sessions: MediaSessionManager? = null
@@ -27,6 +30,7 @@ class MusicListener : NotificationListenerService() {
     }
 
     override fun onListenerConnected() {
+        Comms.attach(this)
         val manager = getSystemService(MediaSessionManager::class.java) ?: return
         sessions = manager
         val component = ComponentName(this, MusicListener::class.java)
@@ -38,7 +42,14 @@ class MusicListener : NotificationListenerService() {
     override fun onListenerDisconnected() {
         sessions?.removeOnActiveSessionsChangedListener(sessionsChanged)
         watch(emptyList())
+        Comms.detach()
     }
+
+    override fun onNotificationPosted(sbn: StatusBarNotification) = Comms.posted(sbn)
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification) = Comms.changed()
+
+    override fun onInterruptionFilterChanged(interruptionFilter: Int) = Comms.changed()
 
     private fun watch(controllers: List<MediaController>) {
         watched.forEach { it.unregisterCallback(callback) }

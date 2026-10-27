@@ -6,6 +6,7 @@
     <string name="strip_name">Crimson App Strip</string>
     <string name="strip_description">A folder of apps. Resize it to show more; scroll for the rest</string>
     <string name="arcade_name">Crimson Arcade</string>
+    <string name="launcher_name">Crimson Launcher</string>
     <string name="arcade_description">Your games as a HUD and a hexagon hive, most played first</string>
     <string name="buds_default_name">Galaxy Buds</string>
     <string name="buds_channel_name">Earbuds connection</string>

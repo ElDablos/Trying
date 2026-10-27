@@ -19,6 +19,14 @@
         tools:ignore="ProtectedPermissions" />
 
     <!-- Apps the widget opens on tap. Android 11+ hides other apps unless they're listed here. -->
+    <!-- Crimson Launcher: network type in the HUD, brightness and rotation toggles, uninstalling apps. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
     <queries>
@@ -71,6 +79,35 @@
                 <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
             </intent-filter>
         </activity-alias>
+
+        <!-- Crimson Launcher: pick it in Settings → Apps → Default apps → Home app. -->
+        <activity
+            android:name=".launcher.LauncherActivity"
+            android:clearTaskOnLaunch="true"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:launchMode="singleTask"
+            android:resizeableActivity="false"
+            android:screenOrientation="portrait"
+            android:stateNotNeeded="true"
+            android:taskAffinity=""
+            android:theme="@style/LauncherTheme"
+            android:windowSoftInputMode="adjustResize|stateHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".launcher.NodeEditActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@style/AppTheme.NoTitle"
+            android:windowSoftInputMode="adjustResize" />
 
         <!-- The widget's queue pop-up. -->
         <activity

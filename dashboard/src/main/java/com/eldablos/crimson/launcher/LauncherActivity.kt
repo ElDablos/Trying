@@ -266,7 +266,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     }
 
     override fun onComms() {
-        home.setComms(Comms.groups())
+        home.setComms(Comms.groups(), Comms.calls())
         comms.refresh()
     }
 

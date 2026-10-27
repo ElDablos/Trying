@@ -78,6 +78,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     private var torchId: String? = null
     private var scanStart = 0L
     private val frame = LinearLayout(context)
+    private val callBox = LinearLayout(context)
 
     /** Space kept clear at the top: the HUD status bar on the home screen, Android's over other apps. */
     fun setTopSpace(px: Int) {
@@ -119,6 +120,8 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         column.addView(head)
         column.addView(View(context).apply { setBackgroundColor(Hud.alpha(Hud.CRIMSON, .3f)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, u.toInt().coerceAtLeast(1)))
 
+        callBox.orientation = LinearLayout.VERTICAL
+        column.addView(callBox, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         column.addView(rowTop, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (72 * u).toInt()).apply { topMargin = (10 * u).toInt() })
         column.addView(rowBottom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (72 * u).toInt()).apply { topMargin = (4 * u).toInt() })
         column.addView(brightness, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (22 * u).toInt()).apply { topMargin = (6 * u).toInt() })
@@ -265,6 +268,11 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         val count = groups.sumOf { it.count }
         header.text = if (!Comms.connected) "◆ COMMS // OFFLINE" else "◆ COMMS // $count INCOMING"
         notifHeader.text = "◆ NOTIFICATIONS · $count"
+        // Calls in progress or ringing go first, with their own controls.
+        callBox.removeAllViews()
+        Comms.calls().forEach { call ->
+            callBox.addView(CallCard(call), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (10 * u).toInt() })
+        }
         // Don't pull the rug out from under a reply being typed.
         if (cards.findFocus() is EditText) return
         cards.removeAllViews()
@@ -487,6 +495,81 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         view.includeFontPadding = false
     }
 
+    /** A call: who it's with, how long, and the app's own call buttons (end, mute, speaker, answer…). */
+    private inner class CallCard(private val call: StatusBarNotification) : LinearLayout(context) {
+        private val timer = TextView(context)
+        private val ticker = object : Runnable {
+            override fun run() {
+                timer.text = Comms.callTimer(call) ?: if (Comms.ringing(call)) "RINGING" else ""
+                postDelayed(this, 1000)
+            }
+        }
+
+        init {
+            orientation = VERTICAL
+            background = CardShape(u, CALL_GREEN)
+            setPadding((14 * u).toInt(), (10 * u).toInt(), (12 * u).toInt(), (12 * u).toInt())
+            val app = AppCatalog.forPackage(call.packageName)
+            val head = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
+            val state = TextView(context)
+            style(state, 8f, CALL_GREEN, .18f, Hud.MONO_BOLD)
+            state.text = (if (Comms.ringing(call)) "● INCOMING CALL" else "● ON CALL") + " · " + (app?.label ?: call.packageName.substringAfterLast('.')).uppercase()
+            state.maxLines = 1
+            state.ellipsize = TextUtils.TruncateAt.END
+            head.addView(state, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            style(timer, 10f, Color.WHITE, .08f, Hud.MONO_BOLD)
+            head.addView(timer)
+            addView(head)
+            val name = TextView(context)
+            style(name, 17f, Color.WHITE, face = Hud.BOLD)
+            name.text = Comms.caller(call)
+            name.maxLines = 1
+            name.ellipsize = TextUtils.TruncateAt.END
+            name.setPadding(0, (6 * u).toInt(), 0, 0)
+            addView(name)
+            val buttons = LinearLayout(context)
+            call.notification.actions.orEmpty().take(4).forEachIndexed { i, action ->
+                val label = action.title?.toString()?.trim().orEmpty()
+                val lower = label.lowercase()
+                val danger = listOf("hang", "end", "decline", "reject").any { it in lower }
+                val accept = listOf("answer", "accept").any { it in lower }
+                val b = TextView(context)
+                style(b, 9f, Color.WHITE, .12f, Hud.MONO_BOLD)
+                b.text = label.uppercase()
+                b.gravity = Gravity.CENTER
+                b.maxLines = 1
+                b.setPadding((6 * u).toInt(), (12 * u).toInt(), (6 * u).toInt(), (12 * u).toInt())
+                b.background = Outline(u, when {
+                    danger -> Hud.alpha(0xFFD0102E.toInt(), .85f)
+                    accept -> Hud.alpha(0xFF1E9E4A.toInt(), .85f)
+                    else -> Hud.alpha(Hud.CRIMSON, .14f)
+                })
+                b.setOnClickListener {
+                    performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+                    Comms.fire(context, action.actionIntent)
+                    postDelayed({ refresh() }, 600)
+                }
+                buttons.addView(b, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) marginStart = (6 * u).toInt() })
+            }
+            if (buttons.childCount > 0) addView(buttons, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (10 * u).toInt() })
+            // Tapping the card goes back to the call screen.
+            setOnClickListener {
+                Comms.fire(context, call.notification.contentIntent)
+                onClose?.invoke()
+            }
+        }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            ticker.run()
+        }
+
+        override fun onDetachedFromWindow() {
+            removeCallbacks(ticker)
+            super.onDetachedFromWindow()
+        }
+    }
+
     private inner class Card(private val group: Comms.Group, startReply: Boolean) : LinearLayout(context) {
         private val sbn: StatusBarNotification = group.latest
         private var startX = 0f
@@ -699,6 +782,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 
     companion object {
+        private val CALL_GREEN = 0xFF3DDC84.toInt()
         private const val REPLY_ID = 0x7f0c1001
     }
 }
@@ -883,7 +967,7 @@ class ProgressLine(context: Context, private val u: Float, private val value: Fl
 }
 
 /** A notification card's background: cut corners, a crimson gradient and a glowing edge on the left. */
-class CardShape(private val u: Float) : Drawable() {
+class CardShape(private val u: Float, private val accent: Int = Hud.HOT) : Drawable() {
     override fun draw(canvas: Canvas) {
         val r = RectF(bounds)
         val path = Hud.cut(r, 12 * u)
@@ -891,7 +975,7 @@ class CardShape(private val u: Float) : Drawable() {
             shader = LinearGradient(r.left, 0f, r.right, 0f, Hud.alpha(Hud.BLOOD, .55f), Hud.alpha(0xFF140609.toInt(), .85f), Shader.TileMode.CLAMP)
         })
         canvas.drawPath(path, Hud.stroke(Hud.alpha(Hud.CRIMSON, .45f), u))
-        canvas.drawRect(r.left, r.top + 12 * u, r.left + 2 * u, r.bottom - 12 * u, Hud.glow(Hud.fill(Hud.HOT), 5 * u))
+        canvas.drawRect(r.left, r.top + 12 * u, r.left + 2 * u, r.bottom - 12 * u, Hud.glow(Hud.fill(accent), 5 * u))
     }
 
     override fun setAlpha(alpha: Int) {}

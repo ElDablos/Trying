@@ -209,8 +209,11 @@ class HomeView(context: Context) : View(context) {
         invalidate()
     }
 
-    fun setComms(groups: List<Comms.Group>) {
+    private var calls: List<StatusBarNotification> = emptyList()
+
+    fun setComms(groups: List<Comms.Group>, calls: List<StatusBarNotification> = emptyList()) {
         this.groups = groups
+        this.calls = calls
         counts = groups.associate { it.packageName to it.count }
         invalidate()
     }
@@ -333,7 +336,8 @@ class HomeView(context: Context) : View(context) {
         if (openT > 0f && open >= 0) drawOrbit(canvas)
         stage(canvas, win(b, .66f, .25f), dy = 30 * u) { drawSteps(canvas, t) }
         stage(canvas, win(b, .72f, .25f), dy = 30 * u) { drawMusic(canvas, t) }
-        if (incoming == null && b >= .86f && (b >= 1f || ((now() / 60) % 2 == 0L))) drawHint(canvas)
+        if (incoming == null && calls.isNotEmpty()) drawCall(canvas, calls.first())
+        else if (incoming == null && b >= .86f && (b >= 1f || ((now() / 60) % 2 == 0L))) drawHint(canvas)
         drawModeShift(canvas)
         drawIncoming(canvas)
         drawLock(canvas)
@@ -866,6 +870,33 @@ class HomeView(context: Context) : View(context) {
     private fun drawHint(canvas: Canvas) {
         val text = if (open >= 0) "TAP AN APP · HOLD FOR OPTIONS · TAP THE CORE TO CLOSE" else "TAP A NODE · ↓ COMMS · ↑ ALL APPS · → GAME HUB"
         canvas.drawText(text, width / 2f, y(822f), Hud.text(7 * u, Hud.alpha(Hud.DUST, .8f), Hud.MONO, .08f, Paint.Align.CENTER))
+    }
+
+    // --- Call bar ---
+
+    /** A call in progress (any app): who, how long, End, and tap to go back to it. */
+    private fun drawCall(canvas: Canvas, call: StatusBarNotification) {
+        val green = 0xFF3DDC84.toInt()
+        val top = y(802f)
+        val r = RectF(14 * u, top, width - 14 * u, top + 60 * u)
+        Hud.panel(canvas, r, 12 * u, u, Hud.alpha(green, .7f), Hud.alpha(0xFF0A1A10.toInt(), .9f))
+        val pulse = .5f + .5f * sin(now() / 260.0).toFloat()
+        canvas.drawCircle(r.left + 18 * u, r.centerY(), (4 + 2 * pulse) * u, Hud.glow(Hud.fill(green), 8 * u))
+        val ringing = Comms.ringing(call)
+        val state = (if (ringing) "INCOMING CALL" else "ON CALL") + " · " + (Comms.callTimer(call) ?: if (ringing) "RINGING" else "")
+        val end = call.notification.actions?.firstOrNull { a -> a.title?.toString()?.lowercase()?.let { t -> listOf("hang", "end", "decline", "reject").any { it in t } } == true }
+        val endR = RectF(r.right - 86 * u, r.top + 12 * u, r.right - 12 * u, r.bottom - 12 * u)
+        val textRight = if (end != null) endR.left - 8 * u else r.right - 12 * u
+        canvas.drawText(Hud.ellipsize(state, Hud.text(8 * u, green, Hud.MONO_BOLD, .14f), textRight - r.left - 34 * u), r.left + 32 * u, r.top + 24 * u, Hud.text(8 * u, green, Hud.MONO_BOLD, .14f))
+        val name = Hud.text(15 * u, Color.WHITE, Hud.BOLD)
+        canvas.drawText(Hud.ellipsize(Comms.caller(call), name, textRight - r.left - 34 * u), r.left + 32 * u, r.top + 45 * u, name)
+        if (end != null) {
+            canvas.drawRoundRect(endR, 18 * u, 18 * u, Hud.glow(Hud.fill(0xFFD0102E.toInt()), 8 * u))
+            canvas.drawText((end.title?.toString() ?: "END").uppercase(), endR.centerX(), endR.centerY() + 4 * u, Hud.fit((end.title?.toString() ?: "END").uppercase(), Hud.text(9 * u, Color.WHITE, Hud.MONO_BOLD, .1f, Paint.Align.CENTER), endR.width() - 10 * u))
+            hits.add(0, endR to { Comms.fire(context, end.actionIntent) })
+        }
+        hits += r to { Comms.fire(context, call.notification.contentIntent) }
+        postInvalidateDelayed(120)
     }
 
     // --- Incoming pop-up ---

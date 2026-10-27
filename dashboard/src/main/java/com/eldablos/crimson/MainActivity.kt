@@ -86,6 +86,9 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.goal_button).setOnClickListener { saveGoal() }
         findViewById<Button>(R.id.add_widget_button).setOnClickListener { pinWidget() }
         findViewById<Button>(R.id.launcher_button).setOnClickListener { chooseLauncher() }
+        findViewById<Button>(R.id.launcher_settings_button).setOnClickListener {
+            startActivity(android.content.Intent(this, com.eldablos.crimson.launcher.LauncherSettingsActivity::class.java))
+        }
         goalInput.setText(DashboardStore.goal(this).toString())
 
         opacityPill = findViewById(R.id.opacity_pill)

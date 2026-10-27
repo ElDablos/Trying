@@ -68,6 +68,8 @@ object Comms {
     fun shows(sbn: StatusBarNotification): Boolean {
         val n = sbn.notification
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return false
+        // Calls get their own card with their controls.
+        if (isCall(sbn)) return false
         // System bookkeeping (like SystemUI's "MediaOngoingActivity") isn't a message.
         if ((sbn.packageName == "com.android.systemui" || sbn.packageName == "android") &&
             n.extras?.getCharSequence(Notification.EXTRA_TEXT).isNullOrBlank()
@@ -85,6 +87,39 @@ object Comms {
     } catch (e: Exception) {
         emptyList()
     }
+
+    /** A call notification from any app: the phone, WhatsApp, Messenger and the like. */
+    fun isCall(sbn: StatusBarNotification): Boolean {
+        val n = sbn.notification
+        if (n.category == Notification.CATEGORY_CALL) return true
+        val e = n.extras ?: return false
+        return e.getInt(Notification.EXTRA_CALL_TYPE, 0) != 0 || e.containsKey(Notification.EXTRA_CALL_PERSON)
+    }
+
+    /** Calls going on or ringing now, newest first. */
+    fun calls(): List<StatusBarNotification> = try {
+        service?.get()?.activeNotifications.orEmpty().filter { isCall(it) }.sortedByDescending { it.postTime }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /** Who the call is with. */
+    fun caller(sbn: StatusBarNotification): String {
+        val e = sbn.notification.extras
+        val person = e?.getParcelable(Notification.EXTRA_CALL_PERSON, android.app.Person::class.java)
+        return person?.name?.toString()?.takeIf { it.isNotBlank() } ?: title(sbn).ifBlank { "Call" }
+    }
+
+    /** "03:21" since the call started, when the app shows a timer. */
+    fun callTimer(sbn: StatusBarNotification, now: Long = System.currentTimeMillis()): String? {
+        val n = sbn.notification
+        if (n.extras?.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER) != true || n.`when` <= 0) return null
+        val s = ((now - n.`when`) / 1000).coerceAtLeast(0)
+        return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%02d:%02d".format(s / 60, s % 60)
+    }
+
+    /** True while it's still ringing rather than answered. */
+    fun ringing(sbn: StatusBarNotification): Boolean = EdgeLight.isIncomingCall(sbn.notification)
 
     /** Notifications grouped by app, the most recent app first. */
     fun groups(): List<Group> = active().groupBy { it.packageName }.map { (pkg, items) -> Group(pkg, items) }

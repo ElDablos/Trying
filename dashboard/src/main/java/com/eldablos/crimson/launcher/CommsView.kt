@@ -1076,10 +1076,7 @@ class MusicCard(context: Context, private val u: Float) : View(context) {
         }
     }
 
-    private fun openPlayer() {
-        val pkg = NowPlaying.activeController(context)?.packageName ?: NowPlaying.read(context)?.packageName ?: NowPlaying.SPOTIFY
-        context.packageManager.getLaunchIntentForPackage(pkg)?.let { context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-    }
+    private fun openPlayer() = NowPlaying.openPlayer(context)
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (e.actionMasked == MotionEvent.ACTION_UP) {

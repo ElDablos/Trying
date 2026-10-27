@@ -597,6 +597,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     canvas.drawRoundRect(art, 8 * u, 8 * u, Hud.fill(Hud.tint(0xFF2A0A10.toInt())))
                     canvas.drawText("♪", art.centerX(), art.centerY() + 7 * u, Hud.text(20 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER))
                 }
+                // The art and title open the music app (Spotify when nothing's playing).
+                tap(RectF(art.left, art.top, r.right - 130 * u, art.bottom)) { NowPlaying.openPlayer(context) }
                 val tx = art.right + 12 * u
                 val maxW = r.right - 130 * u - tx
                 canvas.drawText(Hud.ellipsize(track?.title ?: "Nothing playing", Hud.text(13 * u, Color.WHITE, Hud.MEDIUM), maxW), tx, top + 52 * u, Hud.text(13 * u, Color.WHITE, Hud.MEDIUM))

@@ -872,12 +872,7 @@ class HomeView(context: Context) : View(context) {
         hit(5) { host?.openQueue() }
     }
 
-    private fun openPlayer() {
-        val pkg = NowPlaying.activeController(context)?.packageName ?: NowPlaying.read(context)?.packageName ?: NowPlaying.SPOTIFY
-        context.packageManager.getLaunchIntentForPackage(pkg)?.let {
-            context.startActivity(it.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-    }
+    private fun openPlayer() = NowPlaying.openPlayer(context)
 
     private fun mmss(ms: Long): String {
         val s = ms / 1000

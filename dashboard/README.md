@@ -109,8 +109,7 @@ back to One UI Home the same way at any time.
   Edge Panel (Apps panel → edit → add) and the Comms Centre opens over whatever app you're in; swipe
   up or press Back to return. There's also a glowing **Comms handle** in the middle of the right edge
   over every app: swipe it in or tap it for the same thing. Move it, switch sides or turn it off in
-  Launcher settings. Tap the mode on the status line (◆ NIGHT OPS ▾) to switch by hand; it holds until
-  the next change on the clock.
+  Launcher settings.
 - **Edge lighting** (needs "Display over other apps"): twin strips race round the screen edge in the
   app's colour when a message arrives, two comets circle it during an incoming call, gold energy climbs
   it when the charger goes in, and it breathes red on low battery. Works over any app while the phone

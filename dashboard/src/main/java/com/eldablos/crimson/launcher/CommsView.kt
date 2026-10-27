@@ -174,7 +174,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         style(foot, 7f, Hud.DUST, .16f)
         foot.gravity = Gravity.CENTER
         foot.text = "▲  SWIPE UP HERE OR TAP TO CLOSE  ▲"
-        foot.setTextColor(Hud.HOT)
+        foot.setTextColor(Theme.readable(Hud.HOT))
         foot.background = Outline(u, Hud.alpha(Hud.RED, .25f))
         foot.setPadding(0, (16 * u).toInt(), 0, (16 * u).toInt())
         frame.addView(foot)
@@ -580,7 +580,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
 
     private fun style(view: TextView, sp: Float, color: Int, spacing: Float = 0f, face: android.graphics.Typeface = Hud.MONO) {
         view.setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(sp) * u)
-        view.setTextColor(color)
+        view.setTextColor(Theme.readable(color))
         view.letterSpacing = spacing
         view.typeface = face
         view.includeFontPadding = false

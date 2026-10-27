@@ -45,8 +45,8 @@ class QueueActivity : Activity() {
 
     /** Lights the shuffle and repeat tiles crimson when they're on. */
     private fun renderModes() {
-        val on = WidgetTheme.color(this, R.color.crimson)
-        val off = WidgetTheme.color(this, R.color.dust)
+        val on = WidgetTheme.text(this, R.color.crimson)
+        val off = WidgetTheme.text(this, R.color.dust)
         val shuffle = NowPlaying.shuffle(this)
         findViewById<ImageView>(R.id.queue_shuffle_icon).setColorFilter(if (shuffle) on else off)
         findViewById<TextView>(R.id.queue_shuffle_label).setTextColor(if (shuffle) on else off)
@@ -98,7 +98,7 @@ class QueueActivity : Activity() {
             val playing = item.queueId == current
             view.findViewById<TextView>(R.id.queue_item_title).apply {
                 text = d.title
-                setTextColor(WidgetTheme.color(context, if (playing) R.color.crimson else R.color.bone))
+                setTextColor(WidgetTheme.text(context, if (playing) R.color.crimson else R.color.bone))
             }
             view.findViewById<TextView>(R.id.queue_item_artist).text = d.subtitle ?: ""
             val art = view.findViewById<ImageView>(R.id.queue_item_art)

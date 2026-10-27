@@ -95,6 +95,7 @@ enum class Theme(
             if (theme == current) return false
             current = theme
             cache.clear()
+            readableCache.clear()
             return true
         }
 
@@ -102,6 +103,32 @@ enum class Theme(
             context.getSharedPreferences("launcher", Context.MODE_PRIVATE).edit().putString("theme", theme.name).apply()
             load(context)
         }
+
+        /**
+         * [color] made light enough to read on the dark screens. Some themes (Cobalt, Ultraviolet, Blood
+         * Moon) turn crimson into colours the eye sees as much darker, so text in them is blended towards
+         * white, keeping its hue, until it stands out. Crimson itself is left exactly as designed.
+         */
+        fun readable(color: Int): Int {
+            if (current == CRIMSON || Color.alpha(color) < 40) return color
+            return readableCache.getOrPut(color) {
+                var c = color
+                var i = 0
+                while (Color.luminance(c) < MIN_LUMINANCE && i < 12) {
+                    c = Color.argb(
+                        Color.alpha(c),
+                        Color.red(c) + ((255 - Color.red(c)) * .12f).toInt(),
+                        Color.green(c) + ((255 - Color.green(c)) * .12f).toInt(),
+                        Color.blue(c) + ((255 - Color.blue(c)) * .12f).toInt(),
+                    )
+                    i++
+                }
+                c
+            }
+        }
+
+        private const val MIN_LUMINANCE = .2f
+        private val readableCache = java.util.concurrent.ConcurrentHashMap<Int, Int>()
 
         /** [color] in the current theme, remembered so drawing stays quick. */
         fun tint(color: Int): Int {

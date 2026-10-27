@@ -240,7 +240,7 @@ class MainActivity : Activity() {
         }
         pill.text = label ?: text
         pill.setBackgroundResource(background)
-        pill.setTextColor(WidgetTheme.color(this, color))
+        pill.setTextColor(WidgetTheme.text(this, color))
     }
 
     private fun searchCity() {

@@ -31,6 +31,12 @@ object WidgetTheme {
     /** Any colour in the current theme. */
     fun color(value: Int): Int = Theme.tint(value)
 
+    /** [res] as a text colour in the current theme, lifted if the theme made it too dark to read. */
+    fun text(context: Context, res: Int): Int = readable(color(context, res))
+
+    /** [color] made light enough to read on the dark screens; see [Theme.readable]. */
+    fun readable(color: Int): Int = Theme.readable(color)
+
     /**
      * Tints the crimson pictures in [views]: [images] (ImageView pictures), [backgrounds] (view
      * backgrounds) and [bars] (progress bars). Back on Crimson it clears the tint again, since a widget
@@ -87,8 +93,8 @@ object WidgetTheme {
         fun walk(v: View) {
             if (v.tag == "keep") return
             if (v is TextView) {
-                v.setTextColor(Theme.tint(v.currentTextColor))
-                v.setHintTextColor(Theme.tint(v.currentHintTextColor))
+                v.setTextColor(readable(Theme.tint(v.currentTextColor)))
+                v.setHintTextColor(readable(Theme.tint(v.currentHintTextColor)))
             }
             if (v is ImageView && v.drawable != null) {
                 v.imageTintList = tint

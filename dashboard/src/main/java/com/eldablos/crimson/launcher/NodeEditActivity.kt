@@ -86,7 +86,7 @@ class NodeEditActivity : Activity() {
                 setText(node?.name.orEmpty())
                 hint = "NODE"
                 setHintTextColor(Hud.DUST)
-                setTextColor(Color.WHITE)
+                setTextColor(Theme.readable(Color.WHITE))
                 setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(20f) * u)
                 typeface = Hud.BOLD
                 letterSpacing = .24f
@@ -213,7 +213,7 @@ class NodeEditActivity : Activity() {
 
     private fun label(text: String, sp: Float, color: Int) = TextView(this).apply {
         this.text = text
-        setTextColor(color)
+        setTextColor(Theme.readable(color))
         setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(sp) * u)
         typeface = Hud.MONO
         letterSpacing = .2f

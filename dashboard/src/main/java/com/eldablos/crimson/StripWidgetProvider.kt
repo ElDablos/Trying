@@ -35,8 +35,8 @@ class StripWidgetProvider : AppWidgetProvider() {
         fun update(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_strip)
             WidgetTheme.apply(context, views, images = intArrayOf(R.id.strip_bg, R.id.strip_name_bg))
-            views.setTextColor(R.id.strip_empty, WidgetTheme.color(context, R.color.crimson))
-            views.setTextColor(R.id.strip_name_text, WidgetTheme.color(context, R.color.crimson))
+            views.setTextColor(R.id.strip_empty, WidgetTheme.text(context, R.color.crimson))
+            views.setTextColor(R.id.strip_name_text, WidgetTheme.text(context, R.color.crimson))
             val adapter = Intent(context, StripService::class.java)
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
             // A unique URI so each strip gets its own list of apps instead of a shared, cached one.

@@ -88,13 +88,13 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
     }
     private val tagFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = WidgetTheme.color(context, R.color.void_black) }
     private val tagText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = WidgetTheme.color(context, R.color.crimson)
+        color = WidgetTheme.text(context, R.color.crimson)
         textSize = dp(9f)
         letterSpacing = 0.18f
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
     private val label = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = WidgetTheme.color(context, R.color.bone)
+        color = WidgetTheme.text(context, R.color.bone)
         textAlign = Paint.Align.CENTER
     }
     private val hint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -102,7 +102,7 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
         textAlign = Paint.Align.CENTER
     }
     private val note = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = WidgetTheme.color(context, R.color.dust)
+        color = WidgetTheme.text(context, R.color.dust)
         textSize = dp(11f)
         letterSpacing = 0.06f
         textAlign = Paint.Align.CENTER
@@ -116,7 +116,7 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = dp(2f)
-        color = WidgetTheme.color(context, R.color.crimson)
+        color = WidgetTheme.text(context, R.color.crimson)
     }
     private val rect = RectF()
 
@@ -293,10 +293,10 @@ class StripPreviewView(context: Context, attrs: AttributeSet?) : View(context, a
             zoneFill.color = if (overRemove) WidgetTheme.color(context, R.color.blood) else WidgetTheme.color(0x33760012)
             canvas.drawRoundRect(rect, dp(14f), dp(14f), zoneFill)
             canvas.drawRoundRect(rect, dp(14f), dp(14f), cardStroke)
-            hint.color = WidgetTheme.color(context, if (overRemove) R.color.bone else R.color.crimson)
+            hint.color = WidgetTheme.text(context, if (overRemove) R.color.bone else R.color.crimson)
             canvas.drawText("Drop here to remove", rect.centerX(), rect.centerY() + dp(4f), hint)
         } else {
-            hint.color = WidgetTheme.color(context, R.color.dust)
+            hint.color = WidgetTheme.text(context, R.color.dust)
             val text = if (apps.none { it != null }) "Tap apps below to add them" else "Hold an app and drag it to any spot"
             canvas.drawText(text, rect.centerX(), rect.centerY() + dp(4f), hint)
         }

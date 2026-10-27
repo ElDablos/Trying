@@ -189,7 +189,7 @@ class LauncherSettingsActivity : Activity() {
 
     private fun text(value: String, sp: Float, color: Int, face: android.graphics.Typeface = Hud.MONO, spacing: Float = .18f) = TextView(this).apply {
         text = value
-        setTextColor(color)
+        setTextColor(Theme.readable(color))
         setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(sp) * u)
         typeface = face
         letterSpacing = spacing

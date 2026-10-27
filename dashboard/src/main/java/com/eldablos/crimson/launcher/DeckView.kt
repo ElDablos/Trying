@@ -90,7 +90,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         addView(board, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         input.apply {
             background = null
-            setTextColor(Hud.BONE)
+            setTextColor(Theme.readable(Hud.BONE))
             setHintTextColor(Hud.DUST)
             hint = "Ask Claude anything…"
             setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(14f) * u)
@@ -1033,7 +1033,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         val field = EditText(context).apply {
             setText(note)
             setSelection(note.length)
-            setTextColor(Hud.BONE)
+            setTextColor(Theme.readable(Hud.BONE))
             setHintTextColor(Hud.DUST)
             hint = "Anything to remember…"
             minLines = 4

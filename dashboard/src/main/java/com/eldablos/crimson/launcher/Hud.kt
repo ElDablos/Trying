@@ -61,7 +61,8 @@ object Hud {
     fun text(size: Float, color: Int, face: Typeface = SANS, spacing: Float = 0f, align: Paint.Align = Paint.Align.LEFT) =
         TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = if (u > 0f) sp(size / u) * u else size
-            this.color = color
+            // Text stays readable in every theme.
+            this.color = Theme.readable(color)
             typeface = face
             letterSpacing = spacing
             textAlign = align

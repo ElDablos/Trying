@@ -110,8 +110,8 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                     IntArray(42) { viewId(context, "day_$it") },
                 bars = intArrayOf(R.id.steps_bar),
             )
-            views.setTextColor(R.id.month_prev, WidgetTheme.color(context, R.color.crimson))
-            views.setTextColor(R.id.month_next, WidgetTheme.color(context, R.color.crimson))
+            views.setTextColor(R.id.month_prev, WidgetTheme.text(context, R.color.crimson))
+            views.setTextColor(R.id.month_next, WidgetTheme.text(context, R.color.crimson))
             val locale = Locale.getDefault()
             val is24h = DateFormat.is24HourFormat(context)
             val now = Format.now()
@@ -210,7 +210,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             if (!connected) {
                 val status = if (buds.connection == BudsState.Connection.CONNECTING) "connecting…" else "tap to connect"
                 views.setTextViewText(R.id.buds_text, "$name · $status")
-                views.setTextColor(R.id.buds_text, WidgetTheme.color(context, R.color.dust))
+                views.setTextColor(R.id.buds_text, WidgetTheme.text(context, R.color.dust))
                 views.setViewVisibility(R.id.buds_modes, View.GONE)
                 return
             }
@@ -220,7 +220,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 "L ${BudsState.formatBattery(buds.left)}  ·  R ${BudsState.formatBattery(buds.right)}",
             )
             val low = listOf(buds.left, buds.right).any { it in 1..15 }
-            views.setTextColor(R.id.buds_text, WidgetTheme.color(context, if (low) R.color.crimson else R.color.bone))
+            views.setTextColor(R.id.buds_text, WidgetTheme.text(context, if (low) R.color.crimson else R.color.bone))
 
             views.setViewVisibility(R.id.buds_modes, View.VISIBLE)
             for ((mode, id, code) in listOf(
@@ -230,7 +230,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 views.setViewVisibility(id, if (mode in buds.model.modes) View.VISIBLE else View.GONE)
                 val selected = buds.mode == mode
                 views.setInt(id, "setBackgroundResource", if (selected) R.drawable.segment_on else R.drawable.day_none)
-                views.setTextColor(id, WidgetTheme.color(context, if (selected) R.color.bone else R.color.dust))
+                views.setTextColor(id, WidgetTheme.text(context, if (selected) R.color.bone else R.color.dust))
                 views.setOnClickPendingIntent(id, budsService(context, BudsService.ACTION_SET_MODE, mode, code))
             }
         }
@@ -246,8 +246,8 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 R.id.music_queue, activity(context, 66, Intent(context, QueueActivity::class.java)),
             )
             // Shuffle and repeat light up crimson when on; repeat shows a "1" when repeating one song.
-            val on = WidgetTheme.color(context, R.color.crimson)
-            val off = WidgetTheme.color(context, R.color.dust)
+            val on = WidgetTheme.text(context, R.color.crimson)
+            val off = WidgetTheme.text(context, R.color.dust)
             views.setInt(R.id.music_shuffle, "setColorFilter", if (NowPlaying.shuffle(context)) on else off)
             val repeat = NowPlaying.repeat(context)
             views.setImageViewResource(
@@ -303,7 +303,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             CalendarMonth.weekdays(firstDay).forEachIndexed { i, dow ->
                 val id = viewId(context, "dow_$i")
                 views.setTextViewText(id, dow.getDisplayName(TextStyle.NARROW, locale))
-                views.setTextColor(id, WidgetTheme.color(context, if (dow == DayOfWeek.SUNDAY) R.color.crimson else R.color.dust))
+                views.setTextColor(id, WidgetTheme.text(context, if (dow == DayOfWeek.SUNDAY) R.color.crimson else R.color.dust))
             }
 
             val cells = CalendarMonth.grid(month, firstDay)

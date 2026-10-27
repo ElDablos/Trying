@@ -461,8 +461,16 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         startActivity(Intent(this, QueueActivity::class.java))
     }
 
+    /** Samsung Weather first; any other weather app only if it isn't there. */
     override fun openWeather() {
-        startActivity(OpenAppActivity.intent(this, "Weather", CrimsonWidgetProvider.WEATHER_APPS))
+        val apps = AppCatalog.apps()
+        val samsung = SAMSUNG_WEATHER.firstNotNullOfOrNull { pkg -> apps.firstOrNull { it.component.packageName == pkg } }
+            ?: apps.firstOrNull { it.label.equals("Weather", true) && (it.component.packageName.startsWith("com.sec.") || it.component.packageName.startsWith("com.samsung.")) }
+        if (samsung != null) {
+            AppCatalog.launch(this, samsung.component)
+        } else {
+            startActivity(OpenAppActivity.intent(this, "Weather", CrimsonWidgetProvider.WEATHER_APPS))
+        }
     }
 
     override fun openCalendar() {
@@ -496,5 +504,9 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             }
         }
         Toast.makeText(this, "Nothing on the phone opens that", Toast.LENGTH_SHORT).show()
+    }
+
+    companion object {
+        private val SAMSUNG_WEATHER = listOf("com.sec.android.daemonapp", "com.samsung.android.weather")
     }
 }

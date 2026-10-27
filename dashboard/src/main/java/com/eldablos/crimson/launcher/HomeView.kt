@@ -53,6 +53,7 @@ class HomeView(context: Context) : View(context) {
         fun openCalendar()
         fun openAlarms()
         fun openHealth()
+        fun openGames()
     }
 
     var host: Host? = null
@@ -63,6 +64,7 @@ class HomeView(context: Context) : View(context) {
     private var ring: List<RingNode> = emptyList()
     private var dock: List<ComponentName> = emptyList()
     private var mode = Mode.NIGHT
+    private var dim: Set<String> = emptySet()
     private var telemetry: Telemetry? = null
     private var counts: Map<String, Int> = emptyMap()
     private var groups: List<Comms.Group> = emptyList()
@@ -166,12 +168,21 @@ class HomeView(context: Context) : View(context) {
 
     // --- Data ---
 
-    fun setData(nodes: List<Node>, dock: List<ComponentName>, mode: Mode, games: List<ComponentName>, gameCount: Int) {
+    fun setData(
+        nodes: List<Node>,
+        dock: List<ComponentName>,
+        mode: Mode,
+        games: List<ComponentName>,
+        gameCount: Int,
+        top: String = mode.top,
+        dim: Set<String> = mode.dim,
+    ) {
+        this.dim = dim
         val indexed = nodes.mapIndexed { i, n -> RingNode(i, n, if (n.games) games else n.apps) }
         val openName = ring.getOrNull(open)?.node?.name
         val previousTop = ring.firstOrNull()?.node?.name
         val shifted = mode != this.mode && ring.isNotEmpty()
-        ring = Mode.rotate(indexed, mode) { it.node.name }
+        ring = Mode.rotate(indexed, top) { it.node.name }
         this.dock = dock.take(LauncherStore.MAX_DOCK)
         if (shifted) {
             // Mode shift: sweep the screen and turn the ring to its new top node.
@@ -321,7 +332,7 @@ class HomeView(context: Context) : View(context) {
         if (openT > 0f && open >= 0) drawOrbit(canvas)
         stage(canvas, win(b, .66f, .25f), dy = 30 * u) { drawSteps(canvas, t) }
         stage(canvas, win(b, .72f, .25f), dy = 30 * u) { drawMusic(canvas, t) }
-        if (b >= .86f && (b >= 1f || ((now() / 60) % 2 == 0L))) drawHint(canvas)
+        if (incoming == null && b >= .86f && (b >= 1f || ((now() / 60) % 2 == 0L))) drawHint(canvas)
         drawModeShift(canvas)
         drawIncoming(canvas)
         drawLock(canvas)
@@ -628,7 +639,7 @@ class HomeView(context: Context) : View(context) {
         val x = width / 2f + (x0 - width / 2f) * pull
         val y = ringY + (y0 - ringY) * pull
         val r = 31 * u
-        val dim = if (rn.node.name.uppercase() in mode.dim) .4f else 1f
+        val dim = if (rn.node.name.uppercase() in this.dim) .4f else 1f
         val a = alpha * dim
         canvas.drawCircle(x, y, r, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = RadialGradient(x, y, r, 0xFF3A0A12.toInt(), 0xFF120608.toInt(), Shader.TileMode.CLAMP)
@@ -889,7 +900,7 @@ class HomeView(context: Context) : View(context) {
     }
 
     private fun drawHint(canvas: Canvas) {
-        val text = if (open >= 0) "TAP AN APP · HOLD FOR OPTIONS · TAP THE CORE TO CLOSE" else "TAP A NODE · ↓ COMMS · ↑ ALL APPS · → GAMES"
+        val text = if (open >= 0) "TAP AN APP · HOLD FOR OPTIONS · TAP THE CORE TO CLOSE" else "TAP A NODE · ↓ COMMS · ↑ ALL APPS · → GAME HUB"
         canvas.drawText(text, width / 2f, y(784f), Hud.text(7 * u, Hud.alpha(Hud.DUST, .8f), Hud.MONO, .2f, Paint.Align.CENTER))
     }
 
@@ -897,25 +908,35 @@ class HomeView(context: Context) : View(context) {
 
     private fun drawIncoming(canvas: Canvas) {
         val sbn = incoming ?: return
-        val age = System.currentTimeMillis() - incomingAt
+        var age = System.currentTimeMillis() - incomingAt
+        // Held while a finger is on it.
+        if (popDragging && age > INCOMING_MS - 400) {
+            incomingAt = System.currentTimeMillis() - (INCOMING_MS - 400)
+            age = INCOMING_MS - 400
+        }
         if (age > INCOMING_MS) {
             incoming = null
             invalidate()
             return
         }
-        val inT = Hud.easeOut((age / 220f).coerceIn(0f, 1f))
-        val outT = ((INCOMING_MS - age) / 300f).coerceIn(0f, 1f)
-        val a = inT * outT
-        val top = 160 * u - (1 - inT) * 24 * u
-        val r = RectF(14 * u, top, width - 14 * u, top + 118 * u)
+        // Slides up from the bottom into the space under the music bar, and back down when it goes.
+        val inT = Hud.easeOut((age / 260f).coerceIn(0f, 1f))
+        val outT = Hud.easeOut(((INCOMING_MS - age) / 320f).coerceIn(0f, 1f))
+        val base = y(762f)
+        val travel = height - base
+        val top = base + travel * (1 - minOf(inT, outT)) + popOffset
+        val r = RectF(14 * u, top, width - 14 * u, top + 92 * u)
         incomingRect.set(r)
-        canvas.saveLayerAlpha(r.left - 30 * u, r.top - 30 * u, r.right + 30 * u, r.bottom + 30 * u, (255 * a).toInt())
+        val a = (1f - popOffset / (110 * u)).coerceIn(.15f, 1f)
+        val save = canvas.saveLayerAlpha(r.left - 30 * u, r.top - 30 * u, r.right + 30 * u, r.bottom + 30 * u, (255 * a).toInt())
         val path = Hud.cut(r, 14 * u)
         canvas.drawPath(path, Hud.glow(Hud.fill(0xF2280810.toInt()), 16 * u, Hud.alpha(Hud.CRIMSON, .55f)))
         canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = LinearGradient(0f, r.top, 0f, r.bottom, 0xF23C0812.toInt(), 0xF20E0507.toInt(), Shader.TileMode.CLAMP)
         })
         canvas.drawPath(path, Hud.stroke(Hud.HOT, u))
+        // Grab handle.
+        canvas.drawRoundRect(r.centerX() - 18 * u, r.top + 6 * u, r.centerX() + 18 * u, r.top + 9 * u, 2 * u, 2 * u, Hud.fill(Hud.alpha(Color.WHITE, .35f)))
         // Scan line.
         val sy = r.top + r.height() * ((age % 1600) / 1600f)
         canvas.drawLine(r.left, sy, r.right, sy, Paint().apply {
@@ -923,43 +944,99 @@ class HomeView(context: Context) : View(context) {
             shader = LinearGradient(r.left, 0f, r.right, 0f, intArrayOf(Color.TRANSPARENT, Hud.HOT, Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
         })
         val app = AppCatalog.forPackage(sbn.packageName)
-        val head = Hud.text(7.5f * u, Hud.HOT, Hud.MONO, .2f)
-        canvas.drawText("▸ INCOMING TRANSMISSION", r.left + 14 * u, r.top + 18 * u, head)
-        val appName = (app?.label ?: sbn.packageName.substringAfterLast('.')).uppercase() + " · NOW"
-        canvas.drawText(appName, r.right - 14 * u, r.top + 18 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .2f, Paint.Align.RIGHT))
-        val icon = RectF(r.left + 14 * u, r.top + 30 * u, r.left + 52 * u, r.top + 68 * u)
+        canvas.drawText("▸ INCOMING TRANSMISSION", r.left + 14 * u, r.top + 22 * u, Hud.text(7 * u, Hud.HOT, Hud.MONO, .2f))
+        val more = (groups.firstOrNull { it.packageName == sbn.packageName }?.items?.size ?: 1) - 1
+        val appName = (app?.label ?: sbn.packageName.substringAfterLast('.')).uppercase() + " · NOW" + (if (more > 0) " · +$more" else "")
+        canvas.drawText(appName, r.right - 14 * u, r.top + 22 * u, Hud.text(7 * u, Hud.DUST, Hud.MONO, .2f, Paint.Align.RIGHT))
+        val icon = RectF(r.left + 14 * u, r.top + 36 * u, r.left + 50 * u, r.top + 72 * u)
         if (app != null) drawIcon(canvas, app.component, icon, 255, glow = true)
+        val reply = Comms.replyAction(sbn) != null
+        val replyRect = RectF(r.right - 66 * u, r.top + 42 * u, r.right - 14 * u, r.top + 66 * u)
         val title = Hud.text(13 * u, Color.WHITE, Hud.BOLD)
         val body = Hud.text(11.5f * u, 0xFFDCCFD1.toInt(), Hud.SANS)
-        val textW = r.right - icon.right - 24 * u
-        canvas.drawText(Hud.ellipsize(Comms.title(sbn), title, textW), icon.right + 10 * u, r.top + 44 * u, title)
-        canvas.drawText(Hud.ellipsize(Comms.text(sbn).replace('\n', ' '), body, textW), icon.right + 10 * u, r.top + 61 * u, body)
-        // Buttons.
-        var bx = r.left + 14 * u
-        val by = r.top + 82 * u
-        val bp = Hud.text(7.5f * u, 0xFFFF8A9A.toInt(), Hud.MONO, .14f)
-        fun button(label: String, action: () -> Unit) {
-            val w = bp.measureText(label) + 18 * u
-            val br = RectF(bx, by, bx + w, by + 22 * u)
-            canvas.drawRect(br, Hud.fill(Hud.alpha(Hud.CRIMSON, .1f)))
-            canvas.drawRect(br, Hud.stroke(Hud.alpha(Hud.CRIMSON, .5f), u))
-            canvas.drawText(label, br.left + 9 * u, br.centerY() + 2.6f * u, bp)
-            hits += br to action
-            bx += w + 8 * u
+        val textW = (if (reply) replyRect.left - 8 * u else r.right - 14 * u) - icon.right - 10 * u
+        canvas.drawText(Hud.ellipsize(Comms.title(sbn), title, textW), icon.right + 10 * u, r.top + 51 * u, title)
+        canvas.drawText(Hud.ellipsize(Comms.text(sbn).replace('\n', ' '), body, textW), icon.right + 10 * u, r.top + 67 * u, body)
+        if (reply) {
+            canvas.drawRect(replyRect, Hud.fill(Hud.alpha(Hud.CRIMSON, .12f)))
+            canvas.drawRect(replyRect, Hud.stroke(Hud.alpha(Hud.CRIMSON, .5f), u))
+            canvas.drawText("REPLY", replyRect.centerX(), replyRect.centerY() + 2.6f * u, Hud.text(7.5f * u, 0xFFFF8A9A.toInt(), Hud.MONO, .14f, Paint.Align.CENTER))
+            incomingReply.set(replyRect)
+        } else {
+            incomingReply.setEmpty()
         }
-        if (Comms.replyAction(sbn) != null) button("REPLY") { incoming = null; host?.openComms(sbn.packageName) }
-        button("OPEN") {
-            incoming = null
-            try {
-                sbn.notification.contentIntent?.send()
-            } catch (e: Exception) {
-                AppCatalog.forPackage(sbn.packageName)?.let { AppCatalog.launch(context, it.component) }
+        canvas.restoreToCount(save)
+        postInvalidateOnAnimation()
+    }
+
+    private val incomingReply = RectF()
+    private var popDragging = false
+    private var popDownY = 0f
+    private var popOffset = 0f
+    private var popMoved = false
+
+    /** Tap: open it (or reply). Drag: follows the finger, and drops away if pulled down far enough. */
+    private fun popTouch(e: MotionEvent): Boolean {
+        val sbn = incoming
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                if (sbn == null || !incomingRect.contains(e.x, e.y)) return false
+                popDragging = true
+                popMoved = false
+                popDownY = e.y
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> if (popDragging) {
+                val dy = e.y - popDownY
+                if (abs(dy) > 8 * u) popMoved = true
+                popOffset = dy.coerceAtLeast(-10 * u)
+                invalidate()
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (popDragging) {
+                popDragging = false
+                when {
+                    popOffset > 34 * u -> dropIncoming()
+                    !popMoved && e.actionMasked == MotionEvent.ACTION_UP && sbn != null -> {
+                        popOffset = 0f
+                        incoming = null
+                        if (!incomingReply.isEmpty && incomingReply.contains(e.x, e.y)) {
+                            host?.openComms(sbn.packageName)
+                        } else {
+                            try {
+                                sbn.notification.contentIntent?.send() ?: AppCatalog.forPackage(sbn.packageName)?.let { AppCatalog.launch(context, it.component) }
+                            } catch (ex: Exception) {
+                                AppCatalog.forPackage(sbn.packageName)?.let { AppCatalog.launch(context, it.component) }
+                            }
+                        }
+                    }
+                    else -> ValueAnimator.ofFloat(popOffset, 0f).apply {
+                        duration = 160
+                        addUpdateListener { popOffset = it.animatedValue as Float; invalidate() }
+                        start()
+                    }
+                }
+                invalidate()
+                return true
             }
         }
-        button("DISMISS") { incoming = null; invalidate() }
-        canvas.restore()
-        hits += RectF(r) to { incoming = null; host?.openComms() }
-        postInvalidateOnAnimation()
+        return false
+    }
+
+    /** Swiped away: it drops off the bottom. The notification stays in the Comms Centre. */
+    private fun dropIncoming() {
+        ValueAnimator.ofFloat(popOffset, 160 * u).apply {
+            duration = 180
+            addUpdateListener { popOffset = it.animatedValue as Float; invalidate() }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    incoming = null
+                    popOffset = 0f
+                    invalidate()
+                }
+            })
+            start()
+        }
     }
 
     // --- Touch ---
@@ -986,7 +1063,7 @@ class HomeView(context: Context) : View(context) {
                 if (open >= 0) {
                     openNode((open + (if (dx < 0) 1 else -1) + ring.size) % ring.size, if (dx < 0) 1 else -1)
                 } else if (dx > 0) {
-                    ring.indexOfFirst { it.node.games }.takeIf { it >= 0 }?.let { openNode(it) }
+                    host?.openGames()
                 }
                 return true
             }
@@ -994,19 +1071,14 @@ class HomeView(context: Context) : View(context) {
         }
     })
 
-    override fun onTouchEvent(event: MotionEvent): Boolean = gestures.onTouchEvent(event)
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (popTouch(event)) return true
+        return gestures.onTouchEvent(event)
+    }
 
     private fun tap(x: Float, y: Float) {
         ripples += floatArrayOf(x, y, now().toFloat())
         invalidate()
-        // Pop-up and bars first: they sit on top.
-        if (incoming != null && incomingRect.contains(x, y)) {
-            hits.lastOrNull { it.first.contains(x, y) && it.first != incomingRect }?.second?.invoke() ?: run {
-                incoming = null
-                host?.openComms()
-            }
-            return
-        }
         val cx = width / 2f
         val d = hypot(x - cx, y - ringY)
         if (open >= 0) {
@@ -1029,7 +1101,8 @@ class HomeView(context: Context) : View(context) {
             return
         }
         ring.indices.firstOrNull { val (nx, ny) = nodeCentre(it); hypot(x - nx, y - ny) < 38 * u }?.let {
-            openNode(it)
+            // The games node opens the Game Hub.
+            if (ring[it].node.games) host?.openGames() else openNode(it)
             return
         }
         hits.firstOrNull { it.first.contains(x, y) }?.second?.invoke()

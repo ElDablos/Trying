@@ -74,6 +74,25 @@ class LauncherSettingsActivity : Activity() {
                 "pop-up style.",
         )
 
+        // Modes.
+        section("MODES")
+        val names = LauncherStore.nodes(this).map { it.name }
+        listOf(
+            Mode.MORNING to "MORNING · 05:00–07:00",
+            Mode.WORK to "WORK · 07:00–17:00",
+            Mode.NIGHT to "NIGHT OPS · FROM 17:00",
+        ).forEach { (mode, label) ->
+            val top = LauncherStore.modeTop(this, mode)
+            status("$label · TOP: $top", "CHANGE ▸") {
+                if (names.isNotEmpty()) {
+                    val next = names[(names.indexOfFirst { it.equals(top, true) } + 1).mod(names.size)]
+                    LauncherStore.setModeTop(this, mode, next)
+                    render()
+                }
+            }
+        }
+        toggle("WORK MODE DIMS GAMES", LauncherStore.workDimsGames(this)) { LauncherStore.setWorkDimsGames(this, it) }
+
         // Effects.
         section("ANIMATIONS")
         toggle("BOOT SEQUENCE ON UNLOCK", prefs.getBoolean(BOOT, true)) { prefs.edit().putBoolean(BOOT, it).apply() }

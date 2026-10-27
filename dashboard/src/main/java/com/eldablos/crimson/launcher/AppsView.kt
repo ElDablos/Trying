@@ -34,6 +34,7 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
     var onClose: (() -> Unit)? = null
     var onLaunch: ((ComponentName) -> Unit)? = null
     var onMenu: ((ComponentName, View) -> Unit)? = null
+    var onMenuAt: ((ComponentName, Float, Float) -> Unit)? = null
 
     private val search = EditText(context)
     private val list = ListView(context)
@@ -43,6 +44,9 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
     private var homes: Map<ComponentName, String> = emptyMap()
     private var query = ""
     private val adapter = Adapter()
+    private val hive = HiveView(context, u)
+    private val modeButton = TextView(context)
+    private var hiveMode = true
 
     init {
         setWillNotDraw(false)
@@ -83,7 +87,7 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
             })
             setOnEditorActionListener { _, id, event ->
                 if (id == EditorInfo.IME_ACTION_GO || event?.keyCode == KeyEvent.KEYCODE_ENTER) {
-                    shown.firstOrNull()?.let { onLaunch?.invoke(it.component) }
+                    ((if (hiveMode) hive.bestMatch() else null) ?: shown.firstOrNull()?.component)?.let { onLaunch?.invoke(it) }
                     true
                 } else {
                     false
@@ -106,7 +110,19 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
         count.letterSpacing = .2f
         count.typeface = Hud.MONO
         count.setPadding((6 * u).toInt(), (12 * u).toInt(), 0, (6 * u).toInt())
-        column.addView(count)
+        val countRow = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
+        countRow.addView(count, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        modeButton.apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, 7.5f * u)
+            setTextColor(Color.WHITE)
+            letterSpacing = .16f
+            typeface = Hud.MONO
+            background = Outline(u, Hud.alpha(Hud.RED, .35f))
+            setPadding((10 * u).toInt(), (6 * u).toInt(), (10 * u).toInt(), (6 * u).toInt())
+            setOnClickListener { setHive(!hiveMode) }
+        }
+        countRow.addView(modeButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (6 * u).toInt() })
+        column.addView(countRow)
 
         list.adapter = adapter
         list.divider = null
@@ -119,7 +135,17 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
             shown.getOrNull(position)?.let { onMenu?.invoke(it.component, view) }
             true
         }
-        column.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val content = FrameLayout(context)
+        content.addView(list)
+        content.addView(hive)
+        column.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        hive.onLaunch = { onLaunch?.invoke(it) }
+        hive.onList = { setHive(false) }
+        hive.onMenu = { c, x, y ->
+            val loc = IntArray(2)
+            hive.getLocationInWindow(loc)
+            onMenuAt?.invoke(c, loc[0] + x, loc[1] + y)
+        }
 
         // Keep the list above the keyboard.
         setOnApplyWindowInsetsListener { _, insets ->
@@ -133,9 +159,20 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
         canvas.drawColor(Hud.alpha(0xFF050203.toInt(), .9f))
     }
 
-    fun show(apps: List<AppEntry>, homes: Map<ComponentName, String>, keyboard: Boolean) {
+    /** Hive Map or the A–Z list. */
+    private fun setHive(on: Boolean) {
+        hiveMode = on
+        hive.visibility = if (on) View.VISIBLE else View.GONE
+        list.visibility = if (on) View.GONE else View.VISIBLE
+        modeButton.text = if (on) "≡ A–Z LIST" else "⬡ HIVE"
+        filter()
+    }
+
+    fun show(apps: List<AppEntry>, homes: Map<ComponentName, String>, groups: List<Pair<String, List<ComponentName>>>, keyboard: Boolean) {
         all = apps
         this.homes = homes
+        hive.setApps(apps, groups)
+        setHive(true)
         search.setText("")
         query = ""
         filter()
@@ -169,6 +206,7 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
         }
         count.text = if (q.isEmpty()) "◆ ALL APPS · ${all.size}" else "◆ APPS · ${shown.size} ${if (shown.size == 1) "MATCH" else "MATCHES"}"
         adapter.notifyDataSetChanged()
+        if (hiveMode) hive.setQuery(query)
     }
 
     private inner class Adapter : BaseAdapter() {
@@ -225,6 +263,9 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
 
     /** Redraws rows when icons arrive. */
     fun iconsChanged() {
-        if (visibility == View.VISIBLE) adapter.notifyDataSetChanged()
+        if (visibility == View.VISIBLE) {
+            adapter.notifyDataSetChanged()
+            hive.invalidate()
+        }
     }
 }

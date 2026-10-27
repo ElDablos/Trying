@@ -26,8 +26,11 @@ enum class Mode(val label: String, val top: String, val dim: Set<String> = empty
         }
 
         /** [nodes] turned round the ring so [mode]'s top node sits at the top, keeping their order. */
-        fun <T> rotate(nodes: List<T>, mode: Mode, name: (T) -> String): List<T> {
-            val i = nodes.indexOfFirst { name(it).equals(mode.top, ignoreCase = true) }
+        fun <T> rotate(nodes: List<T>, mode: Mode, name: (T) -> String): List<T> = rotate(nodes, mode.top, name)
+
+        /** [nodes] turned round the ring so the node called [top] sits at the top, keeping their order. */
+        fun <T> rotate(nodes: List<T>, top: String, name: (T) -> String): List<T> {
+            val i = nodes.indexOfFirst { name(it).equals(top, ignoreCase = true) }
             return if (i <= 0) nodes else nodes.drop(i) + nodes.take(i)
         }
     }
@@ -88,6 +91,20 @@ object LauncherStore {
             )
         }
         prefs(context).edit().putString("nodes", array.toString()).apply()
+    }
+
+    /** The node a mode brings to the top: the user's pick, or the mode's own. */
+    fun modeTop(context: Context, mode: Mode): String = prefs(context).getString("top_${mode.name}", null) ?: mode.top
+
+    fun setModeTop(context: Context, mode: Mode, node: String) {
+        prefs(context).edit().putString("top_${mode.name}", node).apply()
+    }
+
+    /** Whether Work mode dims the games node. */
+    fun workDimsGames(context: Context): Boolean = prefs(context).getBoolean("work_dims_games", true)
+
+    fun setWorkDimsGames(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean("work_dims_games", on).apply()
     }
 
     fun dock(context: Context): List<ComponentName> =

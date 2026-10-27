@@ -81,11 +81,20 @@ back to One UI Home the same way at any time.
 - **The core**: the old dock (WhatsApp, Messenger, Messages, Phone, Camera, Play Store, Chrome) orbits
   the centre with unread counts. The centre button searches every app.
 - **Modes**: Morning (05:00–07:00) and Night Ops (from 17:00) put MAIN at the top of the ring; Work
-  (07:00–17:00) puts WORK there and dims GAMES.
+  (07:00–17:00) puts WORK there and dims GAMES. Pick a different top node for each mode in Launcher
+  settings.
 - **Around it**: weather (tap for the Weather app), the date and next alarm (tap for the calendar or
   alarms), the steps line (tap for Samsung Health) and the music bar with shuffle, skip, repeat and the
   queue button.
-- **Swipes**: down for the Comms Centre, up for all apps, right for the GAMES node.
+- **Swipes**: down for the Comms Centre, up for the Hive Map, right for the Game Hub.
+- **Hive Map**: every app in a honeycomb, grouped round tags for the dock and each node, big in the
+  middle and shrinking outwards. Drag to fly round it, tap a tag in the jump bar to glide there, or
+  switch to the A–Z list. Typing lights up the matches and centres the best one; Enter opens it.
+- **Game Hub**: a 3D shelf of your games (most played and last played first), the selected game's
+  playtime, last played and install date, **▶ Play** and **⚄** random, the recommended row and every
+  game A–Z with a letter rail. Tapping a game only selects it. The GAMES node opens it too.
+- **Messages on the home screen** slide up into the space under the music bar: tap to open, REPLY to
+  answer in the Comms Centre, or swipe it down to dismiss it (it stays in the Comms Centre).
 - **Comms Centre**: Samsung's quick controls and your notifications in one panel: twelve toggles (Wi-Fi,
   Bluetooth, mobile data, sound, rotate, torch, Do Not Disturb, location, power saving, airplane, Buds,
   and ⋯ for Samsung's own panel), brightness and volume, the music card with its output device, Smart

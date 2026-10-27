@@ -338,7 +338,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     /** Opens Samsung's own quick panel, for anything that isn't here. */
     private fun samsungPanel() {
         try {
-            val bar = context.getSystemService("statusbar")
+            val bar: Any = context.getSystemService("statusbar") ?: error("no status bar service")
             bar.javaClass.getMethod("expandSettingsPanel").invoke(bar)
         } catch (e: Exception) {
             android.widget.Toast.makeText(context, "Swipe down from the very top edge for Samsung's panel", android.widget.Toast.LENGTH_LONG).show()

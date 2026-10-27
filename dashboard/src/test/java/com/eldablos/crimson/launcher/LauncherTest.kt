@@ -20,6 +20,8 @@ class LauncherTest {
         val ring = listOf("MAIN", "AI", "WORK", "APPS", "GOOGLE")
         assertEquals(listOf("WORK", "APPS", "GOOGLE", "MAIN", "AI"), Mode.rotate(ring, Mode.WORK) { it })
         assertEquals(ring, Mode.rotate(ring, Mode.NIGHT) { it })
+        // A top node the user picked for the mode.
+        assertEquals(listOf("AI", "WORK", "APPS", "GOOGLE", "MAIN"), Mode.rotate(ring, "ai") { it })
         // A missing top node leaves the ring as it is.
         assertEquals(listOf("AI"), Mode.rotate(listOf("AI"), Mode.WORK) { it })
     }

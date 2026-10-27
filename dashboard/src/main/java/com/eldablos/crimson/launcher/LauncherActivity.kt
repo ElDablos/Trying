@@ -43,10 +43,12 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private lateinit var effects: EffectsView
     private lateinit var comms: CommsView
     private lateinit var apps: AppsView
+    private lateinit var hub: GameHubView
     private lateinit var anchor: View
     private val handler = Handler(Looper.getMainLooper())
     private var mode = Mode.at(LocalTime.now().hour)
     private var games: List<ComponentName> = emptyList()
+    private var allGames: List<ComponentName> = emptyList()
     private var gameCount = 0
     private var resumed = false
 
@@ -105,12 +107,22 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
                 closeApps()
             }
             onMenu = { component, view -> appListMenu(component, view) }
+            onMenuAt = { component, x, y -> appListMenu(component, x, y) }
         }
         anchor = View(this)
         root.addView(home)
         root.addView(effects)
         root.addView(comms)
         root.addView(apps)
+        hub = GameHubView(this, u).apply {
+            visibility = View.GONE
+            onClose = { closeGames() }
+            onLaunch = { component ->
+                AppCatalog.launch(this@LauncherActivity, component)
+                closeGames()
+            }
+        }
+        root.addView(hub)
         root.addView(anchor, FrameLayout.LayoutParams(1, 1))
         setContentView(root)
 
@@ -180,6 +192,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         super.onNewIntent(intent)
         // Home pressed while already home: close whatever's open.
         when {
+            hub.visibility == View.VISIBLE -> closeGames()
             apps.visibility == View.VISIBLE -> closeApps()
             comms.visibility == View.VISIBLE -> closeComms()
             else -> home.closeNode()
@@ -189,6 +202,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
+            hub.visibility == View.VISIBLE -> closeGames()
             apps.visibility == View.VISIBLE -> closeApps()
             comms.visibility == View.VISIBLE -> closeComms()
             else -> home.closeNode()
@@ -209,7 +223,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         val installed = AppCatalog.apps().map { it.component }.toHashSet()
         val nodes = LauncherStore.nodes(this).map { n -> n.copy(apps = n.apps.filter { it in installed }) }
         val dock = LauncherStore.dock(this).filter { it in installed }
-        home.setData(nodes, dock, mode, games, gameCount)
+        val dim = if (mode == Mode.WORK && LauncherStore.workDimsGames(this)) setOf(LauncherStore.GAMES) else emptySet()
+        home.setData(nodes, dock, mode, games, gameCount, LauncherStore.modeTop(this, mode), dim)
     }
 
     /** The games node shows the Arcade's recommended games: most played and last played first. */
@@ -221,6 +236,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             val picks = Arcade.recommended(all, stats, LauncherStore.MAX_APPS).map { it.component }
             handler.post {
                 games = picks
+                allGames = all.map { it.component }
                 gameCount = all.size
                 showNodes()
             }
@@ -247,7 +263,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     // --- Overlays ---
 
-    private fun overlayOpen() = comms.visibility == View.VISIBLE || apps.visibility == View.VISIBLE
+    private fun overlayOpen() = comms.visibility == View.VISIBLE || apps.visibility == View.VISIBLE || hub.visibility == View.VISIBLE
 
     /** Blurs the home screen behind an overlay, like Samsung's panel does. */
     private fun backdrop(on: Boolean) {
@@ -255,8 +271,25 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         effects.running = !on && getSharedPreferences("launcher", MODE_PRIVATE).getBoolean(LauncherSettingsActivity.EFFECTS, true)
     }
 
+    override fun openGames() {
+        if (overlayOpen()) return
+        backdrop(true)
+        hub.visibility = View.VISIBLE
+        hub.translationX = -hub.width.toFloat().coerceAtLeast(1f)
+        hub.alpha = 0f
+        hub.animate().translationX(0f).alpha(1f).setDuration(260).setInterpolator(android.view.animation.DecelerateInterpolator(1.5f)).start()
+        hub.load()
+    }
+
+    private fun closeGames() {
+        hub.animate().translationX(-hub.width.toFloat()).alpha(0f).setDuration(200).withEndAction {
+            hub.visibility = View.GONE
+            backdrop(false)
+        }.start()
+    }
+
     override fun openComms(replyTo: String?) {
-        if (apps.visibility == View.VISIBLE) return
+        if (apps.visibility == View.VISIBLE || hub.visibility == View.VISIBLE) return
         backdrop(true)
         comms.show(replyTo)
     }
@@ -264,12 +297,16 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private fun closeComms() = comms.hide { backdrop(false) }
 
     override fun openApps(search: Boolean) {
-        if (comms.visibility == View.VISIBLE) return
+        if (comms.visibility == View.VISIBLE || hub.visibility == View.VISIBLE) return
         val homes = HashMap<ComponentName, String>()
         LauncherStore.nodes(this).forEach { n -> n.apps.forEach { homes.putIfAbsent(it, n.name.uppercase()) } }
         LauncherStore.dock(this).forEach { homes.putIfAbsent(it, "DOCK") }
         backdrop(true)
-        apps.show(AppCatalog.apps(), homes, search)
+        // Hive clusters: the dock in the middle, then each node in ring order.
+        val groups = ArrayList<Pair<String, List<ComponentName>>>()
+        groups += "DOCK" to LauncherStore.dock(this)
+        LauncherStore.nodes(this).forEach { n -> groups += n.name.uppercase() to (if (n.games) allGames else n.apps) }
+        apps.show(AppCatalog.apps(), homes, groups, search)
         // Search grows out of the core.
         if (search && apps.isAttachedToWindow) {
             val geometry = home.geometry()
@@ -367,7 +404,11 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private fun appListMenu(component: ComponentName, view: View) {
         val loc = IntArray(2)
         view.getLocationInWindow(loc)
-        val menu = popup(loc[0] + view.width * .7f, loc[1] + view.height / 2f)
+        appListMenu(component, loc[0] + view.width * .7f, loc[1] + view.height / 2f)
+    }
+
+    private fun appListMenu(component: ComponentName, x: Float, y: Float) {
+        val menu = popup(x, y)
         val nodes = LauncherStore.nodes(this)
         val add = menu.menu.addSubMenu("Add to node…")
         nodes.forEachIndexed { i, n ->

@@ -22,6 +22,7 @@ class CommsActivity : Activity(), Comms.Listener {
         comms = CommsView(this, u).apply {
             onClose = { close() }
             onSettings = { startActivity(Intent(this@CommsActivity, LauncherSettingsActivity::class.java)) }
+            onClosed = { finish() }
         }
         setContentView(comms)
         comms.setOnApplyWindowInsetsListener { _, insets ->

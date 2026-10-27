@@ -62,6 +62,9 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     var onClose: (() -> Unit)? = null
     var onSettings: (() -> Unit)? = null
 
+    /** How open the panel is while it's dragged or animated, 0 (gone) to 1, so the backdrop blur can follow. */
+    var onProgress: ((Float) -> Unit)? = null
+
     private val header = TextView(context)
     private val rowTop = LinearLayout(context)
     private val rowBottom = LinearLayout(context)
@@ -228,9 +231,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     fun show(replyTo: String?) {
         replyFor = replyTo
         visibility = View.VISIBLE
-        alpha = 0f
-        translationY = -30 * u
-        animate().alpha(1f).translationY(0f).setDuration(200).start()
+        settle(-.15f * height.coerceAtLeast(1), 0f, 0f, 1f, 280, android.view.animation.DecelerateInterpolator(1.8f)) {}
         scroll.scrollTo(0, 0)
         refresh()
         // Everything slides in, one row after another.
@@ -250,12 +251,59 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         invalidate()
     }
 
-    fun hide(after: () -> Unit) {
+    fun hide(after: () -> Unit) = glideAway(0f, after)
+
+    /** Carries on upwards from wherever it is, as fast as it was flung, then hides. */
+    private fun glideAway(velocity: Float, after: () -> Unit = { onClosed?.invoke() }) {
         hideKeyboard()
-        animate().alpha(0f).translationY(-30 * u).setDuration(170).withEndAction {
+        val remaining = height + translationY
+        val ms = if (velocity < -500f) (remaining / -velocity * 1000).toLong().coerceIn(120, 260) else 240L
+        settle(translationY, -height.toFloat(), alpha, 0f, ms, android.view.animation.DecelerateInterpolator(1.2f)) {
             visibility = View.GONE
+            translationY = 0f
             after()
-        }.start()
+        }
+    }
+
+    /** Called once a drag has closed the panel. */
+    var onClosed: (() -> Unit)? = null
+
+    private var settler: android.animation.ValueAnimator? = null
+
+    /** Moves the panel between two positions and opacities in step, reporting progress for the blur. */
+    private fun settle(fromY: Float, toY: Float, fromA: Float, toA: Float, ms: Long, interp: android.animation.TimeInterpolator, end: () -> Unit) {
+        settler?.cancel()
+        settler = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = ms
+            interpolator = interp
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                translationY = fromY + (toY - fromY) * t
+                alpha = fromA + (toA - fromA) * t
+                onProgress?.invoke(alpha)
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) = end()
+            })
+            start()
+        }
+    }
+
+    // While open, keep the sliders and music card in step with the phone (volume keys, song changes).
+    private val live = object : Runnable {
+        override fun run() {
+            if (visibility != View.VISIBLE) return
+            volume.invalidate()
+            brightness.invalidate()
+            music.invalidate()
+            postDelayed(this, 400)
+        }
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        removeCallbacks(live)
+        if (visibility == View.VISIBLE && changedView == this) post(live)
     }
 
     fun refresh() {
@@ -465,21 +513,47 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
                 val dy = e.y - downY
                 // A swipe up closes the Comms Centre when it starts near the bottom, or when the list is at its end.
                 val fromBottom = downY > height - 160 * u
-                if (-dy > slop * 2 && abs(dy) > abs(e.x - downX) * 1.5f && (fromBottom || !scroll.canScrollVertically(1))) return true
+                if (-dy > slop && abs(dy) > abs(e.x - downX) * 1.2f && (fromBottom || !scroll.canScrollVertically(1))) {
+                    dragOrigin = e.rawY - translationY
+                    velocity.clear()
+                    return true
+                }
             }
         }
         return false
     }
 
+    private val velocity = android.view.VelocityTracker.obtain()
+    private var dragOrigin = 0f
+
+    /** The panel follows the finger up; let go and it glides off with the swipe's speed, or springs back. */
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        // Track in screen terms, since the panel itself moves under the finger.
+        val raw = MotionEvent.obtain(e).apply { setLocation(e.rawX, e.rawY) }
+        velocity.addMovement(raw)
+        raw.recycle()
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                downY = e.y
+                settler?.cancel()
+                dragOrigin = e.rawY - translationY
                 return true
             }
-            MotionEvent.ACTION_MOVE -> translationY = (e.y - downY).coerceAtMost(0f)
+            MotionEvent.ACTION_MOVE -> {
+                if (settler?.isRunning != true) {
+                    translationY = (e.rawY - dragOrigin).coerceAtMost(0f)
+                    alpha = (1f + translationY / (height * .9f)).coerceIn(.15f, 1f)
+                    onProgress?.invoke(alpha)
+                }
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (downY - e.y > 60 * u) onClose?.invoke() else animate().translationY(0f).setDuration(150).start()
+                velocity.computeCurrentVelocity(1000)
+                val vy = velocity.yVelocity
+                velocity.clear()
+                if (-translationY > height * .18f || vy < -900f) {
+                    glideAway(vy)
+                } else {
+                    settle(translationY, 0f, alpha, 1f, 220, android.view.animation.OvershootInterpolator(1.2f)) {}
+                }
             }
         }
         return true

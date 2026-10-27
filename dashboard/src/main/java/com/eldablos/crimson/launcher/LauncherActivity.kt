@@ -103,6 +103,9 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             visibility = View.GONE
             onClose = { closeComms() }
             onSettings = { startActivity(Intent(this@LauncherActivity, LauncherSettingsActivity::class.java)) }
+            // Dragging the panel away unblurs the home screen in step with the finger.
+            onProgress = { p -> blurAnim?.cancel(); setBlur(p) }
+            onClosed = { backdrop(false) }
         }
         apps = AppsView(this, u).apply {
             visibility = View.GONE
@@ -281,8 +284,24 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     /** Blurs the home screen behind an overlay, like Samsung's panel does. */
     private fun backdrop(on: Boolean) {
-        home.setRenderEffect(if (on) RenderEffect.createBlurEffect(22f, 22f, Shader.TileMode.CLAMP) else null)
+        // The blur eases in and out rather than snapping.
+        blurAnim?.cancel()
+        blurAnim = android.animation.ValueAnimator.ofFloat(blurLevel, if (on) 1f else 0f).apply {
+            duration = if (on) 260 else 220
+            addUpdateListener { setBlur(it.animatedValue as Float) }
+            start()
+        }
         effects.running = !on && getSharedPreferences("launcher", MODE_PRIVATE).getBoolean(LauncherSettingsActivity.EFFECTS, true)
+    }
+
+    private var blurAnim: android.animation.ValueAnimator? = null
+    private var blurLevel = 0f
+
+    /** Home screen blur behind the overlays, 0 (sharp) to 1 (fully blurred). */
+    private fun setBlur(level: Float) {
+        blurLevel = level.coerceIn(0f, 1f)
+        val radius = BLUR * Hud.u * blurLevel
+        home.setRenderEffect(if (radius < .5f) null else RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP))
     }
 
     override fun openGames() {
@@ -559,6 +578,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     }
 
     companion object {
+        private const val BLUR = 14f
         private val SAMSUNG_WEATHER = listOf("com.sec.android.daemonapp", "com.samsung.android.weather")
     }
 }

@@ -45,6 +45,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private lateinit var apps: AppsView
     private lateinit var hub: GameHubView
     private lateinit var weather: WeatherView
+    private lateinit var deck: DeckView
     private lateinit var anchor: View
     private val handler = Handler(Looper.getMainLooper())
     private var mode = Mode.at(LocalTime.now().hour)
@@ -64,8 +65,11 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             // The clock moves every second, but the phone's readings (battery, signal, network, Buds) are
             // read every 5 s, or every second while music plays so its progress bar moves.
             val playing = lastTelemetry?.track?.playing == true
-            val t = if (ticks++ % 5 == 0 || playing || lastTelemetry == null) Telemetry.read(this@LauncherActivity).also { lastTelemetry = it } else lastTelemetry!!
+            val fresh = ticks++ % 5 == 0 || playing || lastTelemetry == null
+            val t = if (fresh) Telemetry.read(this@LauncherActivity).also { lastTelemetry = it } else lastTelemetry!!
+            if (fresh) DeckData.recordBattery(this@LauncherActivity, t.battery, t.charging)
             home.setTelemetry(t)
+            if (deck.visibility == View.VISIBLE) deck.setTelemetry(t)
             val now = currentMode()
             if (now != mode) {
                 mode = now
@@ -151,6 +155,16 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             onSamsung = { openSamsungWeather() }
         }
         root.addView(weather)
+        deck = DeckView(this, u).apply {
+            visibility = View.GONE
+            onClose = { closeDeck() }
+            onSettings = { startActivity(Intent(this@LauncherActivity, LauncherSettingsActivity::class.java)) }
+            onComms = { closeDeck(); handler.postDelayed({ openComms(null) }, 220) }
+            onWeather = { closeDeck(); handler.postDelayed({ openWeather() }, 220) }
+            onLaunch = { component -> AppCatalog.launch(this@LauncherActivity, component) }
+            onVoice = { askByVoice() }
+        }
+        root.addView(deck)
         root.addView(anchor, FrameLayout.LayoutParams(1, 1))
         setContentView(root)
 
@@ -234,6 +248,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         super.onNewIntent(intent)
         // Home pressed while already home: close whatever's open.
         when {
+            deck.visibility == View.VISIBLE -> closeDeck()
             weather.visibility == View.VISIBLE -> closeWeather()
             hub.visibility == View.VISIBLE -> closeGames()
             apps.visibility == View.VISIBLE -> closeApps()
@@ -245,6 +260,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
+            deck.visibility == View.VISIBLE -> if (!deck.dismissKeyboard()) closeDeck()
             weather.visibility == View.VISIBLE -> if (!weather.back()) closeWeather()
             hub.visibility == View.VISIBLE -> closeGames()
             apps.visibility == View.VISIBLE -> closeApps()
@@ -341,7 +357,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     // --- Overlays ---
 
     private fun overlayOpen() = comms.visibility == View.VISIBLE || apps.visibility == View.VISIBLE ||
-        hub.visibility == View.VISIBLE || weather.visibility == View.VISIBLE
+        hub.visibility == View.VISIBLE || weather.visibility == View.VISIBLE || deck.visibility == View.VISIBLE
 
     /** Blurs the home screen behind an overlay, like Samsung's panel does. */
     private fun backdrop(on: Boolean) {
@@ -363,6 +379,48 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         blurLevel = level.coerceIn(0f, 1f)
         val radius = BLUR * Hud.u * blurLevel
         home.setRenderEffect(if (radius < .5f) null else RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP))
+    }
+
+    /** The Command Deck slides in from the right. */
+    override fun openDeck() {
+        if (overlayOpen()) return
+        backdrop(true)
+        deck.visibility = View.VISIBLE
+        deck.translationX = deck.width.toFloat().coerceAtLeast(1f)
+        deck.alpha = 0f
+        deck.animate().translationX(0f).alpha(1f).setDuration(300).setInterpolator(android.view.animation.DecelerateInterpolator(1.8f)).start()
+        lastTelemetry?.let { deck.setTelemetry(it) }
+        deck.load()
+    }
+
+    private fun closeDeck() {
+        deck.dismissKeyboard()
+        deck.animate().translationX(deck.width.toFloat()).alpha(0f).setDuration(220).setInterpolator(android.view.animation.AccelerateInterpolator(1.4f)).withEndAction {
+            deck.visibility = View.GONE
+            backdrop(false)
+        }.start()
+    }
+
+    /** Speech for Ask Claude: Android's voice typing, dropped into the box. */
+    private fun askByVoice() {
+        val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Ask Claude")
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, VOICE_REQUEST)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, "Voice typing isn't available", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == VOICE_REQUEST && resultCode == RESULT_OK) {
+            data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { deck.setQuestion(it) }
+        }
     }
 
     override fun openGames() {
@@ -640,6 +698,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     companion object {
         private const val BLUR = 14f
+        private const val VOICE_REQUEST = 41
         private val SAMSUNG_WEATHER = listOf("com.sec.android.daemonapp", "com.samsung.android.weather")
     }
 }

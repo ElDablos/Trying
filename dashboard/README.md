@@ -96,7 +96,15 @@ back to One UI Home the same way at any time.
 - **Around it**: weather, the date and next alarm (tap for the calendar or
   alarms), the steps line (tap for Samsung Health) and the music bar with shuffle, skip, repeat and the
   queue button.
-- **Swipes**: down for the Comms Centre, up for the Hive Map, right for the Game Hub.
+- **Swipes**: down for the Comms Centre, up for the Hive Map, right for the Game Hub, left for the
+  Command Deck.
+- **Command Deck**: Ask Claude at the top (type or speak; it starts a new chat in the Claude app, and your
+  recent questions are a tap away), then the day at a glance: battery, steps and screen time rings, the
+  day/week/month/year in progress, music, the agenda, unread messages, weather and a quick note, the
+  battery over the last 24 hours with temperature and health, data used today, markets (BTC, ETH, SOL),
+  the most used apps, the Buds, quick actions (torch, Do Not Disturb, a 5-minute timer, alarms,
+  calculator, phone settings) and the phone's systems. ⚙ opens Launcher settings. Screen time, data and
+  most-used need Usage access (tap a card to allow it).
 - **Hive Map**: every app in a honeycomb that repeats for ever in every direction (no edge), in patches round tags for the dock and each node, big in the
   middle and shrinking outwards. The middle bulges big with the apps spread apart and named; a sight marks the centre and it settles onto a cell after a fling. Drag to fly round it, tap a tag in the jump bar to glide there, or
   switch to the A–Z list. Typing lights up the matches and centres the best one; Enter opens it.

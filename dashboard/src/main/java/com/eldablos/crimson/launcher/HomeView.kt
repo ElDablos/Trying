@@ -58,6 +58,9 @@ class HomeView(context: Context) : View(context) {
 
         /** A node opened: the wallpaper answers with a pulse. */
         fun nodeOpened() {}
+
+        /** Swipe left: the Command Deck. */
+        fun openDeck() {}
     }
 
     /** How far down the screen the ring sits, for lining the wallpaper's reactor up behind it. */
@@ -1071,6 +1074,8 @@ class HomeView(context: Context) : View(context) {
                     openNode((open + (if (dx < 0) 1 else -1) + ring.size) % ring.size, if (dx < 0) 1 else -1)
                 } else if (dx > 0) {
                     host?.openGames()
+                } else {
+                    host?.openDeck()
                 }
                 return true
             }

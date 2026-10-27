@@ -61,6 +61,13 @@ class RefreshJob : JobService() {
             if (Steps.hasPermission(context)) {
                 Steps.readToday(context)?.let { DashboardStore.setSteps(context, it) }
             }
+            // A point on the Command Deck's battery graph, even while the launcher isn't open.
+            context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))?.let { b ->
+                val level = b.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+                val scale = b.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100)
+                val plugged = b.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) != 0
+                if (level >= 0 && scale > 0) com.eldablos.crimson.launcher.DeckData.recordBattery(context, level * 100 / scale, plugged)
+            }
             CrimsonWidgetProvider.refreshAll(context)
             // Picks up newly installed games and fresh playtime.
             ArcadeWidgetProvider.refresh(context)

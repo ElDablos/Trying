@@ -91,6 +91,7 @@ object AppCatalog {
 
     fun launch(context: Context, component: ComponentName, bounds: android.graphics.Rect? = null) {
         val launcher = context.getSystemService(LauncherApps::class.java) ?: return
+        DeckData.countLaunch(context, component.packageName)
         try {
             launcher.startMainActivity(component, Process.myUserHandle(), bounds, null)
         } catch (e: Exception) {

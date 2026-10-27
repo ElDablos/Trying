@@ -12,6 +12,7 @@ import android.media.session.PlaybackState
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.eldablos.crimson.launcher.Comms
+import com.eldablos.crimson.launcher.EdgeHandle
 import com.eldablos.crimson.launcher.EdgeLight
 
 /**
@@ -47,6 +48,7 @@ class MusicListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         Comms.attach(this)
+        EdgeHandle.update(this)
         if (!powerRegistered) {
             registerReceiver(power, IntentFilter().apply {
                 addAction(Intent.ACTION_POWER_CONNECTED)
@@ -66,6 +68,7 @@ class MusicListener : NotificationListenerService() {
         sessions?.removeOnActiveSessionsChangedListener(sessionsChanged)
         watch(emptyList())
         Comms.detach()
+        EdgeHandle.remove(this)
         if (powerRegistered) {
             unregisterReceiver(power)
             powerRegistered = false

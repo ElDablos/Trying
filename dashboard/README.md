@@ -106,7 +106,9 @@ back to One UI Home the same way at any time.
   those. A swipe from the very top edge still opens Samsung's panel; that gesture belongs to Android.
 - **Crimson Comms in any app**: the app list has a **Crimson Comms** shortcut. Add it to Samsung's
   Edge Panel (Apps panel → edit → add) and the Comms Centre opens over whatever app you're in; swipe
-  up or press Back to return.
+  up or press Back to return. There's also a glowing **Comms handle** in the middle of the right edge
+  over every app: swipe it in or tap it for the same thing. Move it, switch sides or turn it off in
+  Launcher settings.
 - **Edge lighting** (needs "Display over other apps"): twin strips race round the screen edge in the
   app's colour when a message arrives, two comets circle it during an incoming call, gold energy climbs
   it when the charger goes in, and it breathes red on low battery. Works over any app while the phone

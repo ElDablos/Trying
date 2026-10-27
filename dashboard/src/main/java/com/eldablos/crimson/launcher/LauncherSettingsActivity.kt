@@ -37,6 +37,8 @@ class LauncherSettingsActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // Back from granting "Display over other apps": put the handle up.
+        EdgeHandle.update(this)
         render()
     }
 
@@ -74,6 +76,13 @@ class LauncherSettingsActivity : Activity() {
                 "those. To avoid getting both, turn Samsung's off in Settings → Notifications → Notification " +
                 "pop-up style.",
         )
+
+        // The Comms handle.
+        section("COMMS HANDLE")
+        toggle("EDGE HANDLE OVER EVERY APP", EdgeHandle.enabled(this)) { EdgeHandle.setEnabled(this, it) }
+        choice("POSITION", listOf("HIGHER", "MIDDLE", "LOWER"), EdgeHandle.position(this)) { EdgeHandle.setPosition(this, it) }
+        choice("SIDE", listOf("LEFT", "RIGHT"), if (EdgeHandle.leftSide(this)) 0 else 1) { EdgeHandle.setLeftSide(this, it == 0) }
+        note("Swipe the glowing strip in, or tap it, and Crimson Comms opens over the app you're in. Uses \"Display over other apps\", like edge lighting.")
 
         // Modes.
         section("MODES")

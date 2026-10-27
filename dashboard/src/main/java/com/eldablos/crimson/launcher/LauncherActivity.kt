@@ -668,6 +668,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     override fun openCalendar() {
         val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time").appendPath(System.currentTimeMillis().toString()).build()
         safeStart(
+            Intent(Intent.ACTION_VIEW, uri).setPackage(com.eldablos.crimson.CrimsonWidgetProvider.GOOGLE_CALENDAR),
             Intent(Intent.ACTION_VIEW, uri).setPackage("com.samsung.android.calendar"),
             Intent(Intent.ACTION_VIEW, uri),
         )

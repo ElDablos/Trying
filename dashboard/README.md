@@ -12,7 +12,7 @@ It matches the [Gothic Crimson theme](../theme/gothic-crimson/README.md).
 | Galaxy Buds (only while connected) | Left and right earbud battery, and an **ANC / Ambient** switch | A mode switches to it · elsewhere on the row reconnects |
 | Music | The song playing (album art, title, artist), a queue button, and shuffle, previous, play/pause, next and repeat (off → all → one) | Art or title opens the music app · queue pops up what's next (tap a song to jump to it) · play with nothing playing resumes Spotify |
 | Steps | Today's steps with a red progress bar toward your goal | Open Samsung Health |
-| Month calendar | This month, with today circled in red and a red dot under days that have events | **‹ ›** change month · month name goes back to this month · a day opens it in your calendar |
+| Month calendar | This month, with today circled in red and a red dot under days that have events | **‹ ›** change month · month name goes back to this month · a day opens it in Google Calendar (or your calendar app) |
 
 ## Install
 

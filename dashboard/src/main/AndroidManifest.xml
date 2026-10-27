@@ -42,6 +42,8 @@
         <package android:name="com.sec.android.daemonapp" />
         <package android:name="com.google.android.deskclock" />
         <package android:name="com.google.android.calendar" />
+        <!-- Ask Claude on the Command Deck starts chats in the Claude app. -->
+        <package android:name="com.anthropic.claude" />
         <intent>
             <action android:name="android.intent.action.SHOW_ALARMS" />
         </intent>

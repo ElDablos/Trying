@@ -65,10 +65,15 @@ object DeckData {
             .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, e.begin)
             .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, e.end)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        try {
-            context.startActivity(intent)
-        } catch (ex: Exception) {
-            // No calendar app.
+        // Google Calendar first, then whichever calendar app is set up.
+        val google = Intent(intent).setPackage(com.eldablos.crimson.CrimsonWidgetProvider.GOOGLE_CALENDAR)
+        for (candidate in listOf(google, intent)) {
+            try {
+                context.startActivity(candidate)
+                return
+            } catch (ex: Exception) {
+                // Try the next one.
+            }
         }
     }
 

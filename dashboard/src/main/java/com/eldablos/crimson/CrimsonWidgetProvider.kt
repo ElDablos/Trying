@@ -76,6 +76,7 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
         private const val ACTION_REFRESH = "com.eldablos.crimson.REFRESH"
         private const val SAMSUNG_CLOCK = "com.sec.android.app.clockpackage"
         private const val SAMSUNG_CALENDAR = "com.samsung.android.calendar"
+        const val GOOGLE_CALENDAR = "com.google.android.calendar"
         internal val WEATHER_APPS = listOf(
             "com.sec.android.daemonapp", "com.samsung.android.weather", "com.google.android.apps.weather",
         )
@@ -374,11 +375,13 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             CalendarContract.CONTENT_URI.buildUpon().appendPath("time").appendPath(millis.toString()).build(),
         )
 
-        /** The calendar app at [millis], preferring Samsung Calendar. */
+        /** The calendar app at [millis]: Google Calendar first, then Samsung's, then any. */
         private fun openCalendar(context: Context, requestCode: Int, millis: Long): PendingIntent = openOrNothing(
             context, requestCode,
+            calendarAt(millis).setPackage(GOOGLE_CALENDAR),
             calendarAt(millis).setPackage(SAMSUNG_CALENDAR),
             calendarAt(millis),
+            launchIntent(context, GOOGLE_CALENDAR),
             launchIntent(context, SAMSUNG_CALENDAR),
         )
 

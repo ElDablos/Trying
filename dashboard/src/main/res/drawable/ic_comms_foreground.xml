@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Crimson Comms: a glowing hexagon with notification lines, on the adaptive icon's 108dp canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M54,30 L74.8,42 L74.8,66 L54,78 L33.2,66 L33.2,42 Z"
+        android:strokeColor="#FF5A6E"
+        android:strokeWidth="3"
+        android:fillColor="#4A0C18" />
+    <path
+        android:pathData="M44,47 L64,47 M44,54 L64,54 M44,61 L58,61"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeWidth="3" />
+</vector>

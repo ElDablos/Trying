@@ -120,6 +120,24 @@
             android:taskAffinity=""
             android:theme="@style/AppTheme.NoTitle" />
 
+        <!-- Crimson Comms on its own: add it to the Edge Panel to open it over any app. -->
+        <activity
+            android:name=".launcher.CommsActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_comms"
+            android:label="@string/comms_name"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:taskAffinity="com.eldablos.crimson.comms"
+            android:theme="@style/CommsTheme"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- The widget's queue pop-up. -->
         <activity
             android:name=".QueueActivity"

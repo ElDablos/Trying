@@ -77,6 +77,12 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     private var torchOn = false
     private var torchId: String? = null
     private var scanStart = 0L
+    private val frame = LinearLayout(context)
+
+    /** Space kept clear at the top: the HUD status bar on the home screen, Android's over other apps. */
+    fun setTopSpace(px: Int) {
+        frame.setPadding(0, px, 0, 0)
+    }
 
     private val torchCallback = object : CameraManager.TorchCallback() {
         override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
@@ -89,7 +95,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
 
     init {
         setWillNotDraw(false)
-        val frame = LinearLayout(context).apply {
+        frame.apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, (74 * u).toInt(), 0, 0)
         }
@@ -193,7 +199,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         val age = SystemClock.uptimeMillis() - scanStart
         if (age < 460) {
             val t = age / 460f
-            val y = 74 * u + (height - 74 * u) * t
+            val y = frame.paddingTop + (height - frame.paddingTop) * t
             val jitter = if ((age / 40) % 3 == 0L) 6 * u else 0f
             canvas.drawLine(jitter, y, width.toFloat() + jitter, y, Paint().apply {
                 strokeWidth = 2 * u

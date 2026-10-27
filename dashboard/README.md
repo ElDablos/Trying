@@ -104,6 +104,9 @@ back to One UI Home the same way at any time.
   View, SmartThings, Quick Share and media output shortcuts, then the notifications to open, reply to
   inline or swipe away. Toggles marked ↗ open Android's own switch, since only the system can flip
   those. A swipe from the very top edge still opens Samsung's panel; that gesture belongs to Android.
+- **Crimson Comms in any app**: the app list has a **Crimson Comms** shortcut. Add it to Samsung's
+  Edge Panel (Apps panel → edit → add) and the Comms Centre opens over whatever app you're in; swipe
+  up or press Back to return.
 - **Edge lighting** (needs "Display over other apps"): twin strips race round the screen edge in the
   app's colour when a message arrives, two comets circle it during an incoming call, gold energy climbs
   it when the charger goes in, and it breathes red on low battery. Works over any app while the phone

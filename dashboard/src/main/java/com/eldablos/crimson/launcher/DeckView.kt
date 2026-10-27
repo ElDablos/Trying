@@ -236,7 +236,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             }
             val now = SystemClock.uptimeMillis()
             // Backdrop: deep void, a faint grid and two glows in the theme's colour.
-            canvas.drawColor(Hud.alpha(0xFF050203.toInt(), .9f))
+            canvas.drawColor(Hud.alpha(Hud.tint(0xFF050203.toInt()), .9f))
             canvas.drawCircle(width * .85f, 0f, 320 * u, Paint().apply {
                 shader = android.graphics.RadialGradient(width * .85f, 0f, 320 * u, Hud.alpha(Hud.DEEP, .45f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             })
@@ -472,7 +472,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 tap(open) { ClaudeLink.open(context) }
                 // The text box, with mic and send.
                 val field = RectF(r.left + 12 * u, top + 60 * u, r.right - 12 * u, top + 106 * u)
-                canvas.drawRoundRect(field, 12 * u, 12 * u, Hud.glow(Hud.fill(Hud.alpha(0xFF0A0305.toInt(), .95f)), 10 * u, Hud.alpha(Hud.CRIMSON, .35f)))
+                canvas.drawRoundRect(field, 12 * u, 12 * u, Hud.glow(Hud.fill(Hud.alpha(Hud.tint(0xFF0A0305.toInt()), .95f)), 10 * u, Hud.alpha(Hud.CRIMSON, .35f)))
                 canvas.drawRoundRect(field, 12 * u, 12 * u, Hud.stroke(Hud.alpha(if (input.hasFocus()) Hud.HOT else Hud.CRIMSON, .7f), 1.2f * u))
                 fieldLeft = field.left + 14 * u
                 fieldTop = field.top + 3 * u
@@ -962,7 +962,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     val cx = r.left + 14 * u + (i % 4) * (cw + 5 * u)
                     val cy = top + 32 * u + (i / 4) * 48 * u
                     val c = RectF(cx, cy, cx + cw, cy + 43 * u)
-                    canvas.drawRect(c, Hud.fill(Hud.alpha(0xFF0A0305.toInt(), .7f)))
+                    canvas.drawRect(c, Hud.fill(Hud.alpha(Hud.tint(0xFF0A0305.toInt()), .7f)))
                     canvas.drawRect(c, Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f), u))
                     canvas.drawText(k, c.left + 6 * u, c.top + 12 * u, Hud.fit(k, Hud.text(6.5f * u, Hud.CRIMSON, Hud.MONO, .12f), cw - 10 * u))
                     canvas.drawText(v, c.left + 6 * u, c.top + 28 * u, Hud.fit(v, Hud.text(12 * u, Color.WHITE, Hud.LIGHT), cw - 10 * u))

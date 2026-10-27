@@ -153,12 +153,12 @@ class HomeView(context: Context) : View(context) {
     fun geometry(): Geometry {
         val t = telemetry
         val pct = t?.steps?.let { Format.stepsPercent(it, t.goal) } ?: 0
-        val top = y(686f)
+        val top = y(MUSIC_TOP)
         return Geometry(
             u, width / 2f, ringY,
             ring.indices.map { nodeCentre(it) },
             open < 0 && openT < .01f,
-            RectF(20 * u, top, width - 20 * u, top + 66 * u),
+            RectF(70 * u, top, width - 10 * u, top + 56 * u),
             t?.track?.playing == true,
             RectF(30 * u, y(628f) + 15 * u, width - 30 * u, y(628f) + 21 * u),
             pct >= 100,
@@ -751,15 +751,17 @@ class HomeView(context: Context) : View(context) {
 
         // Node chips to hop between nodes.
         val chipY = y(612f)
-        val chip = Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .1f, Paint.Align.CENTER)
+        val chip = Hud.text(7.5f * u, Hud.DUST, Hud.MONO, 0f, Paint.Align.CENTER)
         val slotW = (width - 28 * u) / ring.size
         ring.forEachIndexed { i, other ->
             val left = 14 * u + i * slotW + 2 * u
-            val r = RectF(left, chipY, left + slotW - 4 * u, chipY + 22 * u)
+            val r = RectF(left, chipY, left + slotW - 4 * u, chipY + 26 * u)
             val on = i == open
             Hud.panel(canvas, r, 5 * u, u, if (on) Hud.CRIMSON else Hud.alpha(Hud.CRIMSON, .35f * t), if (on) Hud.alpha(Hud.RED, .55f * t) else Hud.alpha(0xFF140609.toInt(), .7f * t))
             chip.color = Hud.alpha(if (on) Color.WHITE else Hud.DUST, t)
-            canvas.drawText(Hud.ellipsize(other.node.name.uppercase(), chip, slotW - 8 * u), r.centerX(), r.centerY() + 2.6f * u, chip)
+            chip.textSize = Hud.text(7.5f * u, 0).textSize
+            val label = other.node.name.uppercase()
+            canvas.drawText(label, r.centerX(), r.centerY() + 3 * u, Hud.fit(label, chip, slotW - 8 * u))
         }
         canvas.drawText("◂ SWIPE TO HOP BETWEEN NODES ▸", cx, chipY + 38 * u, Hud.text(7.5f * u, Hud.alpha(Hud.DUST, t), Hud.MONO, .16f, Paint.Align.CENTER))
     }
@@ -811,11 +813,12 @@ class HomeView(context: Context) : View(context) {
         if (a > .5f) hits += RectF(left, top - 6 * u, right, top + 26 * u) to { host?.openHealth() }
     }
 
+    /** The music bar: the song on top, big controls spread across the bottom row. */
     private fun drawMusic(canvas: Canvas, t: Telemetry) {
-        val top = y(686f)
-        val r = RectF(20 * u, top, width - 20 * u, top + 66 * u)
+        val top = y(MUSIC_TOP)
+        val r = RectF(20 * u, top, width - 20 * u, top + MUSIC_H * u)
         Hud.panel(canvas, r, 14 * u, u, Hud.alpha(Hud.CRIMSON, .45f), Hud.alpha(0xFF140609.toInt(), .75f))
-        val art = RectF(r.left + 12 * u, r.centerY() - 21 * u, r.left + 54 * u, r.centerY() + 21 * u)
+        val art = RectF(r.left + 12 * u, top + 10 * u, r.left + 56 * u, top + 54 * u)
         canvas.drawRoundRect(art, 8 * u, 8 * u, Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = LinearGradient(art.left, art.top, art.right, art.bottom, Hud.BLOOD, 0xFF1A0508.toInt(), Shader.TileMode.CLAMP)
         })
@@ -827,64 +830,72 @@ class HomeView(context: Context) : View(context) {
             Hud.bitmap(canvas, t.art, art)
             canvas.restore()
         } else {
-            canvas.drawText("♪", art.centerX(), art.centerY() + 6 * u, Hud.text(18 * u, Hud.CRIMSON, Hud.SANS, align = Paint.Align.CENTER))
+            canvas.drawText("♪", art.centerX(), art.centerY() + 7 * u, Hud.text(20 * u, Hud.CRIMSON, Hud.SANS, align = Paint.Align.CENTER))
         }
-        val textLeft = art.right + 10 * u
-        val controlsLeft = r.right - 172 * u
-        val titleW = controlsLeft - textLeft - 6 * u
-        val title = Hud.text(12 * u, Color.WHITE, Hud.MEDIUM)
-        val sub = Hud.text(7 * u, Hud.DUST, Hud.MONO, .12f)
+        val textLeft = art.right + 12 * u
+        val textW = r.right - 14 * u - textLeft
+        val title = Hud.text(15 * u, Color.WHITE, Hud.MEDIUM)
+        val sub = Hud.text(9 * u, Hud.DUST, Hud.MONO, .08f)
         if (track != null) {
-            canvas.drawText(Hud.ellipsize(track.title, title, titleW), textLeft, r.centerY() - 4 * u, title)
+            canvas.drawText(Hud.ellipsize(track.title, title, textW), textLeft, top + 27 * u, title)
             val time = if (t.duration > 0) " · ${mmss(t.position)} / ${mmss(t.duration)}" else ""
-            canvas.drawText(Hud.ellipsize(track.artist.uppercase() + time, sub, titleW), textLeft, r.centerY() + 7 * u, sub)
-            val bar = RectF(textLeft, r.centerY() + 13 * u, textLeft + titleW, r.centerY() + 15 * u)
+            canvas.drawText(Hud.ellipsize(track.artist.uppercase() + time, sub, textW), textLeft, top + 42 * u, sub)
+            val bar = RectF(textLeft, top + 48 * u, textLeft + textW, top + 50.5f * u)
             canvas.drawRect(bar, Hud.fill(Hud.alpha(Color.WHITE, .12f)))
             if (t.duration > 0) {
                 val p = (t.position.toFloat() / t.duration).coerceIn(0f, 1f)
                 canvas.drawRect(bar.left, bar.top, bar.left + bar.width() * p, bar.bottom, Hud.glow(Hud.fill(Hud.CRIMSON), 3 * u))
             }
         } else {
-            canvas.drawText("Nothing playing", textLeft, r.centerY() - 2 * u, title)
-            canvas.drawText("TAP ▶ TO START SPOTIFY", textLeft, r.centerY() + 10 * u, sub)
+            canvas.drawText("Nothing playing", textLeft, top + 29 * u, title)
+            canvas.drawText("TAP ▶ TO START SPOTIFY", textLeft, top + 44 * u, sub)
         }
-        hits += RectF(r.left, r.top, controlsLeft, r.bottom) to { openPlayer() }
+        hits += RectF(r.left, r.top, r.right, top + 58 * u) to { openPlayer() }
 
-        // Controls: shuffle, previous, play/pause, next, repeat, queue.
+        // Controls, spread evenly: shuffle, previous, play/pause, next, repeat, queue.
+        canvas.drawLine(r.left + 12 * u, top + 60 * u, r.right - 12 * u, top + 60 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .2f), u))
+        val cy = top + 82 * u
+        val slot = (r.width() - 16 * u) / 6
         val shuffleOn = NowPlaying.shuffle(context)
         val repeat = NowPlaying.repeat(context)
-        val cy = r.centerY()
-        var x = controlsLeft + 10 * u
-        fun control(glyph: String, on: Boolean, action: () -> Unit, w: Float = 22 * u, size: Float = 12f) {
-            canvas.drawText(glyph, x + w / 2, cy + size * .36f * u, Hud.text(size * u, if (on) Hud.HOT else Hud.CRIMSON, Hud.SANS, align = Paint.Align.CENTER))
-            hits += RectF(x - 3 * u, r.top, x + w + 3 * u, r.bottom) to action
-            x += w + 4 * u
+        fun centre(i: Int) = r.left + 8 * u + slot * (i + .5f)
+        fun hit(i: Int, action: () -> Unit) {
+            hits += RectF(centre(i) - slot / 2, top + 60 * u, centre(i) + slot / 2, r.bottom) to action
         }
-        control("⤮", shuffleOn, { NowPlaying.control(context, NowPlaying.Control.SHUFFLE); invalidate() })
-        control("⏮", false, { NowPlaying.control(context, NowPlaying.Control.PREVIOUS) })
-        // Play/pause circle.
-        val pr = 15 * u
-        val pcx = x + pr
-        canvas.drawCircle(pcx, cy, pr, Hud.glow(Hud.stroke(Hud.CRIMSON, u), 6 * u))
-        val playing = track?.playing == true
-        val glyph = Hud.fill(Color.WHITE)
-        if (playing) {
-            canvas.drawRect(pcx - 5 * u, cy - 6 * u, pcx - 1.5f * u, cy + 6 * u, glyph)
-            canvas.drawRect(pcx + 1.5f * u, cy - 6 * u, pcx + 5 * u, cy + 6 * u, glyph)
+        fun glyph(i: Int, text: String, on: Boolean, size: Float = 20f) {
+            val p = Hud.text(size * u, if (on) Hud.HOT else Hud.CRIMSON, Hud.SANS, align = Paint.Align.CENTER)
+            if (on) Hud.glow(p, 6 * u, Hud.HOT)
+            canvas.drawText(text, centre(i), cy + size * .36f * u, p)
+        }
+        glyph(0, "⤮", shuffleOn)
+        hit(0) { NowPlaying.control(context, NowPlaying.Control.SHUFFLE); invalidate() }
+        glyph(1, "⏮", false)
+        hit(1) { NowPlaying.control(context, NowPlaying.Control.PREVIOUS) }
+        // Play/pause.
+        val pcx = centre(2)
+        val pr = 19 * u
+        canvas.drawCircle(pcx, cy, pr, Hud.fill(Hud.alpha(Hud.BLOOD, .6f)))
+        canvas.drawCircle(pcx, cy, pr, Hud.glow(Hud.stroke(Hud.CRIMSON, 1.5f * u), 8 * u))
+        val white = Hud.fill(Color.WHITE)
+        if (track?.playing == true) {
+            canvas.drawRect(pcx - 6.5f * u, cy - 8 * u, pcx - 2 * u, cy + 8 * u, white)
+            canvas.drawRect(pcx + 2 * u, cy - 8 * u, pcx + 6.5f * u, cy + 8 * u, white)
         } else {
-            canvas.drawPath(Path().apply { moveTo(pcx - 4 * u, cy - 6.5f * u); lineTo(pcx + 6 * u, cy); lineTo(pcx - 4 * u, cy + 6.5f * u); close() }, glyph)
+            canvas.drawPath(Path().apply { moveTo(pcx - 5 * u, cy - 9 * u); lineTo(pcx + 8.5f * u, cy); lineTo(pcx - 5 * u, cy + 9 * u); close() }, white)
         }
-        hits += RectF(x - 3 * u, r.top, x + 2 * pr + 3 * u, r.bottom) to { NowPlaying.control(context, NowPlaying.Control.PLAY_PAUSE) }
-        x += 2 * pr + 4 * u
-        control("⏭", false, { NowPlaying.control(context, NowPlaying.Control.NEXT) })
-        control(if (repeat == NowPlaying.Repeat.ONE) "↻¹" else "↻", repeat != NowPlaying.Repeat.OFF, { NowPlaying.control(context, NowPlaying.Control.REPEAT); invalidate() })
-        // Queue button.
-        val q = RectF(x, cy - 12 * u, x + 24 * u, cy + 12 * u)
-        canvas.drawRect(q, Hud.stroke(Hud.alpha(Hud.CRIMSON, .6f), u))
-        val lines = Hud.stroke(Color.WHITE, 1.4f * u)
-        for (k in 0..2) canvas.drawLine(q.left + 6 * u, q.top + 8 * u + k * 4 * u, q.right - 8 * u, q.top + 8 * u + k * 4 * u, lines)
-        canvas.drawText("♪", q.right - 4 * u, q.top + 7 * u, Hud.text(7 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER))
-        hits += RectF(q.left - 4 * u, r.top, r.right, r.bottom) to { host?.openQueue() }
+        hit(2) { NowPlaying.control(context, NowPlaying.Control.PLAY_PAUSE) }
+        glyph(3, "⏭", false)
+        hit(3) { NowPlaying.control(context, NowPlaying.Control.NEXT) }
+        glyph(4, if (repeat == NowPlaying.Repeat.ONE) "↻¹" else "↻", repeat != NowPlaying.Repeat.OFF)
+        hit(4) { NowPlaying.control(context, NowPlaying.Control.REPEAT); invalidate() }
+        // Queue.
+        val qc = centre(5)
+        val q = RectF(qc - 16 * u, cy - 14 * u, qc + 16 * u, cy + 14 * u)
+        canvas.drawRect(q, Hud.stroke(Hud.alpha(Hud.CRIMSON, .7f), 1.2f * u))
+        val lines = Hud.stroke(Color.WHITE, 1.8f * u)
+        for (k in 0..2) canvas.drawLine(q.left + 7 * u, q.top + 8.5f * u + k * 5.5f * u, q.right - 10 * u, q.top + 8.5f * u + k * 5.5f * u, lines)
+        canvas.drawText("♪", q.right - 5 * u, q.top + 9 * u, Hud.text(9 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER))
+        hit(5) { host?.openQueue() }
     }
 
     private fun openPlayer() {
@@ -901,7 +912,7 @@ class HomeView(context: Context) : View(context) {
 
     private fun drawHint(canvas: Canvas) {
         val text = if (open >= 0) "TAP AN APP · HOLD FOR OPTIONS · TAP THE CORE TO CLOSE" else "TAP A NODE · ↓ COMMS · ↑ ALL APPS · → GAME HUB"
-        canvas.drawText(text, width / 2f, y(784f), Hud.text(7 * u, Hud.alpha(Hud.DUST, .8f), Hud.MONO, .2f, Paint.Align.CENTER))
+        canvas.drawText(text, width / 2f, y(806f), Hud.text(7 * u, Hud.alpha(Hud.DUST, .8f), Hud.MONO, .08f, Paint.Align.CENTER))
     }
 
     // --- Incoming pop-up ---
@@ -922,7 +933,7 @@ class HomeView(context: Context) : View(context) {
         // Slides up from the bottom into the space under the music bar, and back down when it goes.
         val inT = Hud.easeOut((age / 260f).coerceIn(0f, 1f))
         val outT = Hud.easeOut(((INCOMING_MS - age) / 320f).coerceIn(0f, 1f))
-        val base = y(762f)
+        val base = y(792f)
         val travel = height - base
         val top = base + travel * (1 - minOf(inT, outT)) + popOffset
         val r = RectF(14 * u, top, width - 14 * u, top + 92 * u)
@@ -944,10 +955,10 @@ class HomeView(context: Context) : View(context) {
             shader = LinearGradient(r.left, 0f, r.right, 0f, intArrayOf(Color.TRANSPARENT, Hud.HOT, Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
         })
         val app = AppCatalog.forPackage(sbn.packageName)
-        canvas.drawText("▸ INCOMING TRANSMISSION", r.left + 14 * u, r.top + 22 * u, Hud.text(7 * u, Hud.HOT, Hud.MONO, .2f))
+        canvas.drawText("▸ INCOMING", r.left + 14 * u, r.top + 22 * u, Hud.text(7 * u, Hud.HOT, Hud.MONO, .14f))
         val more = (groups.firstOrNull { it.packageName == sbn.packageName }?.items?.size ?: 1) - 1
         val appName = (app?.label ?: sbn.packageName.substringAfterLast('.')).uppercase() + " · NOW" + (if (more > 0) " · +$more" else "")
-        canvas.drawText(appName, r.right - 14 * u, r.top + 22 * u, Hud.text(7 * u, Hud.DUST, Hud.MONO, .2f, Paint.Align.RIGHT))
+        canvas.drawText(appName, r.right - 14 * u, r.top + 22 * u, Hud.fit(appName, Hud.text(7 * u, Hud.DUST, Hud.MONO, .08f, Paint.Align.RIGHT), r.width() - 130 * u))
         val icon = RectF(r.left + 14 * u, r.top + 36 * u, r.left + 50 * u, r.top + 72 * u)
         if (app != null) drawIcon(canvas, app.component, icon, 255, glow = true)
         val reply = Comms.replyAction(sbn) != null
@@ -1237,6 +1248,8 @@ class HomeView(context: Context) : View(context) {
 
     companion object {
         private const val BOOT_MS = 1700L
+        private const val MUSIC_TOP = 680f
+        private const val MUSIC_H = 104f
         private const val LOCK_MS = 170L
         private const val INCOMING_MS = 7000L
     }

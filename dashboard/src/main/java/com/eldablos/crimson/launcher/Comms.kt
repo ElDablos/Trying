@@ -64,6 +64,10 @@ object Comms {
     fun shows(sbn: StatusBarNotification): Boolean {
         val n = sbn.notification
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return false
+        // System bookkeeping (like SystemUI's "MediaOngoingActivity") isn't a message.
+        if ((sbn.packageName == "com.android.systemui" || sbn.packageName == "android") &&
+            n.extras?.getCharSequence(Notification.EXTRA_TEXT).isNullOrBlank()
+        ) return false
         if (n.category == Notification.CATEGORY_TRANSPORT) return false
         if (n.extras?.containsKey(Notification.EXTRA_MEDIA_SESSION) == true) return false
         if (sbn.isOngoing && n.extras?.getInt(Notification.EXTRA_PROGRESS_MAX, 0) == 0) return false

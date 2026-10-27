@@ -44,10 +44,19 @@ object Hud {
         if (dash != null) pathEffect = DashPathEffect(dash, 0f)
     }
 
-    /** Text paint; [spacing] is letter spacing in ems, like the mock-ups' CSS. */
+    /** Pixels per mock-up unit (screen width / 412); set by each screen as it starts. */
+    var u = 0f
+
+    /**
+     * Text sizes are drawn bigger than the mock-ups so they read like One UI: small labels grow the most,
+     * big text (the clock, temperatures) stays as designed. [units] is a mock-up size; returns units.
+     */
+    fun sp(units: Float): Float = units + maxOf(0f, 16f - units) * .36f
+
+    /** Text paint; [size] in pixels (mock-up units × u), boosted by [sp]. [spacing] is letter spacing in ems. */
     fun text(size: Float, color: Int, face: Typeface = SANS, spacing: Float = 0f, align: Paint.Align = Paint.Align.LEFT) =
         TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = size
+            textSize = if (u > 0f) sp(size / u) * u else size
             this.color = color
             typeface = face
             letterSpacing = spacing
@@ -74,6 +83,13 @@ object Hud {
         val path = cut(r, c)
         canvas.drawPath(path, fill(fill))
         canvas.drawPath(path, stroke(edge, u))
+    }
+
+    /** Shrinks [paint] (down to 70%) until [text] fits [width]. */
+    fun fit(text: String, paint: TextPaint, width: Float): TextPaint {
+        val min = paint.textSize * .7f
+        while (paint.measureText(text) > width && paint.textSize > min) paint.textSize -= .5f
+        return paint
     }
 
     /** Draws [text] cut down with "…" to fit [width]. */

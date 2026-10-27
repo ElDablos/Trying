@@ -113,11 +113,11 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         column.addView(head)
         column.addView(View(context).apply { setBackgroundColor(Hud.alpha(Hud.CRIMSON, .3f)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, u.toInt().coerceAtLeast(1)))
 
-        column.addView(rowTop, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (68 * u).toInt()).apply { topMargin = (10 * u).toInt() })
-        column.addView(rowBottom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (68 * u).toInt()).apply { topMargin = (4 * u).toInt() })
+        column.addView(rowTop, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (72 * u).toInt()).apply { topMargin = (10 * u).toInt() })
+        column.addView(rowBottom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (72 * u).toInt()).apply { topMargin = (4 * u).toInt() })
         column.addView(brightness, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (22 * u).toInt()).apply { topMargin = (6 * u).toInt() })
         column.addView(volume, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (22 * u).toInt()))
-        column.addView(music, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (58 * u).toInt()).apply { topMargin = (8 * u).toInt() })
+        column.addView(music, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (66 * u).toInt()).apply { topMargin = (8 * u).toInt() })
 
         val chips = LinearLayout(context)
         listOf(
@@ -131,7 +131,10 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             chip.text = label
             chip.gravity = Gravity.CENTER
             chip.background = Outline(u, Hud.alpha(0xFF140609.toInt(), .7f))
-            chip.setPadding(0, (8 * u).toInt(), 0, (8 * u).toInt())
+            chip.setPadding((2 * u).toInt(), (9 * u).toInt(), (2 * u).toInt(), (9 * u).toInt())
+            chip.maxLines = 1
+            chip.letterSpacing = 0f
+            chip.setAutoSizeTextTypeUniformWithConfiguration((6 * u).toInt().coerceAtLeast(1), (Hud.sp(6.5f) * u).toInt().coerceAtLeast(2), 1, TypedValue.COMPLEX_UNIT_PX)
             chip.setOnClickListener { action() }
             chips.addView(chip, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) marginStart = (5 * u).toInt() })
         }
@@ -158,8 +161,10 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         val foot = TextView(context)
         style(foot, 7f, Hud.DUST, .16f)
         foot.gravity = Gravity.CENTER
-        foot.text = "SWIPE UP TO CLOSE · ↗ OPENS ANDROID'S SWITCH"
-        foot.setPadding(0, (8 * u).toInt(), 0, (14 * u).toInt())
+        foot.text = "▲  SWIPE UP HERE OR TAP TO CLOSE  ▲"
+        foot.setTextColor(Hud.HOT)
+        foot.background = Outline(u, Hud.alpha(Hud.RED, .25f))
+        foot.setPadding(0, (16 * u).toInt(), 0, (16 * u).toInt())
         frame.addView(foot)
         foot.setOnClickListener { onClose?.invoke() }
 
@@ -252,7 +257,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         music.invalidate()
         val groups = Comms.groups()
         val count = groups.sumOf { it.count }
-        header.text = if (!Comms.connected) "◆ COMMS // CONTROL · OFFLINE" else "◆ COMMS // CONTROL + $count INCOMING"
+        header.text = if (!Comms.connected) "◆ COMMS // OFFLINE" else "◆ COMMS // $count INCOMING"
         notifHeader.text = "◆ NOTIFICATIONS · $count"
         // Don't pull the rug out from under a reply being typed.
         if (cards.findFocus() is EditText) return
@@ -444,8 +449,9 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             }
             MotionEvent.ACTION_MOVE -> {
                 val dy = e.y - downY
-                // A swipe up that the list can't use (it's at its end) closes the Comms Centre.
-                if (-dy > slop * 3 && abs(dy) > abs(e.x - downX) * 2 && !scroll.canScrollVertically(1)) return true
+                // A swipe up closes the Comms Centre when it starts near the bottom, or when the list is at its end.
+                val fromBottom = downY > height - 160 * u
+                if (-dy > slop * 2 && abs(dy) > abs(e.x - downX) * 1.5f && (fromBottom || !scroll.canScrollVertically(1))) return true
             }
         }
         return false
@@ -459,7 +465,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             }
             MotionEvent.ACTION_MOVE -> translationY = (e.y - downY).coerceAtMost(0f)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (downY - e.y > 80 * u) onClose?.invoke() else animate().translationY(0f).setDuration(150).start()
+                if (downY - e.y > 60 * u) onClose?.invoke() else animate().translationY(0f).setDuration(150).start()
             }
         }
         return true
@@ -468,7 +474,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     // --- Cards ---
 
     private fun style(view: TextView, sp: Float, color: Int, spacing: Float = 0f, face: android.graphics.Typeface = Hud.MONO) {
-        view.setTextSize(TypedValue.COMPLEX_UNIT_PX, sp * u)
+        view.setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(sp) * u)
         view.setTextColor(color)
         view.letterSpacing = spacing
         view.typeface = face
@@ -723,7 +729,7 @@ class HexButton(context: Context, private val u: Float, private val hex: Hex) : 
         if (hex.on) Hud.glow(g, 6 * u, Hud.HOT)
         canvas.drawText(hex.glyph, cx, top + h / 2 + 4.5f * u, g)
         if (hex.external) canvas.drawText("↗", cx + w * .26f, top + h * .3f, Hud.text(7 * u, 0xFFFF8A9A.toInt(), Hud.SANS, align = Paint.Align.CENTER))
-        canvas.drawText(hex.label, cx, top + h + 11 * u, Hud.text(5.5f * u, if (hex.on) Color.WHITE else Hud.DUST, Hud.MONO, .1f, Paint.Align.CENTER))
+        canvas.drawText(hex.label, cx, top + h + 13 * u, Hud.fit(hex.label, Hud.text(5.5f * u, if (hex.on) Color.WHITE else Hud.DUST, Hud.MONO, .04f, Paint.Align.CENTER), width - 2 * u))
     }
 }
 
@@ -797,7 +803,7 @@ class MusicCard(context: Context, private val u: Float) : View(context) {
             canvas.drawText("♪", art.centerX(), art.centerY() + 5 * u, Hud.text(15 * u, Hud.CRIMSON, Hud.SANS, align = Paint.Align.CENTER))
         }
         val textLeft = art.right + 10 * u
-        val controls = r.right - 112 * u
+        val controls = r.right - 146 * u
         val title = Hud.text(12 * u, Color.WHITE, Hud.MEDIUM)
         canvas.drawText(Hud.ellipsize(track?.title ?: "Nothing playing", title, controls - textLeft), textLeft, r.centerY() - 3 * u, title)
         val sub = Hud.text(6.5f * u, Hud.DUST, Hud.MONO, .1f)
@@ -807,22 +813,22 @@ class MusicCard(context: Context, private val u: Float) : View(context) {
         hits += RectF(0f, 0f, controls, r.centerY()) to { openPlayer() }
         val cy = r.centerY()
         var x = controls + 6 * u
-        val glyph = Hud.text(13 * u, Hud.CRIMSON, Hud.SANS, align = Paint.Align.CENTER)
-        canvas.drawText("⏮", x + 12 * u, cy + 4.5f * u, glyph)
-        hits += RectF(x - 4 * u, 0f, x + 28 * u, r.bottom) to { NowPlaying.control(context, NowPlaying.Control.PREVIOUS); postInvalidateDelayed(400) }
-        x += 32 * u
-        canvas.drawCircle(x + 14 * u, cy, 14 * u, Hud.glow(Hud.stroke(Hud.CRIMSON, u), 5 * u))
+        val glyph = Hud.text(18 * u, Hud.CRIMSON, Hud.SANS, align = Paint.Align.CENTER)
+        canvas.drawText("⏮", x + 18 * u, cy + 6.5f * u, glyph)
+        hits += RectF(x - 4 * u, 0f, x + 38 * u, r.bottom) to { NowPlaying.control(context, NowPlaying.Control.PREVIOUS); postInvalidateDelayed(400) }
+        x += 42 * u
+        canvas.drawCircle(x + 19 * u, cy, 19 * u, Hud.glow(Hud.stroke(Hud.CRIMSON, 1.5f * u), 6 * u))
         val white = Hud.fill(Color.WHITE)
-        val px = x + 14 * u
+        val px = x + 19 * u
         if (track?.playing == true) {
-            canvas.drawRect(px - 4.5f * u, cy - 5.5f * u, px - 1.5f * u, cy + 5.5f * u, white)
-            canvas.drawRect(px + 1.5f * u, cy - 5.5f * u, px + 4.5f * u, cy + 5.5f * u, white)
+            canvas.drawRect(px - 6.5f * u, cy - 8 * u, px - 2 * u, cy + 8 * u, white)
+            canvas.drawRect(px + 2 * u, cy - 8 * u, px + 6.5f * u, cy + 8 * u, white)
         } else {
-            canvas.drawPath(Path().apply { moveTo(px - 3.5f * u, cy - 6 * u); lineTo(px + 5.5f * u, cy); lineTo(px - 3.5f * u, cy + 6 * u); close() }, white)
+            canvas.drawPath(Path().apply { moveTo(px - 5 * u, cy - 9 * u); lineTo(px + 8.5f * u, cy); lineTo(px - 5 * u, cy + 9 * u); close() }, white)
         }
-        hits += RectF(x - 2 * u, 0f, x + 30 * u, r.bottom) to { NowPlaying.control(context, NowPlaying.Control.PLAY_PAUSE); postInvalidateDelayed(400) }
-        x += 36 * u
-        canvas.drawText("⏭", x + 12 * u, cy + 4.5f * u, glyph)
+        hits += RectF(x - 2 * u, 0f, x + 40 * u, r.bottom) to { NowPlaying.control(context, NowPlaying.Control.PLAY_PAUSE); postInvalidateDelayed(400) }
+        x += 44 * u
+        canvas.drawText("⏭", x + 18 * u, cy + 6.5f * u, glyph)
         hits += RectF(x - 4 * u, 0f, r.right, r.bottom) to { NowPlaying.control(context, NowPlaying.Control.NEXT); postInvalidateDelayed(400) }
     }
 

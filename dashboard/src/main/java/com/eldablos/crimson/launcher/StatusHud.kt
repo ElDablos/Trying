@@ -151,6 +151,6 @@ class StatusHud {
         }
 
         // Ticker.
-        canvas.drawText(ticker, width / 2, 66 * u, Hud.text(7 * u, tickerColor, Hud.MONO, .24f, Paint.Align.CENTER))
+        canvas.drawText(ticker, width / 2, 66 * u, Hud.text(7 * u, tickerColor, Hud.MONO, .12f, Paint.Align.CENTER))
     }
 }

@@ -24,6 +24,7 @@ class LauncherSettingsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         u = resources.displayMetrics.widthPixels / 412f
+        Hud.u = u
         column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((18 * u).toInt(), (22 * u).toInt(), (18 * u).toInt(), (28 * u).toInt())
@@ -120,7 +121,7 @@ class LauncherSettingsActivity : Activity() {
     private fun text(value: String, sp: Float, color: Int, face: android.graphics.Typeface = Hud.MONO, spacing: Float = .18f) = TextView(this).apply {
         text = value
         setTextColor(color)
-        setTextSize(TypedValue.COMPLEX_UNIT_PX, sp * u)
+        setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(sp) * u)
         typeface = face
         letterSpacing = spacing
     }

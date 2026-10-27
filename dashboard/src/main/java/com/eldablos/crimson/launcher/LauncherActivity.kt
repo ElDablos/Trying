@@ -91,6 +91,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
         val u = resources.displayMetrics.widthPixels / 412f
+        Hud.u = u
         val root = FrameLayout(this)
         home = HomeView(this).also { it.host = this }
         effects = EffectsView(this, home)

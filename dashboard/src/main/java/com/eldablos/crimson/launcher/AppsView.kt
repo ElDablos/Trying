@@ -64,11 +64,11 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
         val glass = TextView(context).apply {
             text = "⌕"
             setTextColor(Hud.HOT)
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, 17 * u)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(17f) * u)
         }
         box.addView(glass)
         search.apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, 14 * u)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(14f) * u)
             setTextColor(Color.WHITE)
             setHintTextColor(Hud.DUST)
             typeface = Hud.SANS
@@ -98,14 +98,14 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
         val close = TextView(context).apply {
             text = "✕"
             setTextColor(Hud.CRIMSON)
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, 12 * u)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(12f) * u)
             setPadding((10 * u).toInt(), (10 * u).toInt(), (4 * u).toInt(), (10 * u).toInt())
             setOnClickListener { if (search.text.isNotEmpty()) search.setText("") else onClose?.invoke() }
         }
         box.addView(close)
         column.addView(box)
 
-        count.setTextSize(TypedValue.COMPLEX_UNIT_PX, 7.5f * u)
+        count.setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(7.5f) * u)
         count.setTextColor(Hud.CRIMSON)
         count.letterSpacing = .2f
         count.typeface = Hud.MONO
@@ -113,7 +113,7 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
         val countRow = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
         countRow.addView(count, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         modeButton.apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, 7.5f * u)
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(7.5f) * u)
             setTextColor(Color.WHITE)
             letterSpacing = .16f
             typeface = Hud.MONO
@@ -221,7 +221,7 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
                 minimumHeight = (52 * u).toInt()
                 addView(ImageView(context), LinearLayout.LayoutParams((36 * u).toInt(), (36 * u).toInt()))
                 addView(TextView(context).apply {
-                    setTextSize(TypedValue.COMPLEX_UNIT_PX, 13 * u)
+                    setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(13f) * u)
                     typeface = Hud.MEDIUM
                     setTextColor(Color.WHITE)
                     maxLines = 1
@@ -229,7 +229,7 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
                     setPadding((12 * u).toInt(), 0, (8 * u).toInt(), 0)
                 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 addView(TextView(context).apply {
-                    setTextSize(TypedValue.COMPLEX_UNIT_PX, 7 * u)
+                    setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(7f) * u)
                     typeface = Hud.MONO
                     letterSpacing = .16f
                     setTextColor(Hud.DUST)

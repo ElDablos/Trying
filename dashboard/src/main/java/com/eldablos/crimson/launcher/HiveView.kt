@@ -244,13 +244,14 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         val slot = (bar.width() - 12 * u) / names.size
         // The chip for the cluster nearest the middle lights up.
         val nearest = clusters.minByOrNull { hypot(it.wx - camX, it.wy - camY) }
-        val text = Hud.text(7 * u, Hud.DUST, Hud.MONO, .06f, Paint.Align.CENTER)
+        val text = Hud.text(7 * u, Hud.DUST, Hud.MONO, 0f, Paint.Align.CENTER)
         names.forEachIndexed { i, name ->
             val r = RectF(bar.left + 6 * u + i * slot, bar.top + 7 * u, bar.left + 6 * u + (i + 1) * slot, bar.bottom - 7 * u)
             val on = nearest?.name == name && query.isEmpty() && hypot(nearest.wx - camX, nearest.wy - camY) < 3f
             if (on) canvas.drawRoundRect(r, 13 * u, 13 * u, Hud.glow(Hud.fill(Hud.RED), 8 * u))
             text.color = if (on) Color.WHITE else Hud.DUST
-            canvas.drawText(Hud.ellipsize(name, text, slot - 4 * u), r.centerX(), r.centerY() + 2.6f * u, text)
+            text.textSize = Hud.text(7 * u, 0).textSize
+            canvas.drawText(name, r.centerX(), r.centerY() + 3 * u, Hud.fit(name, text, slot - 4 * u))
             val cluster = clusters.getOrNull(i)
             chips += r to { if (cluster != null) glideTo(cluster.wx, cluster.wy) else onList?.invoke() }
         }

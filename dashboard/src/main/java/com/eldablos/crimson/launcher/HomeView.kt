@@ -732,7 +732,7 @@ class HomeView(context: Context) : View(context) {
             val r = RectF(left, chipY, left + slotW - 4 * u, chipY + 26 * u)
             val on = i == open
             Hud.panel(canvas, r, 5 * u, u, if (on) Hud.CRIMSON else Hud.alpha(Hud.CRIMSON, .35f * t), if (on) Hud.alpha(Hud.RED, .55f * t) else Hud.alpha(Hud.tint(0xFF140609.toInt()), .7f * t))
-            chip.color = Hud.alpha(if (on) Color.WHITE else Hud.DUST, t)
+            chip.color = Hud.alpha(if (on) Theme.on(Hud.alpha(Hud.RED, .55f)) else Theme.readable(Hud.DUST), t)
             chip.textSize = Hud.text(7.5f * u, 0).textSize
             val label = other.node.name.uppercase()
             canvas.drawText(label, r.centerX(), r.centerY() + 3 * u, Hud.fit(label, chip, slotW - 8 * u))

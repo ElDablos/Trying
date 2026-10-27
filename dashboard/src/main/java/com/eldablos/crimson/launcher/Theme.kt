@@ -110,7 +110,8 @@ enum class Theme(
          * white, keeping its hue, until it stands out. Crimson itself is left exactly as designed.
          */
         fun readable(color: Int): Int {
-            if (current == CRIMSON || Color.alpha(color) < 40) return color
+            // Near-black is meant to be dark: text on a bright button (see [on]).
+            if (current == CRIMSON || Color.alpha(color) < 40 || Color.luminance(color) < .02f) return color
             return readableCache.getOrPut(color) {
                 var c = color
                 var i = 0
@@ -128,6 +129,26 @@ enum class Theme(
         }
 
         private const val MIN_LUMINANCE = .2f
+
+        /** Dark text for bright buttons. */
+        const val INK = 0xFF12050A.toInt()
+
+        /**
+         * The text colour for something drawn on [background] (which may be see-through, over the dark
+         * screens): white normally, dark ink when a bright theme (Toxic, Solar, Arctic, Phantom…) makes
+         * the background light.
+         */
+        fun on(background: Int): Int {
+            val a = Color.alpha(background) / 255f
+            val r = (Color.red(background) * a + 8 * (1 - a)).toInt()
+            val g = (Color.green(background) * a + 3 * (1 - a)).toInt()
+            val b = (Color.blue(background) * a + 5 * (1 - a)).toInt()
+            val bg = Color.luminance(Color.rgb(r, g, b))
+            // Whichever has the better contrast.
+            val withWhite = 1.05f / (bg + .05f)
+            val withInk = (bg + .05f) / (Color.luminance(INK) + .05f)
+            return if (withInk > withWhite) INK else Color.WHITE
+        }
         private val readableCache = java.util.concurrent.ConcurrentHashMap<Int, Int>()
 
         /** [color] in the current theme, remembered so drawing stays quick. */

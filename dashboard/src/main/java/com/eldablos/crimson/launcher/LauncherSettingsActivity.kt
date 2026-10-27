@@ -215,7 +215,7 @@ class LauncherSettingsActivity : Activity() {
         minimumHeight = (46 * u).toInt()
     }
 
-    private fun pill(label: String, on: Boolean, action: () -> Unit) = text(label, 7.5f, if (on) Color.WHITE else Hud.DUST, spacing = .14f).apply {
+    private fun pill(label: String, on: Boolean, action: () -> Unit) = text(label, 7.5f, if (on) Theme.on(Hud.alpha(Hud.RED, .55f)) else Hud.DUST, spacing = .14f).apply {
         gravity = Gravity.CENTER
         background = Outline(u, if (on) Hud.alpha(Hud.RED, .55f) else Color.TRANSPARENT)
         setPadding((10 * u).toInt(), (7 * u).toInt(), (10 * u).toInt(), (7 * u).toInt())

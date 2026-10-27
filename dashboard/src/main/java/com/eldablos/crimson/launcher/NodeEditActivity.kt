@@ -233,7 +233,7 @@ class NodeEditActivity : Activity() {
         setOnClickListener { action() }
     }
 
-    private fun bigButton(text: String, primary: Boolean, action: () -> Unit) = label(text, 9f, if (primary) Color.WHITE else Hud.DUST).apply {
+    private fun bigButton(text: String, primary: Boolean, action: () -> Unit) = label(text, 9f, if (primary) Theme.on(Hud.alpha(Hud.RED, .35f)) else Hud.DUST).apply {
         gravity = Gravity.CENTER
         background = Outline(u, if (primary) Hud.alpha(Hud.RED, .35f) else Color.TRANSPARENT)
         setOnClickListener { action() }

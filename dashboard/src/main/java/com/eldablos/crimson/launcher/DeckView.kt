@@ -481,7 +481,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     shader = android.graphics.RadialGradient(send.centerX() - 5 * u, send.centerY() - 5 * u, 22 * u, Hud.tint(0xFFFF8A9A.toInt()), Hud.RED, Shader.TileMode.CLAMP)
                     setShadowLayer(10 * u, 0f, 0f, Hud.HOT)
                 })
-                canvas.drawText("➤", send.centerX() + 1 * u, send.centerY() + 6 * u, Hud.text(15 * u, Color.WHITE, Hud.SANS, align = Paint.Align.CENTER))
+                canvas.drawText("➤", send.centerX() + 1 * u, send.centerY() + 6 * u, Hud.text(15 * u, Theme.on(Hud.RED), Hud.SANS, align = Paint.Align.CENTER))
                 tap(send) { send() }
                 val mic = RectF(send.left - 42 * u, send.top, send.left - 6 * u, send.bottom)
                 canvas.drawCircle(mic.centerX(), mic.centerY(), 17 * u, Hud.stroke(Hud.alpha(Hud.HOT, .7f), 1.2f * u))
@@ -928,7 +928,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     val cy = top + 54 * u
                     hex(canvas, cx, cy, 20 * u, if (on) Hud.glow(Hud.fill(Hud.alpha(Hud.RED, .6f)), 10 * u, Hud.HOT) else Hud.fill(Hud.alpha(Hud.BLOOD, .45f)))
                     hex(canvas, cx, cy, 20 * u, Hud.stroke(Hud.alpha(if (on) Hud.HOT else Hud.CRIMSON, .8f), 1.2f * u))
-                    canvas.drawText(glyph, cx, cy + 6 * u, Hud.text(15 * u, if (on) Color.WHITE else Hud.HOT, Hud.SANS, align = Paint.Align.CENTER))
+                    canvas.drawText(glyph, cx, cy + 6 * u, Hud.text(15 * u, if (on) Theme.on(Hud.alpha(Hud.RED, .6f)) else Hud.HOT, Hud.SANS, align = Paint.Align.CENTER))
                     canvas.drawText(label, cx, top + 88 * u, Hud.fit(label, Hud.text(6.5f * u, Hud.SOFT, Hud.MONO, .1f, Paint.Align.CENTER), slot - 4 * u))
                     tap(RectF(cx - slot / 2, cy - 24 * u, cx + slot / 2, top + 92 * u)) {
                         action()

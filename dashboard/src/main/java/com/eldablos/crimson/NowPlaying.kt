@@ -156,6 +156,28 @@ object NowPlaying {
      * Sends a control to the current player. With nothing active, "play" is sent as a media key, which
      * Android routes to the last music app used (resuming Spotify where it left off, even if it was closed).
      */
+    /** Asks Spotify to play (its "play from search" with no search plays recent music). False if it can't. */
+    private fun startSpotify(context: Context): Boolean {
+        // Only from a screen: a widget's background tap isn't allowed to open apps, so it keeps the media key.
+        if (context !is android.app.Activity) return false
+        if (context.packageManager.getLaunchIntentForPackage(SPOTIFY) == null) return false
+        val play = android.content.Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
+            .setPackage(SPOTIFY)
+            .putExtra(android.app.SearchManager.QUERY, "")
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            context.startActivity(play)
+            true
+        } catch (e: Exception) {
+            try {
+                context.startActivity(context.packageManager.getLaunchIntentForPackage(SPOTIFY)!!.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                true
+            } catch (e2: Exception) {
+                false
+            }
+        }
+    }
+
     fun control(context: Context, control: Control) {
         val controller = activeController(context)
         if (controller != null) {
@@ -185,6 +207,9 @@ object NowPlaying {
             }
             return
         }
+        // Nothing playing: "play" starts Spotify playing your recent music. A bare media key often goes
+        // nowhere once Spotify has been closed for a while, or during a call.
+        if (control == Control.PLAY_PAUSE && startSpotify(context)) return
         val key = when (control) {
             Control.PREVIOUS -> KeyEvent.KEYCODE_MEDIA_PREVIOUS
             Control.NEXT -> KeyEvent.KEYCODE_MEDIA_NEXT

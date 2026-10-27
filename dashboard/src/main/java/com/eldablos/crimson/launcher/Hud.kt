@@ -110,7 +110,7 @@ object Hud {
     /** A count bubble: a glowing crimson pill centred on (x, y). */
     fun badge(canvas: Canvas, x: Float, y: Float, count: Int, u: Float) {
         val label = if (count > 99) "99+" else count.toString()
-        val tp = text(10 * u, BONE, MEDIUM, align = Paint.Align.CENTER)
+        val tp = text(10 * u, if (Theme.on(CRIMSON) == Theme.INK) Theme.INK else BONE, MEDIUM, align = Paint.Align.CENTER)
         val w = maxOf(18 * u, tp.measureText(label) + 9 * u)
         val r = RectF(x - w / 2, y - 9 * u, x + w / 2, y + 9 * u)
         canvas.drawRoundRect(r, 9 * u, 9 * u, glow(fill(CRIMSON), 5 * u))

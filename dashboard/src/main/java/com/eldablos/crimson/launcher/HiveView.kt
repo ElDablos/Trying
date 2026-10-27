@@ -418,7 +418,7 @@ class HiveView(context: Context, private val u: Float) : View(context) {
             val r = RectF(bar.left + 6 * u + i * slot, bar.top + 7 * u, bar.left + 6 * u + (i + 1) * slot, bar.bottom - 7 * u)
             val on = nearest?.name == name && query.isEmpty() && away(nearest) < 3f
             if (on) canvas.drawRoundRect(r, 13 * u, 13 * u, Hud.glow(Hud.fill(Hud.RED), 8 * u))
-            text.color = if (on) Color.WHITE else Hud.DUST
+            text.color = if (on) Theme.on(Hud.RED) else Theme.readable(Hud.DUST)
             text.textSize = Hud.text(7 * u, 0).textSize
             canvas.drawText(name, r.centerX(), r.centerY() + 3 * u, Hud.fit(name, text, slot - 4 * u))
             val cluster = clusters.getOrNull(i)

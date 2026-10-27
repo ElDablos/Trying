@@ -108,10 +108,47 @@ object WidgetTheme {
             if (v.background != null) {
                 v.backgroundTintList = tint
                 v.backgroundTintBlendMode = mode
+                // A button or pill: make sure its text reads against the themed background.
+                if (v is TextView) backgroundColor(v)?.let { bg -> v.setTextColor(contrast(v.currentTextColor, bg)) }
             }
             if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
         }
         walk(root)
+    }
+
+    /** The average colour of [v]'s themed background, over the dark screen, or null if it's see-through. */
+    private fun backgroundColor(v: View): Int? {
+        val d = v.background?.constantState?.newDrawable(v.resources)?.mutate() ?: return null
+        d.setTintList(v.backgroundTintList)
+        d.setTintBlendMode(v.backgroundTintBlendMode)
+        val size = 12
+        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(bmp)
+        c.drawColor(0xFF0A0708.toInt())
+        d.setBounds(0, 0, size, size)
+        d.draw(c)
+        var r = 0L
+        var g = 0L
+        var b = 0L
+        val px = IntArray(size * size)
+        bmp.getPixels(px, 0, size, 0, 0, size, size)
+        px.forEach { r += android.graphics.Color.red(it); g += android.graphics.Color.green(it); b += android.graphics.Color.blue(it) }
+        bmp.recycle()
+        val n = px.size
+        val avg = android.graphics.Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+        // Outlines and see-through pills leave the dark screen showing: nothing to fix.
+        return if (android.graphics.Color.luminance(avg) < .06f) null else avg
+    }
+
+    /** [text] if it reads on [background] (contrast 3:1 or better), else white or dark ink. */
+    private fun contrast(text: Int, background: Int): Int {
+        fun ratio(a: Int, b: Int): Float {
+            val la = android.graphics.Color.luminance(a) + .05f
+            val lb = android.graphics.Color.luminance(b) + .05f
+            return maxOf(la, lb) / minOf(la, lb)
+        }
+        if (ratio(text, background) >= 3f) return text
+        return Theme.on(background)
     }
 
     private fun View.thumbTint(tint: ColorStateList, mode: BlendMode) {

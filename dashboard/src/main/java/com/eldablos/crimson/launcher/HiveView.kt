@@ -261,6 +261,9 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         var nearest: Cell? = null
         var nearestD = Float.MAX_VALUE
         lifted = null
+        // Only the one app nearest the middle can be picked, even when the comb rests between apps.
+        val pick = if (searching) null else cells.filter { it.app != null }
+            .minByOrNull { hypot(HiveLayout.wrap(it.wx - camX, periodX), HiveLayout.wrap(it.wy - camY, periodY)) }
         canvas.save()
         canvas.clipRect(0f, 0f, width.toFloat(), height - jumpBarH)
         for (c in cells) {
@@ -269,7 +272,7 @@ class HiveView(context: Context, private val u: Float) : View(context) {
                 if (pop <= 0f) return@copies
                 val s = s0 * pop
                 // The app in the sight swells up on top of the bulge, so it's clearly the one picked.
-                val focus = if (c.app != null && query.isEmpty()) 1f + .35f * (1f - d / (30 * u)).coerceIn(0f, 1f) else 1f
+                val focus = if (c === pick) 1f + .35f * (1f - d / (30 * u)).coerceIn(0f, 1f) else 1f
                 val size = 40 * u * s * focus
                 // Every cell sits in a faint hex socket: the honeycomb itself.
                 drawHex(canvas, x, y, spacing * pullAt(s) * .54f, socket)

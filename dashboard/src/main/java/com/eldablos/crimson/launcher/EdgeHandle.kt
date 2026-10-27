@@ -9,13 +9,11 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.Shader
-import android.os.SystemClock
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import kotlin.math.sin
 
 /**
  * The Crimson Comms handle: a thin glowing strip on the screen edge, over every app. Swipe it in (or
@@ -97,7 +95,10 @@ object EdgeHandle {
     }
 }
 
-/** The strip itself: breathes slowly, brightens and stretches under a finger. */
+/**
+ * The strip itself: a steady glow that brightens and stretches under a finger. It's over every app all
+ * day, so it only redraws while touched.
+ */
 class HandleView(context: Context, private val left: Boolean) : View(context) {
     private val dp = resources.displayMetrics.density
     private var downX = 0f
@@ -109,8 +110,7 @@ class HandleView(context: Context, private val left: Boolean) : View(context) {
     private val core = Paint(Paint.ANTI_ALIAS_FLAG)
 
     override fun onDraw(canvas: Canvas) {
-        val breath = .55f + .25f * sin(SystemClock.uptimeMillis() / 700f)
-        val a = if (touching) 1f else breath
+        val a = if (touching) 1f else .7f
         val w = (4 + 6 * pull) * dp
         val edge = if (left) 0f else width.toFloat()
         val inner = if (left) w else width - w
@@ -123,8 +123,6 @@ class HandleView(context: Context, private val left: Boolean) : View(context) {
         val cw = 1.6f * dp
         val cx = if (left) w * .55f else width - w * .55f
         canvas.drawRoundRect(RectF(cx - cw, top + 14 * dp, cx + cw, bottom - 14 * dp), cw, cw, core)
-        // Slow breathing, a few frames a second.
-        postInvalidateDelayed(if (touching) 16 else 90)
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {

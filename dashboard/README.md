@@ -125,6 +125,11 @@ back to One UI Home the same way at any time.
   hologram flicker when a node deploys, target-lock brackets when an app opens, radar pings for new
   messages, a mode-shift sweep, the music visualiser and a spark along the steps line once the goal is
   hit. Turn the boot sequence or idle effects off in Launcher settings (⚙ in the Comms Centre).
+- **Battery**: idle effects run at 20 fps and rest after 40 seconds untouched (the next touch wakes
+  them), and switch off while Android's power saving is on. The Comms handle only redraws under a
+  finger, the phone's readings are taken every 5 seconds (every second only while music plays), the
+  weather page's sky rests 20 seconds after the last touch, and the background refresh only fetches
+  weather every half hour and when there's a connection.
 - **Editing**: hold a node to rename it, drag its apps into order, add or remove apps, move it round the
   ring or delete it. Hold an app in orbit to move it to another node. Hold an empty spot for a new
   node, the dock, or the wallpaper.

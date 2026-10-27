@@ -16,7 +16,8 @@ import kotlin.random.Random
 /**
  * The home screen's idle life, on its own layer so the HUD under it doesn't redraw every frame: drifting
  * embers, a radar sweep round the core, the reactor's pulse, breathing nodes, the music visualiser and
- * a sparkle along the steps line once the goal is reached. Runs at about 30 fps while it's showing.
+ * a sparkle along the steps line once the goal is reached. Runs at about 20 fps while it's showing, and
+ * rests (no redraws at all) once the screen has been left alone for a while, waking at the next touch.
  */
 class EffectsView(context: Context, private val home: HomeView) : View(context) {
     private class Ember(val x: Float, val y: Float, val speed: Float, val drift: Float, val size: Float, val phase: Float)
@@ -36,8 +37,17 @@ class EffectsView(context: Context, private val home: HomeView) : View(context) 
     var running = true
         set(value) {
             field = value
-            invalidate()
+            wake()
         }
+
+    private var activeAt = SystemClock.uptimeMillis()
+
+    /** Something happened: animate again for a while. */
+    fun wake() {
+        val resting = SystemClock.uptimeMillis() - activeAt > IDLE_MS
+        activeAt = SystemClock.uptimeMillis()
+        if (resting || !running) invalidate()
+    }
 
     init {
         isClickable = false
@@ -46,6 +56,8 @@ class EffectsView(context: Context, private val home: HomeView) : View(context) 
 
     override fun onDraw(canvas: Canvas) {
         if (!running || width == 0) return
+        // Left alone: this frame stays up and nothing more is drawn until a touch wakes it.
+        val idle = SystemClock.uptimeMillis() - activeAt > IDLE_MS
         val g = home.geometry()
         if (!g.ready) {
             postInvalidateDelayed(FRAME_MS)
@@ -117,10 +129,11 @@ class EffectsView(context: Context, private val home: HomeView) : View(context) 
                 canvas.drawCircle(x, g.steps.centerY(), 3 * u, emberPaint)
             }
         }
-        postInvalidateDelayed(FRAME_MS)
+        if (!idle) postInvalidateDelayed(FRAME_MS)
     }
 
     companion object {
-        private const val FRAME_MS = 33L
+        private const val FRAME_MS = 50L
+        private const val IDLE_MS = 40_000L
     }
 }

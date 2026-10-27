@@ -965,7 +965,9 @@ class HomeView(context: Context) : View(context) {
             incomingReply.setEmpty()
         }
         canvas.restoreToCount(save)
-        postInvalidateOnAnimation()
+        // Full frame rate only while it slides; otherwise one more frame when it's time to leave.
+        val sliding = age < 300 || age > INCOMING_MS - 340 || popDragging || popOffset != 0f
+        if (sliding) postInvalidateOnAnimation() else postInvalidateDelayed(INCOMING_MS - 340 - age)
     }
 
     private val incomingReply = RectF()

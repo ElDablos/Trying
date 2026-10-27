@@ -80,6 +80,7 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
     /** Shows the last forecast straight away, then fetches a fresh one. */
     fun load() {
         openedAt = SystemClock.uptimeMillis()
+        touchedAt = openedAt
         forecast = Forecast.cached(context)
         page = Page.MAIN
         history.clear()
@@ -205,8 +206,10 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
         drawScrollbar(canvas)
         drawHeader(canvas, f)
 
-        // The sky moves on the main page while its top is in view.
-        if (page == Page.MAIN && scroll[0] < 260 * u && visibility == VISIBLE) postInvalidateDelayed(33)
+        // The sky moves on the main page while its top is in view, for a while after each touch.
+        val fresh = SystemClock.uptimeMillis() - touchedAt < SKY_MS
+        val saver = context.getSystemService(android.os.PowerManager::class.java)?.isPowerSaveMode == true
+        if (page == Page.MAIN && scroll[0] < 260 * u && visibility == VISIBLE && fresh && !saver) postInvalidateDelayed(50)
     }
 
     private fun maxScroll() = (contentH[page.ordinal] - (height - top)).coerceAtLeast(0f)
@@ -884,7 +887,14 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
         }
     })
 
+    private var touchedAt = 0L
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val resting = SystemClock.uptimeMillis() - touchedAt >= SKY_MS
+            touchedAt = SystemClock.uptimeMillis()
+            if (resting) invalidate()
+        }
         gestures.onTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
             if (pull > 0f) {
@@ -911,5 +921,6 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
 
     companion object {
         private const val BLUE = 0xFF6FA8FF.toInt()
+        private const val SKY_MS = 20_000L
     }
 }

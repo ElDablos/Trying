@@ -12,7 +12,7 @@ import android.util.Log
 class RefreshJob : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         Thread {
-            refresh(applicationContext)
+            refresh(applicationContext, background = true)
             jobFinished(params, false)
         }.start()
         return true
@@ -24,6 +24,7 @@ class RefreshJob : JobService() {
         private const val TAG = "CrimsonRefresh"
         private const val JOB_ID = 1
         private const val INTERVAL_MS = 15L * 60 * 1000
+        private const val WEATHER_MS = 30L * 60 * 1000 - 60_000
 
         fun schedule(context: Context) {
             val scheduler = context.getSystemService(JobScheduler::class.java) ?: return
@@ -39,11 +40,20 @@ class RefreshJob : JobService() {
             context.getSystemService(JobScheduler::class.java)?.cancel(JOB_ID)
         }
 
-        /** Blocking: fetches weather and steps, then redraws the widget. Call off the main thread. */
-        fun refresh(context: Context) {
-            DashboardStore.place(context)?.let { place ->
+        /**
+         * Blocking: fetches weather and steps, then redraws the widget. Call off the main thread. In the
+         * [background] the weather is only fetched every half hour and when there's a connection, so the
+         * radio isn't woken for nothing; steps still update every time.
+         */
+        fun refresh(context: Context, background: Boolean = false) {
+            val prefs = context.getSharedPreferences("refresh", Context.MODE_PRIVATE)
+            val now = System.currentTimeMillis()
+            val online = context.getSystemService(android.net.ConnectivityManager::class.java)?.activeNetwork != null
+            val due = !background || (online && now - prefs.getLong("weather_at", 0) >= WEATHER_MS)
+            if (due) DashboardStore.place(context)?.let { place ->
                 try {
                     DashboardStore.setWeather(context, Weather.fetch(place.lat, place.lon))
+                    prefs.edit().putLong("weather_at", now).apply()
                 } catch (e: Exception) {
                     Log.w(TAG, "Weather fetch failed", e)
                 }

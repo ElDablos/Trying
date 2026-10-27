@@ -301,13 +301,13 @@ class HiveView(context: Context, private val u: Float) : View(context) {
                 }
             }
         }
-        drawSight(canvas, now)
+        drawSight(canvas)
         canvas.restore()
         drawJumpBar(canvas)
     }
 
-    /** The sight in the middle: brackets round the centred cell and its name and node underneath. */
-    private fun drawSight(canvas: Canvas, now: Long) {
+    /** The sight in the middle: brackets that turn and close in as a cell settles, with its name and node. */
+    private fun drawSight(canvas: Canvas) {
         val c = centred ?: return
         val app = c.app ?: return
         if (query.isNotEmpty()) return
@@ -321,7 +321,7 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         val k = 9 * u
         val p = Hud.glow(Hud.stroke(Hud.alpha(Hud.HOT, a), 1.6f * u), 6 * u)
         canvas.save()
-        canvas.rotate((now % 12000) / 12000f * 360f, x, y)
+        canvas.rotate(45f * (1 - a), x, y)
         for (q in 0 until 4) {
             canvas.save()
             canvas.rotate(q * 90f, x, y)
@@ -330,7 +330,6 @@ class HiveView(context: Context, private val u: Float) : View(context) {
             canvas.restore()
         }
         canvas.restore()
-        postInvalidateDelayed(40)
         val name = Hud.glow(Hud.text(10 * u, Hud.alpha(Color.WHITE, a), Hud.MONO_BOLD, .14f, Paint.Align.CENTER), 6 * u, Hud.alpha(Hud.CRIMSON, a))
         val title = Hud.ellipsize(app.label.uppercase(), name, width - 100 * u)
         val group = Hud.text(7 * u, Hud.alpha(Hud.CRIMSON, a), Hud.MONO, .2f, Paint.Align.CENTER)

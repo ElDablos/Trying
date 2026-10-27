@@ -56,9 +56,16 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private var gameCount = 0
     private var resumed = false
 
+    private var ticks = 0
+    private var lastTelemetry: Telemetry? = null
+
     private val tick = object : Runnable {
         override fun run() {
-            home.setTelemetry(Telemetry.read(this@LauncherActivity))
+            // The clock moves every second, but the phone's readings (battery, signal, network, Buds) are
+            // read every 5 s, or every second while music plays so its progress bar moves.
+            val playing = lastTelemetry?.track?.playing == true
+            val t = if (ticks++ % 5 == 0 || playing || lastTelemetry == null) Telemetry.read(this@LauncherActivity).also { lastTelemetry = it } else lastTelemetry!!
+            home.setTelemetry(t)
             val now = currentMode()
             if (now != mode) {
                 mode = now
@@ -187,7 +194,9 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         Comms.addListener(this)
         val prefs = getSharedPreferences("launcher", MODE_PRIVATE)
         home.bootEnabled = prefs.getBoolean(LauncherSettingsActivity.BOOT, true)
-        effects.running = prefs.getBoolean(LauncherSettingsActivity.EFFECTS, true) && !overlayOpen()
+        ticks = 0
+        lastTelemetry = null
+        effects.running = effectsOn() && !overlayOpen()
         onComms()
         showNodes()
         handler.removeCallbacks(tick)
@@ -274,7 +283,17 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     }
 
     override fun onIncoming(sbn: StatusBarNotification) {
+        effects.wake()
         if (resumed && comms.visibility != View.VISIBLE && apps.visibility != View.VISIBLE) home.showIncoming(sbn)
+    }
+
+    /** Idle effects: on in settings, and off by themselves while Android's power saving is on. */
+    private fun effectsOn(): Boolean = getSharedPreferences("launcher", MODE_PRIVATE).getBoolean(LauncherSettingsActivity.EFFECTS, true) &&
+        getSystemService(android.os.PowerManager::class.java)?.isPowerSaveMode != true
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) effects.wake()
+        return super.dispatchTouchEvent(ev)
     }
 
     // --- Overlays ---
@@ -291,7 +310,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             addUpdateListener { setBlur(it.animatedValue as Float) }
             start()
         }
-        effects.running = !on && getSharedPreferences("launcher", MODE_PRIVATE).getBoolean(LauncherSettingsActivity.EFFECTS, true)
+        effects.running = !on && effectsOn()
     }
 
     private var blurAnim: android.animation.ValueAnimator? = null

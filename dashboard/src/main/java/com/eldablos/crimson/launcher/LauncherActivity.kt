@@ -279,6 +279,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         hub.translationX = -hub.width.toFloat().coerceAtLeast(1f)
         hub.alpha = 0f
         hub.animate().translationX(0f).alpha(1f).setDuration(260).setInterpolator(android.view.animation.DecelerateInterpolator(1.5f)).start()
+        hub.reset()
         hub.load()
     }
 

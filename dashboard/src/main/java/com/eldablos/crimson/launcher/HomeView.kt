@@ -160,7 +160,7 @@ class HomeView(context: Context) : View(context) {
             open < 0 && openT < .01f,
             RectF(70 * u, top, width - 10 * u, top + 56 * u),
             t?.track?.playing == true,
-            RectF(30 * u, y(628f) + 15 * u, width - 30 * u, y(628f) + 21 * u),
+            RectF(30 * u, y(642f) + 15 * u, width - 30 * u, y(642f) + 21 * u),
             pct >= 100,
             !booting && width > 0,
         )
@@ -784,7 +784,7 @@ class HomeView(context: Context) : View(context) {
     private fun drawSteps(canvas: Canvas, t: Telemetry) {
         val a = 1f - Hud.easeOut(openT)
         if (a < .02f) return
-        val top = y(628f)
+        val top = y(642f)
         val left = 30 * u
         val right = width - 30 * u
         val steps = t.steps
@@ -912,7 +912,7 @@ class HomeView(context: Context) : View(context) {
 
     private fun drawHint(canvas: Canvas) {
         val text = if (open >= 0) "TAP AN APP · HOLD FOR OPTIONS · TAP THE CORE TO CLOSE" else "TAP A NODE · ↓ COMMS · ↑ ALL APPS · → GAME HUB"
-        canvas.drawText(text, width / 2f, y(806f), Hud.text(7 * u, Hud.alpha(Hud.DUST, .8f), Hud.MONO, .08f, Paint.Align.CENTER))
+        canvas.drawText(text, width / 2f, y(822f), Hud.text(7 * u, Hud.alpha(Hud.DUST, .8f), Hud.MONO, .08f, Paint.Align.CENTER))
     }
 
     // --- Incoming pop-up ---
@@ -933,7 +933,7 @@ class HomeView(context: Context) : View(context) {
         // Slides up from the bottom into the space under the music bar, and back down when it goes.
         val inT = Hud.easeOut((age / 260f).coerceIn(0f, 1f))
         val outT = Hud.easeOut(((INCOMING_MS - age) / 320f).coerceIn(0f, 1f))
-        val base = y(792f)
+        val base = y(800f)
         val travel = height - base
         val top = base + travel * (1 - minOf(inT, outT)) + popOffset
         val r = RectF(14 * u, top, width - 14 * u, top + 92 * u)
@@ -1248,7 +1248,7 @@ class HomeView(context: Context) : View(context) {
 
     companion object {
         private const val BOOT_MS = 1700L
-        private const val MUSIC_TOP = 680f
+        private const val MUSIC_TOP = 694f
         private const val MUSIC_H = 104f
         private const val LOCK_MS = 170L
         private const val INCOMING_MS = 7000L

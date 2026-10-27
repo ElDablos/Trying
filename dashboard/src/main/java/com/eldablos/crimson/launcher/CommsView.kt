@@ -389,6 +389,21 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 
     private fun fill(row: LinearLayout, items: List<Hex>) {
+        // Holding a toggle opens its full settings page, as in One UI.
+        val pages = mapOf(
+            "WI-FI" to Settings.ACTION_WIFI_SETTINGS,
+            "BLUETOOTH" to Settings.ACTION_BLUETOOTH_SETTINGS,
+            "MOBILE DATA" to Settings.ACTION_DATA_ROAMING_SETTINGS,
+            "SOUND" to Settings.ACTION_SOUND_SETTINGS,
+            "VIBRATE" to Settings.ACTION_SOUND_SETTINGS,
+            "MUTE" to Settings.ACTION_SOUND_SETTINGS,
+            "ROTATE" to Settings.ACTION_DISPLAY_SETTINGS,
+            "DND" to Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS,
+            "LOCATION" to Settings.ACTION_LOCATION_SOURCE_SETTINGS,
+            "POWER SAVE" to Settings.ACTION_BATTERY_SAVER_SETTINGS,
+            "AIRPLANE" to Settings.ACTION_AIRPLANE_MODE_SETTINGS,
+        )
+        items.forEach { hex -> if (hex.hold == null) pages[hex.label]?.let { page -> hex.hold = { open(Intent(page)) } } }
         row.removeAllViews()
         items.forEach { row.addView(HexButton(context, u, it), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)) }
     }
@@ -864,7 +879,15 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
 }
 
 /** A quick toggle's look and action. [external] ones open Android's own switch for it (marked ↗). */
-class Hex(val label: String, val glyph: String, val on: Boolean, val external: Boolean = false, val action: () -> Unit)
+class Hex(
+    val label: String,
+    val glyph: String,
+    val on: Boolean,
+    val external: Boolean = false,
+    /** Hold: the full settings page for it, like One UI. */
+    var hold: (() -> Unit)? = null,
+    val action: () -> Unit,
+)
 
 /** A hexagonal quick toggle with its label underneath. */
 class HexButton(context: Context, private val u: Float, private val hex: Hex) : View(context) {
@@ -872,6 +895,12 @@ class HexButton(context: Context, private val u: Float, private val hex: Hex) : 
         setOnClickListener {
             performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
             hex.action()
+        }
+        setOnLongClickListener {
+            val hold = hex.hold ?: return@setOnLongClickListener false
+            performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            hold()
+            true
         }
     }
 

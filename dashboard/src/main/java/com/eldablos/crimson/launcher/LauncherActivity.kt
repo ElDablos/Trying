@@ -48,6 +48,9 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private lateinit var anchor: View
     private val handler = Handler(Looper.getMainLooper())
     private var mode = Mode.at(LocalTime.now().hour)
+
+    /** The mode picked by hand, or the one the clock says. */
+    private fun currentMode() = LauncherStore.modeOverride(this) ?: Mode.at(LocalTime.now().hour)
     private var games: List<ComponentName> = emptyList()
     private var allGames: List<ComponentName> = emptyList()
     private var gameCount = 0
@@ -56,7 +59,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private val tick = object : Runnable {
         override fun run() {
             home.setTelemetry(Telemetry.read(this@LauncherActivity))
-            val now = Mode.at(LocalTime.now().hour)
+            val now = currentMode()
             if (now != mode) {
                 mode = now
                 showNodes()
@@ -381,6 +384,25 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             true
         }
         addAppItems(menu, component)
+        menu.show()
+    }
+
+    /** Pick a mode by hand; it holds until the clock's next mode change. */
+    override fun modeMenu(anchorX: Float, anchorY: Float) {
+        val menu = popup(anchorX, anchorY)
+        val manual = LauncherStore.modeOverride(this)
+        menu.menu.add((if (manual == null) "● " else "○ ") + "AUTO · BY THE CLOCK").setOnMenuItemClickListener {
+            LauncherStore.setModeOverride(this, null)
+            tick.run()
+            true
+        }
+        Mode.entries.forEach { m ->
+            menu.menu.add((if (manual == m) "● " else "○ ") + m.label).setOnMenuItemClickListener {
+                LauncherStore.setModeOverride(this, m)
+                tick.run()
+                true
+            }
+        }
         menu.show()
     }
 

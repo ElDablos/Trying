@@ -54,6 +54,7 @@ class HomeView(context: Context) : View(context) {
         fun openAlarms()
         fun openHealth()
         fun openGames()
+        fun modeMenu(anchorX: Float, anchorY: Float)
     }
 
     var host: Host? = null
@@ -430,8 +431,8 @@ class HomeView(context: Context) : View(context) {
         val ticker = when {
             t.charging -> "◆ CHARGING · ${t.battery}%" + (t.chargeMinutes?.let { " · FULL IN ${it} MIN" } ?: "") + " · ${mode.label}"
             t.battery in 0..14 -> "◆ LOW POWER · ${t.battery}% · ${mode.label}"
-            unread > 0 -> "◆ ${mode.label} · $unread UNREAD · ALL SYSTEMS NOMINAL"
-            else -> "◆ ${mode.label} · NO NEW COMMS · ALL SYSTEMS NOMINAL"
+            unread > 0 -> "◆ ${mode.label} ▾ · $unread UNREAD · ALL SYSTEMS NOMINAL"
+            else -> "◆ ${mode.label} ▾ · NO NEW COMMS · ALL SYSTEMS NOMINAL"
         }
         status.draw(canvas, u, width.toFloat(), cameraX, cameraY, now, t, icons, (groups.size - 3).coerceAtLeast(0), ticker, Hud.DUST)
         // The notification diamonds flash when something arrives.
@@ -439,7 +440,9 @@ class HomeView(context: Context) : View(context) {
         if (incoming != null && age < 1500 && (age / 150) % 2 == 0L) {
             canvas.drawRect(80 * u, 10 * u, 172 * u, 42 * u, Hud.glow(Hud.fill(Hud.alpha(Hud.HOT, .18f)), 12 * u))
         }
-        hits += RectF(0f, 0f, width.toFloat(), 70 * u) to { host?.openComms() }
+        // The ticker line picks a mode; the rest of the bar opens Comms.
+        hits += RectF(0f, 54 * u, width.toFloat(), 76 * u) to { host?.modeMenu(width / 2f, 70 * u) }
+        hits += RectF(0f, 0f, width.toFloat(), 54 * u) to { host?.openComms() }
     }
 
     private fun drawWeather(canvas: Canvas, t: Telemetry) {

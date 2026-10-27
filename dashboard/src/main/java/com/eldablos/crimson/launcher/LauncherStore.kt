@@ -25,6 +25,12 @@ enum class Mode(val label: String, val top: String, val dim: Set<String> = empty
             else -> NIGHT
         }
 
+        /** When the clock next changes mode: 05:00, 07:00 or 17:00. */
+        fun nextChange(now: java.time.LocalDateTime): java.time.LocalDateTime {
+            val today = now.toLocalDate()
+            return listOf(5, 7, 17).map { today.atTime(it, 0) }.firstOrNull { it.isAfter(now) } ?: today.plusDays(1).atTime(5, 0)
+        }
+
         /** [nodes] turned round the ring so [mode]'s top node sits at the top, keeping their order. */
         fun <T> rotate(nodes: List<T>, mode: Mode, name: (T) -> String): List<T> = rotate(nodes, mode.top, name)
 
@@ -91,6 +97,25 @@ object LauncherStore {
             )
         }
         prefs(context).edit().putString("nodes", array.toString()).apply()
+    }
+
+    /** A mode picked by hand, kept until the clock reaches the next mode change; null when automatic. */
+    fun modeOverride(context: Context, now: java.time.LocalDateTime = java.time.LocalDateTime.now()): Mode? {
+        val p = prefs(context)
+        val until = p.getLong("override_until", 0)
+        if (until <= now.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()) return null
+        return p.getString("override", null)?.let { name -> Mode.entries.firstOrNull { it.name == name } }
+    }
+
+    fun setModeOverride(context: Context, mode: Mode?, now: java.time.LocalDateTime = java.time.LocalDateTime.now()) {
+        val e = prefs(context).edit()
+        if (mode == null) {
+            e.remove("override").remove("override_until")
+        } else {
+            val until = Mode.nextChange(now).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            e.putString("override", mode.name).putLong("override_until", until)
+        }
+        e.apply()
     }
 
     /** The node a mode brings to the top: the user's pick, or the mode's own. */

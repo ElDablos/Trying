@@ -86,6 +86,12 @@ class LauncherSettingsActivity : Activity() {
 
         // Modes.
         section("MODES")
+        val manual = LauncherStore.modeOverride(this)
+        val nowMode = manual ?: Mode.at(java.time.LocalTime.now().hour)
+        choice("MODE NOW", listOf("AUTO") + Mode.entries.map { it.label.substringBefore(' ') }, if (manual == null) 0 else Mode.entries.indexOf(manual) + 1) {
+            LauncherStore.setModeOverride(this, if (it == 0) null else Mode.entries[it - 1])
+        }
+        note(if (manual == null) "Automatic: ${nowMode.label} now, switching by the clock." else "${manual.label} by hand, until the clock's next change. Tap the mode on the home screen's status line to switch any time.")
         val names = LauncherStore.nodes(this).map { it.name }
         listOf(
             Mode.MORNING to "MORNING · 05:00–07:00",

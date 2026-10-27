@@ -49,4 +49,12 @@ class LauncherTest {
         assertEquals("1H", Comms.ago(now - 61 * 60_000, now))
         assertEquals("2D", Comms.ago(now - 49 * 3_600_000L, now))
     }
+
+    @Test
+    fun handPickedModesLastUntilTheNextChange() {
+        val t = java.time.LocalDateTime.of(2026, 10, 27, 9, 30)
+        assertEquals(java.time.LocalDateTime.of(2026, 10, 27, 17, 0), Mode.nextChange(t))
+        assertEquals(java.time.LocalDateTime.of(2026, 10, 28, 5, 0), Mode.nextChange(t.withHour(22)))
+        assertEquals(java.time.LocalDateTime.of(2026, 10, 27, 7, 0), Mode.nextChange(t.withHour(5).withMinute(0)))
+    }
 }

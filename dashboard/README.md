@@ -82,7 +82,8 @@ back to One UI Home the same way at any time.
   the centre with unread counts. The centre button searches every app.
 - **Modes**: Morning (05:00–07:00) and Night Ops (from 17:00) put MAIN at the top of the ring; Work
   (07:00–17:00) puts WORK there and dims GAMES. Pick a different top node for each mode in Launcher
-  settings.
+  settings. Tap the mode on the status line (◆ NIGHT OPS ▾) to switch by hand; it holds until
+  the next change on the clock.
 - **Crimson Weather**: tap the weather for a full forecast: now, rain, wind, humidity and UV, a glowing
   graph of the next 24 hours, sunrise and sunset, and seven days with their temperature ranges (from
   Open-Meteo, for the city set in the app). **SAMSUNG ↗** in its corner opens Samsung Weather.
@@ -108,7 +109,8 @@ back to One UI Home the same way at any time.
   Edge Panel (Apps panel → edit → add) and the Comms Centre opens over whatever app you're in; swipe
   up or press Back to return. There's also a glowing **Comms handle** in the middle of the right edge
   over every app: swipe it in or tap it for the same thing. Move it, switch sides or turn it off in
-  Launcher settings.
+  Launcher settings. Tap the mode on the status line (◆ NIGHT OPS ▾) to switch by hand; it holds until
+  the next change on the clock.
 - **Edge lighting** (needs "Display over other apps"): twin strips race round the screen edge in the
   app's colour when a message arrives, two comets circle it during an incoming call, gold energy climbs
   it when the charger goes in, and it breathes red on low battery. Works over any app while the phone

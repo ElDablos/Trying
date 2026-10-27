@@ -314,7 +314,9 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     override fun onComms() {
         val calls = Comms.calls()
-        home.setComms(Comms.groups(), calls)
+        val groups = Comms.groups()
+        home.setComms(groups, calls)
+        if (::deck.isInitialized) deck.setComms(groups)
         // The wallpaper's reactor spins up while a call rings.
         val nowRinging = calls.any { Comms.ringing(it) }
         if (nowRinging != ringing && resumed) {

@@ -78,6 +78,11 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     private var note = ""
     private var forecast: Forecast? = null
     private var torch = false
+    // Read once a second or on change, not every frame: these ask other parts of the system.
+    private var groups: List<Comms.Group> = emptyList()
+    private var dnd = false
+    private var claudeInstalled = true
+    private var modeLabel = ""
     private var openedAt = 0L
     private var touchedAt = 0L
 
@@ -110,8 +115,22 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         clipChildren = true
     }
 
+    /** Messages changed. */
+    fun setComms(list: List<Comms.Group>) {
+        groups = list
+        if (visibility == VISIBLE) board.invalidate()
+    }
+
+    private fun refreshState() {
+        dnd = Comms.doNotDisturb
+        modeLabel = (LauncherStore.modeOverride(context) ?: Mode.at(LocalDateTime.now().hour)).label
+    }
+
     /** Opens fresh: everything rises in again and the data reloads. */
     fun load() {
+        groups = Comms.groups()
+        claudeInstalled = ClaudeLink.installed(context)
+        refreshState()
         openedAt = SystemClock.uptimeMillis()
         touchedAt = openedAt
         board.scrollTo(0f)
@@ -147,6 +166,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
     fun setTelemetry(t: Telemetry) {
         telemetry = t
+        refreshState()
         if (visibility == VISIBLE) board.invalidate()
     }
 
@@ -236,19 +256,21 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             canvas.translate(0f, oy)
             cardIndex = 0
             var y = 44 * u
+            // Most useful first: ask, what's next, who's waiting, then the day's vitals and controls,
+            // and the reference readouts further down.
             y = header(canvas, y, now)
             y = claude(canvas, y + 12 * u, now)
-            y = rings(canvas, y + 12 * u, now)
-            y = progress(canvas, y + 12 * u, now)
-            y = music(canvas, y + 12 * u)
             y = agendaCard(canvas, y + 12 * u)
             y = messages(canvas, y + 12 * u)
+            y = rings(canvas, y + 12 * u, now)
+            y = music(canvas, y + 12 * u)
+            y = actions(canvas, y + 12 * u)
             y = weatherAndNote(canvas, y + 12 * u, now)
-            y = batteryGraph(canvas, y + 12 * u, now)
-            y = dataAndMarkets(canvas, y + 12 * u)
             y = mostUsed(canvas, y + 12 * u)
             y = buds(canvas, y + 12 * u)
-            y = actions(canvas, y + 12 * u)
+            y = batteryGraph(canvas, y + 12 * u, now)
+            y = dataAndMarkets(canvas, y + 12 * u)
+            y = progress(canvas, y + 12 * u, now)
             y = systems(canvas, y + 12 * u)
             canvas.drawText("▸ SWIPE RIGHT TO RETURN HOME", width / 2f, y + 30 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .2f, Paint.Align.CENTER))
             contentH = y + 56 * u
@@ -280,6 +302,11 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private fun panel(canvas: Canvas, r: RectF, accent: Int = Hud.CRIMSON, strong: Boolean = false) {
             val c = 12 * u
             canvas.drawPath(Hud.cut(r, c, path), Hud.fill(Hud.alpha(Hud.tint(0xFF140609.toInt()), .82f)))
+            // A faint sheen from the top, as if lit from above.
+            canvas.drawPath(Hud.cut(r, c, path), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(0f, r.top, 0f, r.top + minOf(r.height(), 70 * u), Hud.alpha(accent, if (strong) .14f else .08f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            })
+            canvas.drawLine(r.left + c + 2 * u, r.top + 1.5f * u, r.right - 2 * u, r.top + 1.5f * u, Hud.stroke(Hud.alpha(Color.WHITE, .05f), u))
             canvas.drawPath(Hud.cut(r, c, path), Hud.stroke(Hud.alpha(accent, if (strong) .7f else .32f), u))
             val br = Hud.glow(Hud.stroke(Hud.alpha(accent, .95f), 1.6f * u), 5 * u)
             val k = 14 * u
@@ -292,9 +319,10 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         }
 
         /** "◆ 03 // AGENDA" on the left of a card's top, with [right] on the right. */
-        private fun title(canvas: Canvas, r: RectF, n: Int, text: String, right: String? = null, rightColor: Int = Hud.DUST) {
+        /** Each section's number comes from its place in [SECTIONS], so it stays put while scrolling. */
+        private fun title(canvas: Canvas, r: RectF, text: String, right: String? = null, rightColor: Int = Hud.DUST) {
             val p = Hud.text(8.5f * u, Hud.CRIMSON, Hud.MONO, .2f)
-            val num = "%02d".format(n)
+            val num = "%02d".format(SECTIONS.indexOf(text) + 1)
             canvas.drawText("◆ $num // $text", r.left + 14 * u, r.top + 20 * u, p)
             if (right != null) canvas.drawText(right, r.right - 14 * u, r.top + 20 * u, Hud.fit(right, Hud.text(8 * u, rightColor, Hud.MONO, .12f, Paint.Align.RIGHT), r.width() * .5f))
         }
@@ -303,9 +331,19 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private inline fun card(canvas: Canvas, now: Long, top: Float, h: Float, draw: () -> Unit) {
             val t = rise(now)
             if (top + h + oy < -50 * u || top + oy > height + 50 * u) return
+            if (t >= 1f) {
+                draw()
+                return
+            }
             val save = canvas.saveLayerAlpha(0f, top - 30 * u, width.toFloat(), top + h + 40 * u, (255 * t).toInt())
             canvas.translate(0f, (1 - t) * 26 * u)
             draw()
+            // A scan line runs down the card as it materialises.
+            val sy = top + h * t
+            canvas.drawLine(14 * u, sy, width - 14 * u, sy, Paint().apply {
+                strokeWidth = 1.5f * u
+                shader = LinearGradient(14 * u, 0f, width - 14 * u, 0f, intArrayOf(Color.TRANSPARENT, Hud.HOT, Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+            })
             canvas.restoreToCount(save)
         }
 
@@ -313,8 +351,31 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val box = RectF(cx - r, cy - r, cx + r, cy + r)
             canvas.drawCircle(cx, cy, r, Hud.stroke(Hud.alpha(color, .15f), 6 * u))
             // Dashed outer scale.
-            canvas.drawCircle(cx, cy, r + 7 * u, Hud.stroke(Hud.alpha(color, .3f), u, floatArrayOf(2 * u, 4 * u)))
-            canvas.drawArc(box, -90f, 360f * value.coerceIn(0f, 1f), false, Hud.glow(Hud.stroke(color, 6 * u).apply { strokeCap = Paint.Cap.ROUND }, 6 * u))
+            // A scale of 24 ticks, every sixth one longer.
+            for (k in 0 until 24) {
+                val a = Math.toRadians(k * 15.0 - 90.0)
+                val inner = r + (if (k % 6 == 0) 6f else 8f) * u
+                val outer = r + 10 * u
+                val ca = kotlin.math.cos(a).toFloat()
+                val sa = kotlin.math.sin(a).toFloat()
+                canvas.drawLine(cx + inner * ca, cy + inner * sa, cx + outer * ca, cy + outer * sa, Hud.stroke(Hud.alpha(color, if (k % 6 == 0) .6f else .25f), u))
+            }
+            val v = value.coerceIn(0f, 1f)
+            if (v > 0f) {
+                val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeWidth = 6 * u
+                    strokeCap = Paint.Cap.ROUND
+                    shader = SweepGradient(cx, cy, intArrayOf(Hud.alpha(color, .35f), color, color), floatArrayOf(0f, v.coerceAtLeast(.01f), 1f)).also {
+                        it.setLocalMatrix(android.graphics.Matrix().apply { setRotate(-90f, cx, cy) })
+                    }
+                    setShadowLayer(6 * u, 0f, 0f, color)
+                }
+                canvas.drawArc(box, -90f, 360f * v, false, arc)
+                // A bright head at the end of the arc.
+                val ha = Math.toRadians(-90.0 + 360.0 * v)
+                canvas.drawCircle(cx + r * kotlin.math.cos(ha).toFloat(), cy + r * kotlin.math.sin(ha).toFloat(), 3.5f * u, Hud.glow(Hud.fill(Color.WHITE), 6 * u, color))
+            }
             canvas.drawText(label, cx, cy + 5 * u, Hud.fit(label, Hud.text(14 * u, Color.WHITE, Hud.LIGHT, align = Paint.Align.CENTER), r * 1.6f))
         }
 
@@ -334,8 +395,17 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             canvas.drawText(time.format(DateTimeFormatter.ofPattern("HH:mm")), 16 * u, y + 62 * u, clock)
             val secs = time.second
             canvas.drawText(":%02d".format(secs), 16 * u + clock.measureText(time.format(DateTimeFormatter.ofPattern("HH:mm"))) + 4 * u, y + 34 * u, Hud.text(10 * u, Hud.HOT, Hud.MONO))
-            val mode = (LauncherStore.modeOverride(context) ?: Mode.at(time.hour)).label
+            val mode = modeLabel
             canvas.drawText(time.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())).uppercase() + " · " + mode, 18 * u, y + 82 * u, Hud.text(9 * u, Hud.DUST, Hud.MONO, .2f))
+            // A rail under the header, with a light travelling along it.
+            val railY = y + 96 * u
+            canvas.drawLine(16 * u, railY, width - 16 * u, railY, Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f), u))
+            for (k in 0..20) canvas.drawLine(16 * u + k * (width - 32 * u) / 20, railY - 2 * u, 16 * u + k * (width - 32 * u) / 20, railY + 2 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .35f), u))
+            val lx = 16 * u + (width - 32 * u) * ((now % 5000) / 5000f)
+            canvas.drawLine(lx - 30 * u, railY, lx, railY, Paint().apply {
+                strokeWidth = 2 * u
+                shader = LinearGradient(lx - 30 * u, 0f, lx, 0f, Color.TRANSPARENT, Hud.HOT, Shader.TileMode.CLAMP)
+            })
             // Settings, top right.
             val gear = RectF(width - 58 * u, y - 6 * u, width - 16 * u, y + 34 * u)
             panel(canvas, gear, Hud.HOT, strong = true)
@@ -353,8 +423,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 tel?.let { (if (it.charging) "⚡ " else "") + "${it.battery}%" },
                 tel?.network,
                 if (tel?.vpn == true) "VPN" else null,
-                if (Comms.doNotDisturb) "DND" else null,
-                Comms.groups().sumOf { it.count }.takeIf { it > 0 }?.let { "$it UNREAD" },
+                if (dnd) "DND" else null,
+                groups.sumOf { it.count }.takeIf { it > 0 }?.let { "$it UNREAD" },
             )
             var x = width - 18 * u
             val chipP = Hud.text(7.5f * u, Hud.SOFT, Hud.MONO, .12f, Paint.Align.CENTER)
@@ -367,7 +437,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 canvas.drawText(c, r.centerX(), r.centerY() + 3 * u, chipP)
                 x -= w + 5 * u
             }
-            return y + 92 * u
+            return y + 100 * u
         }
 
         private var fieldLeft = 0f
@@ -439,13 +509,13 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         x += w + 6 * u
                     }
                 }
-                canvas.drawText(if (ClaudeLink.installed(context)) "RECENT · TAP TO ASK AGAIN" else "CLAUDE ISN'T INSTALLED · TAP OPEN CLAUDE TO GET IT", r.left + 14 * u, top + 164 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .14f))
+                canvas.drawText(if (claudeInstalled) "RECENT · TAP TO ASK AGAIN" else "CLAUDE ISN'T INSTALLED · TAP OPEN CLAUDE TO GET IT", r.left + 14 * u, top + 164 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .14f))
             }
             return top + h
         }
 
         private fun rings(canvas: Canvas, top: Float, now: Long): Float {
-            val h = 120 * u
+            val h = 128 * u
             val t = rise(now)
             val w = (width - 28 * u - 16 * u) / 3
             val tel = telemetry
@@ -468,7 +538,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val save = canvas.saveLayerAlpha(r.left, r.top - 10 * u, r.right, r.bottom + 30 * u, (255 * t).toInt())
                 canvas.translate(0f, (1 - t) * 26 * u)
                 panel(canvas, r, color)
-                ring(canvas, r.centerX(), r.top + 50 * u, 30 * u, value * Hud.easeOut(((now - openedAt - 200) / 900f).coerceIn(0f, 1f)), color, labels.first)
+                ring(canvas, r.centerX(), r.top + 54 * u, 30 * u, value * Hud.easeOut(((now - openedAt - 200) / 900f).coerceIn(0f, 1f)), color, labels.first)
                 canvas.drawText(labels.second, r.centerX(), r.bottom - 12 * u, Hud.fit(labels.second, Hud.text(7 * u, Hud.DUST, Hud.MONO, .12f, Paint.Align.CENTER), w - 10 * u))
                 canvas.restoreToCount(save)
                 if (i == 2 && usage == null) tap(r) { context.startActivity(DeckData.usageAccessIntent(context)) }
@@ -481,7 +551,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             card(canvas, now, top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r)
-                title(canvas, r, 1, "TIME", LocalDate.now().format(DateTimeFormatter.ofPattern("'WEEK' w · 'DAY' D", Locale.getDefault())))
+                title(canvas, r, "TIME", LocalDate.now().format(DateTimeFormatter.ofPattern("'WEEK' w · 'DAY' D", Locale.getDefault())))
                 val n = LocalDateTime.now()
                 fun frac(start: LocalDateTime, end: LocalDateTime) = (Duration.between(start, n).toMillis().toFloat() / Duration.between(start, end).toMillis()).coerceIn(0f, 1f)
                 val day = n.toLocalDate().atStartOfDay()
@@ -520,7 +590,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             card(canvas, SystemClock.uptimeMillis(), top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r)
-                title(canvas, r, 2, "AUDIO", if (track?.playing == true) "▶ PLAYING" else if (track != null) "PAUSED" else "IDLE", if (track?.playing == true) Hud.HOT else Hud.DUST)
+                title(canvas, r, "AUDIO", if (track?.playing == true) "▶ PLAYING" else if (track != null) "PAUSED" else "IDLE", if (track?.playing == true) Hud.HOT else Hud.DUST)
                 val art = RectF(r.left + 14 * u, top + 32 * u, r.left + 62 * u, top + 80 * u)
                 val bmp: Bitmap? = tel?.art
                 if (bmp != null) Hud.bitmap(canvas, bmp, art) else {
@@ -563,7 +633,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r)
                 val alarm = telemetry?.alarm?.let { "⏰ " + Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("EEE HH:mm", Locale.getDefault())).uppercase() }
-                title(canvas, r, 3, "AGENDA", alarm ?: "NO ALARM")
+                title(canvas, r, "AGENDA", alarm ?: "NO ALARM")
                 if (agenda.isEmpty()) {
                     val msg = if (com.eldablos.crimson.CalendarMonth.hasPermission(context)) "Nothing in the next two days. Clear skies." else "Calendar access is off: allow it in the Crimson Widget app."
                     canvas.drawText(msg, r.left + 14 * u, top + 62 * u, Hud.text(11 * u, Hud.DUST, Hud.SANS))
@@ -600,6 +670,13 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         canvas.drawText(badge, b.centerX(), b.centerY() + 3 * u, bp)
                     }
                     if (i > 0) canvas.drawLine(row.left, row.top - 2 * u, row.right, row.top - 2 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .12f), u))
+                    // The next one gets a meter counting down the last three hours to it.
+                    if (i == 0 && !live && e.begin - now < 3 * 3600_000L) {
+                        val f = 1f - (e.begin - now) / (3 * 3600_000f)
+                        val mt = RectF(tx, row.bottom - 1 * u, row.right, row.bottom + 1.5f * u)
+                        canvas.drawRect(mt, Hud.fill(Hud.alpha(Hud.GOLD, .12f)))
+                        canvas.drawRect(RectF(mt.left, mt.top, mt.left + mt.width() * f, mt.bottom), Hud.glow(Hud.fill(Hud.GOLD), 4 * u))
+                    }
                     tap(row) { DeckData.openEvent(context, e) }
                 }
             }
@@ -607,13 +684,13 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         }
 
         private fun messages(canvas: Canvas, top: Float): Float {
-            val groups = Comms.groups().take(4)
+            val groups = groups.take(4)
             val h = 40 * u + groups.size.coerceAtLeast(1) * 38 * u
             card(canvas, SystemClock.uptimeMillis(), top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r)
-                val total = Comms.groups().sumOf { it.count }
-                title(canvas, r, 4, "COMMS", if (total > 0) "$total UNREAD ›" else "ALL CLEAR", if (total > 0) Hud.HOT else Hud.DUST)
+                val total = this@DeckView.groups.sumOf { it.count }
+                title(canvas, r, "COMMS", if (total > 0) "$total UNREAD ›" else "ALL CLEAR", if (total > 0) Hud.HOT else Hud.DUST)
                 if (groups.isEmpty()) canvas.drawText(if (Comms.connected) "No new messages." else "Notification access is off.", r.left + 14 * u, top + 60 * u, Hud.text(11 * u, Hud.DUST, Hud.SANS))
                 groups.forEachIndexed { i, g ->
                     val ry = top + 34 * u + i * 38 * u
@@ -637,7 +714,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val r = RectF(14 * u, top, 14 * u + w1, top + h)
                 panel(canvas, r)
                 val f = forecast
-                title(canvas, r, 5, "SKY", telemetry?.place?.uppercase())
+                title(canvas, r, "SKY", telemetry?.place?.uppercase())
                 if (f == null) {
                     canvas.drawText("Tap for Crimson Weather", r.left + 14 * u, top + 64 * u, Hud.text(11 * u, Hud.DUST, Hud.SANS))
                 } else {
@@ -680,7 +757,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
                 val n = RectF(r.right + 8 * u, top, width - 14 * u, top + h)
                 panel(canvas, n, Hud.GOLD)
-                title(canvas, n, 6, "NOTE", "✎")
+                title(canvas, n, "NOTE", "✎")
                 val lines = note.lines().filter { it.isNotBlank() }.take(4)
                 val np = Hud.text(11 * u, Hud.SOFT, Hud.SANS)
                 if (lines.isEmpty()) canvas.drawText("+ tap to write…", n.left + 14 * u, top + 52 * u, Hud.text(11 * u, Hud.DUST, Hud.SANS))
@@ -700,7 +777,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r)
                 val p = power
-                title(canvas, r, 7, "POWER · 24H", p?.let { "%.1f°C · %s · %.2fV".format(Locale.ROOT, it.tempC, it.health, it.voltage) })
+                title(canvas, r, "POWER · 24H", p?.let { "%.1f°C · %s · %.2fV".format(Locale.ROOT, it.tempC, it.health, it.voltage) })
                 val tel = telemetry
                 val samples = log + listOfNotNull(tel?.let { DeckData.Sample(System.currentTimeMillis(), it.battery, it.charging) })
                 val gl = r.left + 14 * u
@@ -749,7 +826,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             card(canvas, SystemClock.uptimeMillis(), top, h) {
                 val r = RectF(14 * u, top, 14 * u + w1, top + h)
                 panel(canvas, r)
-                title(canvas, r, 8, "DATA")
+                title(canvas, r, "DATA")
                 val d = data
                 if (d == null) {
                     canvas.drawText("Needs usage access", r.left + 14 * u, top + 56 * u, Hud.text(10 * u, Hud.DUST, Hud.SANS))
@@ -769,7 +846,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
                 val m = RectF(r.right + 8 * u, top, width - 14 * u, top + h)
                 panel(canvas, m)
-                title(canvas, m, 9, "MARKETS", "GBP · 24H")
+                title(canvas, m, "MARKETS", "GBP · 24H")
                 if (coins.isEmpty()) canvas.drawText("Fetching prices…", m.left + 14 * u, top + 60 * u, Hud.text(10 * u, Hud.DUST, Hud.SANS))
                 coins.forEachIndexed { i, c ->
                     val ry = top + 44 * u + i * 22 * u
@@ -790,7 +867,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             card(canvas, SystemClock.uptimeMillis(), top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r)
-                title(canvas, r, 10, "MOST USED TODAY", if (usage == null) "FROM THE LAUNCHER" else "SCREEN TIME")
+                title(canvas, r, "MOST USED TODAY", if (usage == null) "FROM THE LAUNCHER" else "SCREEN TIME")
                 if (pkgs.isEmpty()) canvas.drawText("Apps you open today show up here.", r.left + 14 * u, top + 64 * u, Hud.text(11 * u, Hud.DUST, Hud.SANS))
                 val slot = (r.width() - 20 * u) / 6
                 pkgs.take(6).forEachIndexed { i, pkg ->
@@ -815,7 +892,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             card(canvas, SystemClock.uptimeMillis(), top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r)
-                title(canvas, r, 11, "BUDS", "CONNECTED", Hud.HOT)
+                title(canvas, r, "BUDS", "CONNECTED", Hud.HOT)
                 val parts = listOf("LEFT" to tel.budsLeft, "RIGHT" to tel.budsRight, "CASE" to tel.budsCase)
                 val w = (r.width() - 28 * u) / 3
                 parts.forEachIndexed { i, (label, v) ->
@@ -835,10 +912,10 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             card(canvas, SystemClock.uptimeMillis(), top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r)
-                title(canvas, r, 12, "QUICK ACTIONS")
+                title(canvas, r, "QUICK ACTIONS")
                 val acts = listOf(
                     Triple("✦", "TORCH", torch) to { toggleTorch() },
-                    Triple("☾", "DND", Comms.doNotDisturb) to { Comms.doNotDisturb = !Comms.doNotDisturb },
+                    Triple("☾", "DND", dnd) to { Comms.doNotDisturb = !dnd; dnd = !dnd },
                     Triple("⏱", "TIMER 5M", false) to { startTimer() },
                     Triple("⏰", "ALARMS", false) to { start(Intent(AlarmClock.ACTION_SHOW_ALARMS)) },
                     Triple("±", "CALC", false) to { AppCatalog.apps().firstOrNull { it.label.equals("Calculator", true) }?.let { onLaunch?.invoke(it.component) } },
@@ -867,7 +944,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             card(canvas, SystemClock.uptimeMillis(), top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r)
-                title(canvas, r, 13, "SYSTEMS", "ALL NOMINAL")
+                title(canvas, r, "SYSTEMS", "ALL NOMINAL")
                 val s = specs
                 val tel = telemetry
                 val cells = listOf(
@@ -1002,6 +1079,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 
     companion object {
+        /** The sections in the order they appear, for their numbers. */
+        private val SECTIONS = listOf("AGENDA", "COMMS", "AUDIO", "QUICK ACTIONS", "SKY", "NOTE", "MOST USED TODAY", "BUDS", "POWER · 24H", "DATA", "MARKETS", "TIME", "SYSTEMS")
+
         /** How long animations keep running after the last touch. */
         private const val LIVE_MS = 20_000L
 

@@ -29,7 +29,9 @@ that rushes towards you, with data pulses, warp streaks and drifting embers. Tap
 ![Crimson Reactor](src/main/res/drawable-nodpi/reactor_preview.jpg)
 
 - It tilts in 3D with the phone, and powers up with a scan line each time you unlock.
-- Charging fills the tunnel with energy up to your battery level; low battery makes it beat slowly.
+- Charging: a surge rolls out when you plug in, the walls fill with white-gold energy up to your
+  battery level as bands keep rising, the core beats, and a gauge round the reactor shows the level.
+  Low battery makes it beat slowly in red.
 - With **Crimson Launcher** as your home screen it matches the launcher's theme and reacts: a shockwave in
   the app's colour for each message, the reactor spinning up with orbiting comets for an incoming call, a
   pulse when you open a node, a ripple where you tap, and calmer or livelier with the time-of-day mode.

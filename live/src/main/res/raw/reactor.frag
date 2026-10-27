@@ -39,6 +39,10 @@ vec3 sector(vec3 p, float n) {
 }
 
 float gSpin;
+
+// Charging energy: a warm white-gold, nudged towards the theme's second colour, so it stands out in
+// every theme (even green ones, whose second colour is green too).
+vec3 energyCol() { return mix(vec3(1.0, 0.82, 0.38), uSecondary, 0.25); }
 float gBoot;
 
 // Returns distance; mat: 0 dark metal, 1 glowing, 2 copper coils.
@@ -124,9 +128,16 @@ vec3 tunnel(vec2 uv, float speed, vec3 col, vec3 col2) {
     // A message: the walls light up in the app's colour as the wave passes out through them.
     float wave = uPulseT * 1.4;
     c += uPulseColor * line * smoothstep(wave - 0.5, wave, r) * smoothstep(wave + 0.05, wave - 0.05, r) * exp(-uPulseT * 1.2) * 2.2;
-    // Charging: the walls fill with the second colour from the bottom.
-    float fill = uCharge * step(1.0 - uLevel, (1.0 - (gl_FragCoord.y / uRes.y)));
-    c = mix(c, col2 * line * (0.5 + 2.0 * band) * fog, fill);
+    // Charging: the walls fill with energy from the bottom up to the battery level, and bright bands
+    // keep rising up the whole tunnel.
+    vec3 en = energyCol();
+    float fromBottom = gl_FragCoord.y / uRes.y;
+    float fill = uCharge * smoothstep(uLevel + 0.02, uLevel - 0.02, fromBottom);
+    c = mix(c, en * (line * (0.6 + 2.2 * band) + lit * 0.3) * fog, fill);
+    float rising = pow(0.5 + 0.5 * sin(fromBottom * 16.0 - uTime * 3.2), 10.0);
+    c += en * line * rising * uCharge * 1.4 * fog;
+    // The level's edge glows like a waterline.
+    c += en * exp(-abs(fromBottom - uLevel) * 160.0) * uCharge * 0.9;
     // A faint glow deep in the tunnel.
     c += col * 0.35 * exp(-r * 6.0);
     return c;
@@ -172,7 +183,11 @@ void main() {
         if (t > 7.0) break;
     }
     float corePulse = 0.75 + 0.25 * sin(uTime * 1.5) + 0.6 * exp(-uPulseT * 2.5);
+    // Charging: the core beats with energy, about once a second.
+    float beat = pow(0.5 + 0.5 * sin(uTime * 5.4), 12.0) * uCharge;
+    corePulse += beat * 0.8;
     vec3 hotCol = mix(col, vec3(1.0), 0.18) * corePulse;
+    hotCol = mix(hotCol, energyCol() * corePulse, uCharge * 0.6);
     if (hit > 0.5) {
         vec3 p = ro + rd * t;
         vec3 n = normalAt(p);
@@ -208,6 +223,18 @@ void main() {
     float ang = atan(uv.y, uv.x);
     float rays = pow(0.5 + 0.5 * sin(ang * 10.0 + gSpin * 0.25 * 10.0), 6.0) * 0.6 + 0.4 * pow(0.5 + 0.5 * sin(ang * 23.0 - uTime * 0.35), 10.0);
     c += col * rays * smoothstep(0.45, 0.75, rr) * exp(-(rr - 0.6) * 2.2) * 0.35 * corePulse * boot * (1.0 - hit);
+
+    // Charging: a gauge round the reactor, lit up to the battery level, in segments.
+    if (uCharge > 0.01) {
+        float fromTop = atan(uv.x, uv.y);
+        float frac = (fromTop < 0.0 ? fromTop + TAU : fromTop) / TAU;
+        float seg = step(fract(frac * 60.0), 0.72);
+        float band = exp(-abs(rr - 0.76) * 140.0);
+        float on = step(frac, uLevel);
+        c += energyCol() * band * seg * mix(0.18, 1.8 + 0.6 * beat, on) * uCharge;
+        // A bright tip where the level reaches.
+        c += energyCol() * exp(-length(uv - 0.76 * vec2(sin(uLevel * TAU), cos(uLevel * TAU))) * 60.0) * 1.5 * uCharge;
+    }
 
     // A message: a shockwave in the app's colour.
     float pr = uPulseT * 1.4;

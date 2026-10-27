@@ -123,6 +123,11 @@ class ReactorService : WallpaperService() {
             val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
             if (plugged != charging) {
                 charging = plugged
+                // Plugged in: a surge of energy rolls out from the core.
+                if (plugged) {
+                    pulseAt = now()
+                    pulseColor = Color.rgb(255, 214, 110)
+                }
                 wake()
             }
             low = !plugged && level <= .15f

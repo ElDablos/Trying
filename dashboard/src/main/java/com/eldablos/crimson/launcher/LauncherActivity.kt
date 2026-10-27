@@ -1,10 +1,15 @@
 package com.eldablos.crimson.launcher
 
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.Context
+import android.content.IntentFilter
 import android.content.Intent
 import android.content.pm.LauncherApps
 import android.net.Uri
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -13,6 +18,7 @@ import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.service.notification.StatusBarNotification
 import android.view.View
+import android.view.ViewAnimationUtils
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
@@ -34,6 +40,7 @@ import java.time.LocalTime
  */
 class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private lateinit var home: HomeView
+    private lateinit var effects: EffectsView
     private lateinit var comms: CommsView
     private lateinit var apps: AppsView
     private lateinit var anchor: View
@@ -52,6 +59,13 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
                 showNodes()
             }
             handler.postDelayed(this, 1000L - System.currentTimeMillis() % 1000L)
+        }
+    }
+
+    /** Unlocking the phone replays the boot sequence. */
+    private val unlocked = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            home.boot()
         }
     }
 
@@ -77,9 +91,11 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         val u = resources.displayMetrics.widthPixels / 412f
         val root = FrameLayout(this)
         home = HomeView(this).also { it.host = this }
+        effects = EffectsView(this, home)
         comms = CommsView(this, u).apply {
             visibility = View.GONE
             onClose = { closeComms() }
+            onSettings = { startActivity(Intent(this@LauncherActivity, LauncherSettingsActivity::class.java)) }
         }
         apps = AppsView(this, u).apply {
             visibility = View.GONE
@@ -92,6 +108,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         }
         anchor = View(this)
         root.addView(home)
+        root.addView(effects)
         root.addView(comms)
         root.addView(apps)
         root.addView(anchor, FrameLayout.LayoutParams(1, 1))
@@ -116,9 +133,22 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         RefreshJob.schedule(this)
         showNodes()
         loadGames()
+        registerReceiver(unlocked, IntentFilter(Intent.ACTION_USER_PRESENT), RECEIVER_NOT_EXPORTED)
+        home.boot()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Samsung's panel brings its status bar back; hide it again once we're on top.
+        if (hasFocus) window.insetsController?.hide(WindowInsets.Type.statusBars())
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(unlocked)
+        } catch (e: Exception) {
+            // Not registered.
+        }
         getSystemService(LauncherApps::class.java)?.unregisterCallback(packages)
         AppCatalog.removeIconListener(iconsLoaded)
         super.onDestroy()
@@ -129,6 +159,9 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         resumed = true
         window.insetsController?.hide(WindowInsets.Type.statusBars())
         Comms.addListener(this)
+        val prefs = getSharedPreferences("launcher", MODE_PRIVATE)
+        home.bootEnabled = prefs.getBoolean(LauncherSettingsActivity.BOOT, true)
+        effects.running = prefs.getBoolean(LauncherSettingsActivity.EFFECTS, true) && !overlayOpen()
         onComms()
         showNodes()
         handler.removeCallbacks(tick)
@@ -214,22 +247,42 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     // --- Overlays ---
 
+    private fun overlayOpen() = comms.visibility == View.VISIBLE || apps.visibility == View.VISIBLE
+
+    /** Blurs the home screen behind an overlay, like Samsung's panel does. */
+    private fun backdrop(on: Boolean) {
+        home.setRenderEffect(if (on) RenderEffect.createBlurEffect(22f, 22f, Shader.TileMode.CLAMP) else null)
+        effects.running = !on && getSharedPreferences("launcher", MODE_PRIVATE).getBoolean(LauncherSettingsActivity.EFFECTS, true)
+    }
+
     override fun openComms(replyTo: String?) {
         if (apps.visibility == View.VISIBLE) return
+        backdrop(true)
         comms.show(replyTo)
     }
 
-    private fun closeComms() = comms.hide {}
+    private fun closeComms() = comms.hide { backdrop(false) }
 
     override fun openApps(search: Boolean) {
         if (comms.visibility == View.VISIBLE) return
         val homes = HashMap<ComponentName, String>()
         LauncherStore.nodes(this).forEach { n -> n.apps.forEach { homes.putIfAbsent(it, n.name.uppercase()) } }
         LauncherStore.dock(this).forEach { homes.putIfAbsent(it, "DOCK") }
+        backdrop(true)
         apps.show(AppCatalog.apps(), homes, search)
+        // Search grows out of the core.
+        if (search && apps.isAttachedToWindow) {
+            val geometry = home.geometry()
+            try {
+                ViewAnimationUtils.createCircularReveal(apps, geometry.cx.toInt(), geometry.ringY.toInt(), 30 * geometry.u, window.decorView.height.toFloat())
+                    .setDuration(380).start()
+            } catch (e: Exception) {
+                // Not laid out yet.
+            }
+        }
     }
 
-    private fun closeApps() = apps.hide {}
+    private fun closeApps() = apps.hide { backdrop(false) }
 
     // --- Menus ---
 
@@ -300,7 +353,11 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             safeStart(Intent(Intent.ACTION_SET_WALLPAPER))
             true
         }
-        menu.menu.add("Crimson settings").setOnMenuItemClickListener {
+        menu.menu.add("Launcher settings").setOnMenuItemClickListener {
+            startActivity(Intent(this, LauncherSettingsActivity::class.java))
+            true
+        }
+        menu.menu.add("Widget settings").setOnMenuItemClickListener {
             startActivity(Intent(this, MainActivity::class.java))
             true
         }

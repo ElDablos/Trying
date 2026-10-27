@@ -85,8 +85,22 @@ back to One UI Home the same way at any time.
 - **Around it**: weather (tap for the Weather app), the date and next alarm (tap for the calendar or
   alarms), the steps line (tap for Samsung Health) and the music bar with shuffle, skip, repeat and the
   queue button.
-- **Swipes**: down for the Comms Centre (quick toggles, brightness, notifications you can open, reply
-  to inline or swipe away), up for all apps, right for the GAMES node.
+- **Swipes**: down for the Comms Centre, up for all apps, right for the GAMES node.
+- **Comms Centre**: Samsung's quick controls and your notifications in one panel: twelve toggles (Wi-Fi,
+  Bluetooth, mobile data, sound, rotate, torch, Do Not Disturb, location, power saving, airplane, Buds,
+  and ⋯ for Samsung's own panel), brightness and volume, the music card with its output device, Smart
+  View, SmartThings, Quick Share and media output shortcuts, then the notifications to open, reply to
+  inline or swipe away. Toggles marked ↗ open Android's own switch, since only the system can flip
+  those. A swipe from the very top edge still opens Samsung's panel; that gesture belongs to Android.
+- **Edge lighting** (needs "Display over other apps"): twin strips race round the screen edge in the
+  app's colour when a message arrives, two comets circle it during an incoming call, gold energy climbs
+  it when the charger goes in, and it breathes red on low battery. Works over any app while the phone
+  is unlocked; Samsung's own edge lighting still handles the lock screen.
+- **Animations**: a boot sequence each unlock (scan line, rings spinning in, nodes popping out, the dock
+  flying out of the core), embers, a radar sweep and breathing nodes while idle, a shockwave and
+  hologram flicker when a node deploys, target-lock brackets when an app opens, radar pings for new
+  messages, a mode-shift sweep, the music visualiser and a spark along the steps line once the goal is
+  hit. Turn the boot sequence or idle effects off in Launcher settings (⚙ in the Comms Centre).
 - **Editing**: hold a node to rename it, drag its apps into order, add or remove apps, move it round the
   ring or delete it. Hold an app in orbit to move it to another node. Hold an empty spot for a new
   node, the dock, or the wallpaper.

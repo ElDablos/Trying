@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
+import android.graphics.RadialGradient
 import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.LinearGradient
@@ -17,6 +18,13 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.hardware.camera2.CameraCharacteristics
+import android.location.LocationManager
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.PowerManager
+import android.os.SystemClock
 import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.net.wifi.WifiManager
@@ -41,24 +49,34 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.eldablos.crimson.BudsState
 import com.eldablos.crimson.MainActivity
+import com.eldablos.crimson.NowPlaying
 import kotlin.math.abs
 
+
 /**
- * The Comms Centre, pulled down over the home screen: quick toggles, brightness, and the phone's
- * notifications as HUD cards you can open, reply to inline or swipe away.
+ * The Comms Centre, pulled down over the home screen: Samsung's quick controls and the phone's
+ * notifications in one place. Twelve toggles, brightness and volume, the music card, device shortcuts,
+ * then notifications as HUD cards you can open, reply to inline or swipe away.
  */
 class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     var onClose: (() -> Unit)? = null
+    var onSettings: (() -> Unit)? = null
 
     private val header = TextView(context)
-    private val toggles = LinearLayout(context)
-    private val brightness = BrightnessBar(context, u)
+    private val rowTop = LinearLayout(context)
+    private val rowBottom = LinearLayout(context)
+    private val brightness = SegmentBar(context, u, "☀", ::readBrightness, ::writeBrightness)
+    private val volume = SegmentBar(context, u, "♪", ::readVolume, ::writeVolume)
+    private val music = MusicCard(context, u)
+    private val notifHeader = TextView(context)
     private val scroll = ScrollView(context)
+    private val column = LinearLayout(context)
     private val cards = LinearLayout(context)
     private val empty = TextView(context)
     private var replyFor: String? = null
     private var torchOn = false
     private var torchId: String? = null
+    private var scanStart = 0L
 
     private val torchCallback = object : CameraManager.TorchCallback() {
         override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
@@ -71,44 +89,78 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
 
     init {
         setWillNotDraw(false)
-        val column = LinearLayout(context).apply {
+        val frame = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding((14 * u).toInt(), (78 * u).toInt(), (14 * u).toInt(), 0)
+            setPadding(0, (74 * u).toInt(), 0, 0)
         }
-        addView(column, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(frame, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        column.orientation = LinearLayout.VERTICAL
+        column.setPadding((14 * u).toInt(), 0, (14 * u).toInt(), (10 * u).toInt())
+        scroll.addView(column)
+        scroll.isVerticalScrollBarEnabled = false
+        scroll.overScrollMode = View.OVER_SCROLL_NEVER
+        frame.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         val head = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
         style(header, 9f, Hud.CRIMSON, .2f)
         head.addView(header, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val clear = TextView(context)
-        style(clear, 9f, Hud.DUST, .2f)
-        clear.text = "CLEAR ALL ✕"
-        clear.setPadding((8 * u).toInt(), (6 * u).toInt(), 0, (6 * u).toInt())
-        clear.setOnClickListener { Comms.clearAll() }
-        head.addView(clear)
+        val settings = TextView(context)
+        style(settings, 9f, Hud.DUST, .2f)
+        settings.text = "⚙ SETTINGS"
+        settings.setPadding((8 * u).toInt(), (6 * u).toInt(), 0, (6 * u).toInt())
+        settings.setOnClickListener { onSettings?.invoke() }
+        head.addView(settings)
         column.addView(head)
         column.addView(View(context).apply { setBackgroundColor(Hud.alpha(Hud.CRIMSON, .3f)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, u.toInt().coerceAtLeast(1)))
 
-        toggles.gravity = Gravity.CENTER_VERTICAL
-        column.addView(toggles, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (70 * u).toInt()).apply { topMargin = (10 * u).toInt() })
+        column.addView(rowTop, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (68 * u).toInt()).apply { topMargin = (10 * u).toInt() })
+        column.addView(rowBottom, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (68 * u).toInt()).apply { topMargin = (4 * u).toInt() })
         column.addView(brightness, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (22 * u).toInt()).apply { topMargin = (6 * u).toInt() })
+        column.addView(volume, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (22 * u).toInt()))
+        column.addView(music, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (58 * u).toInt()).apply { topMargin = (8 * u).toInt() })
+
+        val chips = LinearLayout(context)
+        listOf(
+            "▣ SMART VIEW" to { openFirst(launch("com.samsung.android.smartmirroring"), Intent(Settings.ACTION_CAST_SETTINGS)) },
+            "✲ SMARTTHINGS" to { openFirst(launch("com.samsung.android.oneconnect")) },
+            "◎ QUICK SHARE" to { openFirst(launch("com.samsung.android.app.sharelive"), Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
+            "▶ MEDIA OUTPUT" to { mediaOutput() },
+        ).forEachIndexed { i, (label, action) ->
+            val chip = TextView(context)
+            style(chip, 6.5f, Hud.BONE, .08f)
+            chip.text = label
+            chip.gravity = Gravity.CENTER
+            chip.background = Outline(u, Hud.alpha(0xFF140609.toInt(), .7f))
+            chip.setPadding(0, (8 * u).toInt(), 0, (8 * u).toInt())
+            chip.setOnClickListener { action() }
+            chips.addView(chip, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) marginStart = (5 * u).toInt() })
+        }
+        column.addView(chips, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (8 * u).toInt() })
+
+        val notifRow = LinearLayout(context).apply { gravity = Gravity.CENTER_VERTICAL }
+        style(notifHeader, 8f, Hud.CRIMSON, .2f)
+        notifRow.addView(notifHeader, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val clear = TextView(context)
+        style(clear, 8f, Hud.DUST, .2f)
+        clear.text = "CLEAR ALL ✕"
+        clear.setPadding((8 * u).toInt(), (8 * u).toInt(), 0, (8 * u).toInt())
+        clear.setOnClickListener { Comms.clearAll() }
+        notifRow.addView(clear)
+        column.addView(notifRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (10 * u).toInt() })
 
         cards.orientation = LinearLayout.VERTICAL
-        scroll.addView(cards)
-        scroll.isVerticalScrollBarEnabled = false
-        scroll.overScrollMode = View.OVER_SCROLL_NEVER
-        column.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = (10 * u).toInt() })
+        column.addView(cards)
 
         style(empty, 8f, Hud.DUST, .2f)
         empty.gravity = Gravity.CENTER
-        empty.setPadding(0, (40 * u).toInt(), 0, 0)
+        empty.setPadding(0, (24 * u).toInt(), 0, (24 * u).toInt())
 
         val foot = TextView(context)
         style(foot, 7f, Hud.DUST, .16f)
         foot.gravity = Gravity.CENTER
-        foot.text = "SWIPE UP TO CLOSE · SWIPE A CARD TO DISMISS"
+        foot.text = "SWIPE UP TO CLOSE · ↗ OPENS ANDROID'S SWITCH"
         foot.setPadding(0, (8 * u).toInt(), 0, (14 * u).toInt())
-        column.addView(foot)
+        frame.addView(foot)
         foot.setOnClickListener { onClose?.invoke() }
 
         val camera = context.getSystemService(CameraManager::class.java)
@@ -124,9 +176,28 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        // Leave the HUD status bar showing through at the top.
-        canvas.drawRect(0f, 0f, width.toFloat(), 72 * u, Hud.fill(Hud.alpha(0xFF050203.toInt(), .35f)))
-        canvas.drawRect(0f, 72 * u, width.toFloat(), height.toFloat(), Hud.fill(Hud.alpha(0xFF050203.toInt(), .9f)))
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Hud.fill(Hud.alpha(0xFF050203.toInt(), .8f)))
+        canvas.drawRect(0f, 0f, width.toFloat(), height * .5f, Paint().apply {
+            shader = RadialGradient(width / 2f, 0f, width.toFloat(), Hud.alpha(Hud.DEEP, .25f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+        })
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        // A glitchy scan line sweeps down as the panel opens.
+        val age = SystemClock.uptimeMillis() - scanStart
+        if (age < 460) {
+            val t = age / 460f
+            val y = 74 * u + (height - 74 * u) * t
+            val jitter = if ((age / 40) % 3 == 0L) 6 * u else 0f
+            canvas.drawLine(jitter, y, width.toFloat() + jitter, y, Paint().apply {
+                strokeWidth = 2 * u
+                shader = LinearGradient(0f, 0f, width.toFloat(), 0f, intArrayOf(Color.TRANSPARENT, Hud.HOT, Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+                setShadowLayer(8 * u, 0f, 0f, Hud.HOT)
+            })
+            canvas.drawRect(0f, y - 3 * u, width.toFloat(), y + 3 * u, Hud.fill(Hud.alpha(Hud.HOT, .06f)))
+            postInvalidateOnAnimation()
+        }
     }
 
     override fun onAttachedToWindow() {
@@ -144,15 +215,30 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
         replyFor = replyTo
         visibility = View.VISIBLE
         alpha = 0f
-        translationY = -40 * u
-        animate().alpha(1f).translationY(0f).setDuration(220).start()
-        brightness.read()
+        translationY = -30 * u
+        animate().alpha(1f).translationY(0f).setDuration(200).start()
+        scroll.scrollTo(0, 0)
         refresh()
+        // Everything slides in, one row after another.
+        for (i in 0 until column.childCount) {
+            val child = column.getChildAt(i)
+            child.alpha = 0f
+            child.translationY = -14 * u
+            child.animate().alpha(1f).translationY(0f).setStartDelay(60L + i * 35L).setDuration(220).start()
+        }
+        for (i in 0 until cards.childCount) {
+            val card = cards.getChildAt(i)
+            card.alpha = 0f
+            card.translationX = 40 * u
+            card.animate().alpha(1f).translationX(0f).setStartDelay(260L + i * 50L).setDuration(240).start()
+        }
+        scanStart = SystemClock.uptimeMillis()
+        invalidate()
     }
 
     fun hide(after: () -> Unit) {
         hideKeyboard()
-        animate().alpha(0f).translationY(-40 * u).setDuration(180).withEndAction {
+        animate().alpha(0f).translationY(-30 * u).setDuration(170).withEndAction {
             visibility = View.GONE
             after()
         }.start()
@@ -161,11 +247,13 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     fun refresh() {
         if (visibility != View.VISIBLE) return
         renderToggles()
+        brightness.invalidate()
+        volume.invalidate()
+        music.invalidate()
         val groups = Comms.groups()
-        header.text = when {
-            !Comms.connected -> "◆ COMMS // OFFLINE"
-            else -> "◆ COMMS // ${groups.sumOf { it.count }} INCOMING"
-        }
+        val count = groups.sumOf { it.count }
+        header.text = if (!Comms.connected) "◆ COMMS // CONTROL · OFFLINE" else "◆ COMMS // CONTROL + $count INCOMING"
+        notifHeader.text = "◆ NOTIFICATIONS · $count"
         // Don't pull the rug out from under a reply being typed.
         if (cards.findFocus() is EditText) return
         cards.removeAllViews()
@@ -190,24 +278,121 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     // --- Quick toggles ---
 
     private fun renderToggles() {
-        toggles.removeAllViews()
         val wifi = context.applicationContext.getSystemService(WifiManager::class.java)?.isWifiEnabled == true
         val bt = try {
             context.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled == true
         } catch (e: SecurityException) {
             false
         }
-        val buds = BudsState.read(context).present
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val cellular = connectivity?.getNetworkCapabilities(connectivity.activeNetwork)?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+        val data = try {
+            context.getSystemService(android.telephony.TelephonyManager::class.java)?.isDataEnabled ?: cellular
+        } catch (e: Exception) {
+            cellular
+        }
+        val audio = context.getSystemService(AudioManager::class.java)
+        val ringer = audio?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL
         val rotate = Settings.System.getInt(context.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 0) == 1
-        val items = listOf(
-            Hex("WI-FI", "◠", wifi) { open(Intent(Settings.Panel.ACTION_WIFI)) },
-            Hex("BLUETOOTH", "ᛒ", bt) { open(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
-            Hex("TORCH", "✦", torchOn) { toggleTorch() },
-            Hex("DND", "☾", Comms.doNotDisturb) { Comms.doNotDisturb = !Comms.doNotDisturb; renderToggles() },
-            Hex("BUDS", "◖◗", buds) { open(Intent(context, MainActivity::class.java)) },
+        val location = context.getSystemService(LocationManager::class.java)?.isLocationEnabled == true
+        val saver = context.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
+        val airplane = Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) == 1
+        val buds = BudsState.read(context).present
+        val sound = when (ringer) {
+            AudioManager.RINGER_MODE_VIBRATE -> Hex("VIBRATE", "≋", false) { setRinger(AudioManager.RINGER_MODE_NORMAL) }
+            AudioManager.RINGER_MODE_SILENT -> Hex("MUTE", "∅", false) { setRinger(AudioManager.RINGER_MODE_NORMAL) }
+            else -> Hex("SOUND", "♪", true) { setRinger(AudioManager.RINGER_MODE_VIBRATE) }
+        }
+        fill(rowTop, listOf(
+            Hex("WI-FI", "◠", wifi, external = true) { open(Intent(Settings.Panel.ACTION_WIFI)) },
+            Hex("BLUETOOTH", "ᛒ", bt, external = true) { open(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
+            Hex("MOBILE DATA", "⇅", data, external = true) { open(Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)) },
+            sound,
             Hex("ROTATE", "⟳", rotate) { toggleRotate(!rotate) },
+            Hex("TORCH", "✦", torchOn) { toggleTorch() },
+        ))
+        fill(rowBottom, listOf(
+            Hex("DND", "☾", Comms.doNotDisturb) { Comms.doNotDisturb = !Comms.doNotDisturb; renderToggles() },
+            Hex("LOCATION", "◉", location, external = true) { open(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) },
+            Hex("POWER SAVE", "⚡", saver, external = true) { open(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)) },
+            Hex("AIRPLANE", "✈", airplane, external = true) { open(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS)) },
+            Hex("BUDS", "◖◗", buds) { open(Intent(context, MainActivity::class.java)) },
+            Hex("SAMSUNG", "⋯", false, external = true) { samsungPanel() },
+        ))
+    }
+
+    private fun fill(row: LinearLayout, items: List<Hex>) {
+        row.removeAllViews()
+        items.forEach { row.addView(HexButton(context, u, it), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)) }
+    }
+
+    private fun setRinger(mode: Int) {
+        try {
+            context.getSystemService(AudioManager::class.java)?.ringerMode = mode
+        } catch (e: SecurityException) {
+            open(Intent(Settings.ACTION_SOUND_SETTINGS))
+        }
+        renderToggles()
+    }
+
+    /** Opens Samsung's own quick panel, for anything that isn't here. */
+    private fun samsungPanel() {
+        try {
+            val bar = context.getSystemService("statusbar")
+            bar.javaClass.getMethod("expandSettingsPanel").invoke(bar)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(context, "Swipe down from the very top edge for Samsung's panel", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun mediaOutput() {
+        val pkg = NowPlaying.activeController(context)?.packageName ?: NowPlaying.SPOTIFY
+        openFirst(
+            Intent("com.android.settings.panel.action.MEDIA_OUTPUT").putExtra("com.android.settings.panel.extra.PACKAGE_NAME", pkg),
+            Intent(Settings.ACTION_BLUETOOTH_SETTINGS),
         )
-        items.forEach { toggles.addView(HexButton(context, u, it), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)) }
+    }
+
+    private fun launch(pkg: String): Intent? = context.packageManager.getLaunchIntentForPackage(pkg)
+
+    private fun openFirst(vararg intents: Intent?) {
+        for (intent in intents) {
+            intent ?: continue
+            try {
+                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (e: Exception) {
+                // Try the next.
+            }
+        }
+        android.widget.Toast.makeText(context, "That isn't on this phone", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    // --- Brightness and volume ---
+
+    private fun readBrightness(): Float = Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128) / 255f
+
+    private fun writeBrightness(level: Float): Boolean {
+        if (!Settings.System.canWrite(context)) {
+            askWriteSettings()
+            return false
+        }
+        val resolver = context.contentResolver
+        Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+        Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS, (level * 255).toInt().coerceIn(3, 255))
+        return true
+    }
+
+    private fun readVolume(): Float {
+        val audio = context.getSystemService(AudioManager::class.java) ?: return 0f
+        return audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+    }
+
+    private fun writeVolume(level: Float): Boolean {
+        val audio = context.getSystemService(AudioManager::class.java) ?: return false
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, (level * max).toInt().coerceIn(0, max), 0)
+        return true
     }
 
     private fun toggleTorch() {
@@ -511,19 +696,22 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 }
 
-/** A quick toggle's look and action. */
-class Hex(val label: String, val glyph: String, val on: Boolean, val action: () -> Unit)
+/** A quick toggle's look and action. [external] ones open Android's own switch for it (marked ↗). */
+class Hex(val label: String, val glyph: String, val on: Boolean, val external: Boolean = false, val action: () -> Unit)
 
 /** A hexagonal quick toggle with its label underneath. */
 class HexButton(context: Context, private val u: Float, private val hex: Hex) : View(context) {
     init {
-        setOnClickListener { hex.action() }
+        setOnClickListener {
+            performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK)
+            hex.action()
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
-        val w = 44 * u
-        val h = 48 * u
+        val w = 40 * u
+        val h = 44 * u
         val top = 2 * u
         val p = Path().apply {
             moveTo(cx, top); lineTo(cx + w / 2, top + h * .25f); lineTo(cx + w / 2, top + h * .75f)
@@ -531,26 +719,29 @@ class HexButton(context: Context, private val u: Float, private val hex: Hex) : 
         }
         canvas.drawPath(p, Hud.fill(if (hex.on) 0xFF4A0C18.toInt() else 0xFF14070A.toInt()))
         canvas.drawPath(p, if (hex.on) Hud.glow(Hud.stroke(Hud.HOT, 1.6f * u), 6 * u) else Hud.stroke(Hud.alpha(Hud.CRIMSON, .35f), 1.2f * u))
-        val g = Hud.text(15 * u, if (hex.on) Color.WHITE else Hud.DUST, Hud.SANS, align = Paint.Align.CENTER)
+        val g = Hud.text(13 * u, if (hex.on) Color.WHITE else Hud.DUST, Hud.SANS, align = Paint.Align.CENTER)
         if (hex.on) Hud.glow(g, 6 * u, Hud.HOT)
-        canvas.drawText(hex.glyph, cx, top + h / 2 + 5 * u, g)
-        canvas.drawText(hex.label, cx, top + h + 12 * u, Hud.text(6 * u, if (hex.on) Color.WHITE else Hud.DUST, Hud.MONO, .12f, Paint.Align.CENTER))
+        canvas.drawText(hex.glyph, cx, top + h / 2 + 4.5f * u, g)
+        if (hex.external) canvas.drawText("↗", cx + w * .26f, top + h * .3f, Hud.text(7 * u, 0xFFFF8A9A.toInt(), Hud.SANS, align = Paint.Align.CENTER))
+        canvas.drawText(hex.label, cx, top + h + 11 * u, Hud.text(5.5f * u, if (hex.on) Color.WHITE else Hud.DUST, Hud.MONO, .1f, Paint.Align.CENTER))
     }
 }
 
-/** Screen brightness as a row of skewed segments; drag along it to change. */
-class BrightnessBar(context: Context, private val u: Float) : View(context) {
-    private var level = .5f
-
-    fun read() {
-        level = Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128) / 255f
-        invalidate()
-    }
+/** A level (brightness, volume) as a row of skewed segments; drag along it to change. */
+class SegmentBar(
+    context: Context,
+    private val u: Float,
+    private val glyph: String,
+    private val read: () -> Float,
+    private val write: (Float) -> Boolean,
+) : View(context) {
+    private var dragging: Float? = null
 
     override fun onDraw(canvas: Canvas) {
+        val level = dragging ?: read()
         val left = 20 * u
         val right = width - 36 * u
-        canvas.drawText("☀", 4 * u, height / 2f + 4 * u, Hud.text(10 * u, Hud.DUST, Hud.SANS))
+        canvas.drawText(glyph, 4 * u, height / 2f + 4 * u, Hud.text(10 * u, Hud.DUST, Hud.SANS))
         val segs = 18
         val gap = 3 * u
         val w = (right - left - gap * (segs - 1)) / segs
@@ -563,25 +754,112 @@ class BrightnessBar(context: Context, private val u: Float) : View(context) {
             path.reset()
             path.moveTo(x + 1.5f * u, top); path.lineTo(x + w + 1.5f * u, top)
             path.lineTo(x + w - 1.5f * u, top + 8 * u); path.lineTo(x - 1.5f * u, top + 8 * u); path.close()
-            canvas.drawPath(path, if (i < (level * segs).toInt().coerceAtLeast(1)) on else off)
+            canvas.drawPath(path, if (i < (level * segs).roundToIntSafe()) on else off)
         }
         canvas.drawText("${(level * 100).toInt()}%", width.toFloat(), height / 2f + 3 * u, Hud.text(9 * u, Hud.DUST, Hud.MONO, align = Paint.Align.RIGHT))
     }
 
+    private fun Float.roundToIntSafe() = kotlin.math.round(this).toInt()
+
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (!Settings.System.canWrite(context)) {
-            if (e.actionMasked == MotionEvent.ACTION_UP) {
-                android.widget.Toast.makeText(context, "Allow Crimson Widget to change settings, for brightness", android.widget.Toast.LENGTH_LONG).show()
-                context.startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }
-            return true
-        }
         parent.requestDisallowInterceptTouchEvent(true)
-        level = ((e.x - 20 * u) / (width - 56 * u)).coerceIn(.02f, 1f)
-        val resolver = context.contentResolver
-        Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
-        Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS, (level * 255).toInt())
+        val level = ((e.x - 20 * u) / (width - 56 * u)).coerceIn(0f, 1f)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                dragging = level
+                if (!write(level)) dragging = null
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dragging = null
+        }
         invalidate()
+        return true
+    }
+}
+
+/** What's playing, with skip and play/pause, and where it's playing (tap that to change it). */
+class MusicCard(context: Context, private val u: Float) : View(context) {
+    private val hits = ArrayList<Pair<RectF, () -> Unit>>()
+
+    override fun onDraw(canvas: Canvas) {
+        hits.clear()
+        val r = RectF(0f, 0f, width.toFloat(), height.toFloat())
+        Hud.panel(canvas, r, 12 * u, u, Hud.alpha(Hud.CRIMSON, .45f), Hud.alpha(0xFF280810.toInt(), .6f))
+        val track = NowPlaying.read(context)
+        val art = RectF(12 * u, r.centerY() - 18 * u, 48 * u, r.centerY() + 18 * u)
+        val bitmap = if (track != null) NowPlaying.art(context) else null
+        if (bitmap != null) {
+            canvas.save()
+            canvas.clipPath(Path().apply { addRoundRect(art, 7 * u, 7 * u, Path.Direction.CW) })
+            Hud.bitmap(canvas, bitmap, art)
+            canvas.restore()
+        } else {
+            canvas.drawRoundRect(art, 7 * u, 7 * u, Hud.fill(Hud.BLOOD))
+            canvas.drawText("♪", art.centerX(), art.centerY() + 5 * u, Hud.text(15 * u, Hud.CRIMSON, Hud.SANS, align = Paint.Align.CENTER))
+        }
+        val textLeft = art.right + 10 * u
+        val controls = r.right - 112 * u
+        val title = Hud.text(12 * u, Color.WHITE, Hud.MEDIUM)
+        canvas.drawText(Hud.ellipsize(track?.title ?: "Nothing playing", title, controls - textLeft), textLeft, r.centerY() - 3 * u, title)
+        val sub = Hud.text(6.5f * u, Hud.DUST, Hud.MONO, .1f)
+        val line = (track?.artist?.uppercase()?.let { "$it · " } ?: "") + "▶ OUTPUT: " + output()
+        canvas.drawText(Hud.ellipsize(line, sub, controls - textLeft), textLeft, r.centerY() + 10 * u, sub)
+        hits += RectF(textLeft, r.centerY(), controls, r.bottom) to { openOutput() }
+        hits += RectF(0f, 0f, controls, r.centerY()) to { openPlayer() }
+        val cy = r.centerY()
+        var x = controls + 6 * u
+        val glyph = Hud.text(13 * u, Hud.CRIMSON, Hud.SANS, align = Paint.Align.CENTER)
+        canvas.drawText("⏮", x + 12 * u, cy + 4.5f * u, glyph)
+        hits += RectF(x - 4 * u, 0f, x + 28 * u, r.bottom) to { NowPlaying.control(context, NowPlaying.Control.PREVIOUS); postInvalidateDelayed(400) }
+        x += 32 * u
+        canvas.drawCircle(x + 14 * u, cy, 14 * u, Hud.glow(Hud.stroke(Hud.CRIMSON, u), 5 * u))
+        val white = Hud.fill(Color.WHITE)
+        val px = x + 14 * u
+        if (track?.playing == true) {
+            canvas.drawRect(px - 4.5f * u, cy - 5.5f * u, px - 1.5f * u, cy + 5.5f * u, white)
+            canvas.drawRect(px + 1.5f * u, cy - 5.5f * u, px + 4.5f * u, cy + 5.5f * u, white)
+        } else {
+            canvas.drawPath(Path().apply { moveTo(px - 3.5f * u, cy - 6 * u); lineTo(px + 5.5f * u, cy); lineTo(px - 3.5f * u, cy + 6 * u); close() }, white)
+        }
+        hits += RectF(x - 2 * u, 0f, x + 30 * u, r.bottom) to { NowPlaying.control(context, NowPlaying.Control.PLAY_PAUSE); postInvalidateDelayed(400) }
+        x += 36 * u
+        canvas.drawText("⏭", x + 12 * u, cy + 4.5f * u, glyph)
+        hits += RectF(x - 4 * u, 0f, r.right, r.bottom) to { NowPlaying.control(context, NowPlaying.Control.NEXT); postInvalidateDelayed(400) }
+    }
+
+    /** Where sound is going: the connected headphones or speaker, else the phone. */
+    private fun output(): String {
+        val audio = context.getSystemService(AudioManager::class.java) ?: return "PHONE"
+        val device = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull {
+            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+        }
+        return device?.productName?.toString()?.uppercase()?.takeIf { it.isNotBlank() } ?: "PHONE"
+    }
+
+    private fun openOutput() {
+        val pkg = NowPlaying.activeController(context)?.packageName ?: NowPlaying.SPOTIFY
+        for (intent in listOf(
+            Intent("com.android.settings.panel.action.MEDIA_OUTPUT").putExtra("com.android.settings.panel.extra.PACKAGE_NAME", pkg),
+            Intent(Settings.ACTION_BLUETOOTH_SETTINGS),
+        )) {
+            try {
+                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (e: Exception) {
+                // Next.
+            }
+        }
+    }
+
+    private fun openPlayer() {
+        val pkg = NowPlaying.activeController(context)?.packageName ?: NowPlaying.read(context)?.packageName ?: NowPlaying.SPOTIFY
+        context.packageManager.getLaunchIntentForPackage(pkg)?.let { context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_UP) {
+            hits.firstOrNull { it.first.contains(e.x, e.y) }?.second?.invoke()
+        }
         return true
     }
 }

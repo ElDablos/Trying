@@ -26,6 +26,9 @@
         android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- Edge lighting draws over other apps; the Comms Centre can open Samsung's own panel. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
 
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
@@ -108,6 +111,14 @@
             android:taskAffinity=""
             android:theme="@style/AppTheme.NoTitle"
             android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".launcher.LauncherSettingsActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:label="Launcher settings"
+            android:taskAffinity=""
+            android:theme="@style/AppTheme.NoTitle" />
 
         <!-- The widget's queue pop-up. -->
         <activity

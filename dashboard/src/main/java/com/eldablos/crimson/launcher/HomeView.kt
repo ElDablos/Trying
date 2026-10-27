@@ -13,6 +13,7 @@ import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import android.os.SystemClock
 import android.service.notification.StatusBarNotification
 import android.text.format.DateFormat
 import android.view.GestureDetector
@@ -99,9 +100,68 @@ class HomeView(context: Context) : View(context) {
     private val status = StatusHud()
     private var background: Bitmap? = null
     private val hits = ArrayList<Pair<RectF, () -> Unit>>()
+    private var marks: Bitmap? = null
+
+    // Animation state, in uptime millis.
+    private var bootStart = 0L
+    private var modeShiftStart = 0L
+    private var ringOffset = 0f
+    private var orbitSpin = 0f
+    private var lockAt: FloatArray? = null
+    private var lockStart = 0L
+    private val ripples = ArrayList<FloatArray>()
+    private var ringAnimator: ValueAnimator? = null
+    private var spinAnimator: ValueAnimator? = null
+
+    /** Whether the boot sequence plays when the phone is unlocked. */
+    var bootEnabled = true
+
+    private fun now() = SystemClock.uptimeMillis()
 
     init {
         isHapticFeedbackEnabled = true
+    }
+
+    /** Plays the boot sequence: the HUD assembles itself. */
+    fun boot() {
+        if (!bootEnabled) return
+        bootStart = now()
+        invalidate()
+    }
+
+    private val booting: Boolean get() = bootStart > 0 && now() - bootStart < BOOT_MS
+
+    /** How far the boot sequence is, 0–1 (1 when it isn't playing). */
+    private fun bootT(): Float = if (bootStart == 0L) 1f else ((now() - bootStart) / BOOT_MS.toFloat()).coerceIn(0f, 1f)
+
+    /** Where the edge effects should go, for the effects layer on top. */
+    class Geometry(
+        val u: Float,
+        val cx: Float,
+        val ringY: Float,
+        val nodes: List<Pair<Float, Float>>,
+        val nodesShown: Boolean,
+        val music: RectF,
+        val playing: Boolean,
+        val steps: RectF,
+        val stepsDone: Boolean,
+        val ready: Boolean,
+    )
+
+    fun geometry(): Geometry {
+        val t = telemetry
+        val pct = t?.steps?.let { Format.stepsPercent(it, t.goal) } ?: 0
+        val top = y(686f)
+        return Geometry(
+            u, width / 2f, ringY,
+            ring.indices.map { nodeCentre(it) },
+            open < 0 && openT < .01f,
+            RectF(20 * u, top, width - 20 * u, top + 66 * u),
+            t?.track?.playing == true,
+            RectF(30 * u, y(628f) + 15 * u, width - 30 * u, y(628f) + 21 * u),
+            pct >= 100,
+            !booting && width > 0,
+        )
     }
 
     // --- Data ---
@@ -109,8 +169,20 @@ class HomeView(context: Context) : View(context) {
     fun setData(nodes: List<Node>, dock: List<ComponentName>, mode: Mode, games: List<ComponentName>, gameCount: Int) {
         val indexed = nodes.mapIndexed { i, n -> RingNode(i, n, if (n.games) games else n.apps) }
         val openName = ring.getOrNull(open)?.node?.name
+        val previousTop = ring.firstOrNull()?.node?.name
+        val shifted = mode != this.mode && ring.isNotEmpty()
         ring = Mode.rotate(indexed, mode) { it.node.name }
         this.dock = dock.take(LauncherStore.MAX_DOCK)
+        if (shifted) {
+            // Mode shift: sweep the screen and turn the ring to its new top node.
+            modeShiftStart = now()
+            val k = ring.indexOfFirst { it.node.name == previousTop }
+            if (k > 0) {
+                var from = -k * 360f / ring.size
+                if (from < -180f) from += 360f
+                spinRing(from)
+            }
+        }
         this.mode = mode
         this.gameCount = gameCount
         if (openName != null) {
@@ -144,12 +216,36 @@ class HomeView(context: Context) : View(context) {
         return true
     }
 
-    private fun openNode(index: Int) {
+    private fun spinRing(from: Float) {
+        ringAnimator?.cancel()
+        ringAnimator = ValueAnimator.ofFloat(from, 0f).apply {
+            duration = 900
+            interpolator = android.view.animation.DecelerateInterpolator(1.6f)
+            addUpdateListener {
+                ringOffset = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    private fun openNode(index: Int, direction: Int = 0) {
         if (index !in ring.indices) return
         performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
         if (open >= 0 && open != index) {
             open = index
-            openT = .35f
+            openT = .45f
+            // Hop: the new apps swirl in from the side of the swipe.
+            spinAnimator?.cancel()
+            spinAnimator = ValueAnimator.ofFloat(if (direction >= 0) 50f else -50f, 0f).apply {
+                duration = 420
+                interpolator = android.view.animation.DecelerateInterpolator(1.4f)
+                addUpdateListener {
+                    orbitSpin = it.animatedValue as Float
+                    invalidate()
+                }
+                start()
+            }
         } else {
             open = index
         }
@@ -191,6 +287,7 @@ class HomeView(context: Context) : View(context) {
         extra = (usable / u - 893f).coerceAtLeast(-60f)
         ringY = (392 + extra * .45f) * u
         background = null
+        marks = null
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
@@ -205,16 +302,60 @@ class HomeView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val t = telemetry ?: return
         hits.clear()
+        val b = bootT()
         canvas.drawBitmap(background ?: buildBackground().also { background = it }, 0f, 0f, null)
-        drawStatus(canvas, t)
-        drawWeather(canvas, t)
-        drawDate(canvas, t)
-        drawRing(canvas, t)
+        // Boot: the scale marks spin in, then everything else lands in turn.
+        val m = marks ?: buildMarks().also { marks = it }
+        val mt = Hud.easeOut(win(b, .05f, .45f))
+        if (mt > 0f) {
+            canvas.save()
+            canvas.rotate((1 - mt) * -90f, width / 2f, ringY)
+            canvas.scale(.6f + .4f * mt, .6f + .4f * mt, width / 2f, ringY)
+            canvas.drawBitmap(m, width / 2f - m.width / 2f, ringY - m.height / 2f, Paint().apply { alpha = (255 * mt).toInt() })
+            canvas.restore()
+        }
+        stage(canvas, win(b, 0f, .25f), dy = -30 * u) { drawStatus(canvas, t) }
+        stage(canvas, win(b, .55f, .25f), dx = -40 * u) { drawWeather(canvas, t) }
+        stage(canvas, win(b, .58f, .25f), dx = 40 * u) { drawDate(canvas, t) }
+        drawRing(canvas, t, b)
         if (openT > 0f && open >= 0) drawOrbit(canvas)
-        drawSteps(canvas, t)
-        drawMusic(canvas, t)
-        drawHint(canvas)
+        stage(canvas, win(b, .66f, .25f), dy = 30 * u) { drawSteps(canvas, t) }
+        stage(canvas, win(b, .72f, .25f), dy = 30 * u) { drawMusic(canvas, t) }
+        if (b >= .86f && (b >= 1f || ((now() / 60) % 2 == 0L))) drawHint(canvas)
+        drawModeShift(canvas)
         drawIncoming(canvas)
+        drawLock(canvas)
+        drawRipples(canvas)
+        if (b < 1f) {
+            // The scan line that sweeps down as the HUD boots.
+            val sy = height * (b / .65f)
+            if (b < .65f) canvas.drawLine(0f, sy, width.toFloat(), sy, Paint().apply {
+                strokeWidth = 2 * u
+                shader = LinearGradient(0f, 0f, width.toFloat(), 0f, intArrayOf(Color.TRANSPARENT, Hud.HOT, Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+                setShadowLayer(10 * u, 0f, 0f, Hud.HOT)
+            })
+            postInvalidateOnAnimation()
+        } else if (bootStart != 0L) {
+            bootStart = 0L
+        }
+        if (modeShiftStart != 0L || lockAt != null || ripples.isNotEmpty()) postInvalidateOnAnimation()
+    }
+
+    /** Progress through one step of an animation that runs from [start] for [length] (all 0–1). */
+    private fun win(t: Float, start: Float, length: Float) = ((t - start) / length).coerceIn(0f, 1f)
+
+    /** Draws [block] faded and slid into place by [t] (0–1), during the boot sequence. */
+    private inline fun stage(canvas: Canvas, t: Float, dx: Float = 0f, dy: Float = 0f, block: () -> Unit) {
+        if (t <= 0f) return
+        if (t >= 1f) {
+            block()
+            return
+        }
+        val e = Hud.easeOut(t)
+        val save = canvas.saveLayerAlpha(null, (255 * e).toInt())
+        canvas.translate(dx * (1 - e), dy * (1 - e))
+        block()
+        canvas.restoreToCount(save)
     }
 
     /** Wallpaper scrim, crimson glow, dot grid and the ring's fixed scale marks: drawn once per size. */
@@ -243,6 +384,16 @@ class HomeView(context: Context) : View(context) {
             }
             gy += 14 * u
         }
+        return bmp
+    }
+
+    /** The ring's fixed scale marks, as one image so the boot sequence can spin it in. */
+    private fun buildMarks(): Bitmap {
+        val size = (380 * u).toInt().coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val cx = size / 2f
+        val ringY = size / 2f
         c.drawCircle(cx, ringY, 188 * u, Hud.stroke(Hud.alpha(Hud.RED, .18f), u))
         val tick = Hud.stroke(Hud.alpha(Hud.CRIMSON, .5f), u)
         for (i in 0 until 120) {
@@ -272,6 +423,11 @@ class HomeView(context: Context) : View(context) {
             else -> "◆ ${mode.label} · NO NEW COMMS · ALL SYSTEMS NOMINAL"
         }
         status.draw(canvas, u, width.toFloat(), cameraX, cameraY, now, t, icons, (groups.size - 3).coerceAtLeast(0), ticker, Hud.DUST)
+        // The notification diamonds flash when something arrives.
+        val age = System.currentTimeMillis() - incomingAt
+        if (incoming != null && age < 1500 && (age / 150) % 2 == 0L) {
+            canvas.drawRect(80 * u, 10 * u, 172 * u, 42 * u, Hud.glow(Hud.fill(Hud.alpha(Hud.HOT, .18f)), 12 * u))
+        }
         hits += RectF(0f, 0f, width.toFloat(), 70 * u) to { host?.openComms() }
     }
 
@@ -371,7 +527,7 @@ class HomeView(context: Context) : View(context) {
     // --- The ring ---
 
     private fun nodeCentre(i: Int): Pair<Float, Float> {
-        val a = Math.toRadians(-90.0 + i * 360.0 / ring.size.coerceAtLeast(1))
+        val a = Math.toRadians(-90.0 + i * 360.0 / ring.size.coerceAtLeast(1) + ringOffset)
         return width / 2f + 152 * u * cos(a).toFloat() to ringY + 152 * u * sin(a).toFloat()
     }
 
@@ -380,10 +536,18 @@ class HomeView(context: Context) : View(context) {
         return width / 2f + 68 * u * cos(a).toFloat() to ringY + 68 * u * sin(a).toFloat()
     }
 
-    private fun drawRing(canvas: Canvas, t: Telemetry) {
+    private fun drawRing(canvas: Canvas, t: Telemetry, b: Float) {
         val cx = width / 2f
         val closed = 1f - Hud.easeOut(openT)
         val box = { r: Float -> RectF(cx - r * u, ringY - r * u, cx + r * u, ringY + r * u) }
+        // Boot: the core spins up from small, the nodes pop out, the dock flies out of the centre.
+        val coreT = Hud.easeOutBack(win(b, .12f, .4f))
+        if (coreT <= 0f) return
+        val coreSave = canvas.save()
+        if (coreT < 1f) {
+            canvas.rotate((1 - coreT) * -120f, cx, ringY)
+            canvas.scale(.5f + .5f * coreT, .5f + .5f * coreT, cx, ringY)
+        }
 
         // Inner rings, the steps arc and the core.
         canvas.drawCircle(cx, ringY, 112 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .85f), 1.5f * u))
@@ -404,25 +568,39 @@ class HomeView(context: Context) : View(context) {
         canvas.drawCircle(cx, ringY, 96 * u, Hud.stroke(Hud.alpha(Hud.RED, .45f), 6 * u, floatArrayOf(2 * u, 4 * u)))
         canvas.restore()
         canvas.drawCircle(cx, ringY, 68 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f * closed), u, floatArrayOf(u, 3 * u)))
+        canvas.restoreToCount(coreSave)
 
         // Links and nodes.
         val alphaNodes = closed
         if (alphaNodes > 0.01f) {
             val link = Hud.stroke(Hud.alpha(Hud.CRIMSON, .5f * alphaNodes), u, floatArrayOf(2 * u, 3 * u))
             ring.forEachIndexed { i, rn ->
-                val a = Math.toRadians(-90.0 + i * 360.0 / ring.size)
+                val pop = win(b, .32f + i * .05f, .22f)
+                if (pop <= 0f) return@forEachIndexed
+                val a = Math.toRadians(-90.0 + i * 360.0 / ring.size + ringOffset)
                 val ca = cos(a).toFloat()
                 val sa = sin(a).toFloat()
                 canvas.drawLine(cx + 112 * u * ca, ringY + 112 * u * sa, cx + 121 * u * ca, ringY + 121 * u * sa, link)
-                drawNode(canvas, i, rn, alphaNodes)
+                val (nx, ny) = nodeCentre(i)
+                val save = canvas.save()
+                if (pop < 1f) {
+                    val sc = Hud.easeOutBack(pop)
+                    canvas.scale(sc, sc, nx, ny)
+                }
+                drawNode(canvas, i, rn, alphaNodes * pop.coerceAtMost(1f))
+                canvas.restoreToCount(save)
             }
         }
 
         // Dock apps orbiting the core.
         if (closed > 0.01f) {
             dock.forEachIndexed { i, component ->
-                val (x, y) = dockCentre(i)
-                val s = 19 * u
+                val fly = Hud.easeOutBack(win(b, .52f + i * .04f, .22f))
+                if (fly <= 0f) return@forEachIndexed
+                val (dx, dy) = dockCentre(i)
+                val x = cx + (dx - cx) * fly
+                val y = ringY + (dy - ringY) * fly
+                val s = 19 * u * (.4f + .6f * fly.coerceAtMost(1f))
                 drawIcon(canvas, component, RectF(x - s, y - s, x + s, y + s), (255 * closed).toInt(), glow = true)
                 counts[component.packageName]?.let { n -> if (closed > .5f) Hud.badge(canvas, x + s * .85f, y - s * .85f, n, u * .9f) }
                 if (incoming?.packageName == component.packageName) drawPulse(canvas, x, y, s)
@@ -430,7 +608,7 @@ class HomeView(context: Context) : View(context) {
         }
 
         // The reactor: search.
-        val r = 30 * u
+        val r = 30 * u * coreT.coerceAtMost(1.1f)
         canvas.drawCircle(cx, ringY, r, Hud.fill(0xFF14070A.toInt()))
         canvas.drawCircle(cx, ringY, r, Hud.glow(Hud.stroke(Hud.HOT, 2 * u), 6 * u))
         canvas.drawCircle(cx, ringY, 22 * u, Hud.stroke(Hud.alpha(0xFFFF788C.toInt(), .5f), 5 * u, floatArrayOf(6 * u, 3 * u)))
@@ -471,7 +649,16 @@ class HomeView(context: Context) : View(context) {
         canvas.drawText(label, x - total / 2, y + r + 14 * u, lp)
         canvas.drawText(count.toString(), x - total / 2 + lp.measureText(label) + 4 * u, y + r + 14 * u, cp)
         val unread = rn.apps.sumOf { counts[it.packageName] ?: 0 }
-        if (unread > 0 && a > .5f) Hud.badge(canvas, x + r * .75f, y - r * .75f, unread, u)
+        if (unread > 0 && a > .5f) {
+            val bx = x + r * .75f
+            val by = y - r * .75f
+            // A new message pings the badge like radar.
+            if (incoming != null && rn.apps.any { it.packageName == incoming?.packageName }) {
+                val p = ((System.currentTimeMillis() - incomingAt) % 1200) / 1200f
+                canvas.drawCircle(bx, by, 9 * u + p * 20 * u, Hud.stroke(Hud.alpha(Hud.HOT, .8f * (1 - p)), 1.5f * u))
+            }
+            Hud.badge(canvas, bx, by, unread, u)
+        }
     }
 
     private fun drawPulse(canvas: Canvas, x: Float, y: Float, s: Float) {
@@ -502,6 +689,12 @@ class HomeView(context: Context) : View(context) {
             alpha = (255 * t).toInt()
         })
         canvas.drawCircle(cx, ringY, coreR, Hud.glow(Hud.stroke(Hud.alpha(Hud.CRIMSON, t), 2 * u), 8 * u))
+        // Shockwave bursting out of the core as the node deploys.
+        if (t < .55f) {
+            val w = t / .55f
+            canvas.drawCircle(cx, ringY, coreR + 200 * u * Hud.easeOut(w), Hud.glow(Hud.stroke(Hud.alpha(Hud.HOT, .85f * (1 - w)), 3 * u * (1 - w) + u), 10 * u))
+            canvas.drawCircle(cx, ringY, coreR + 120 * u * Hud.easeOut(w), Hud.stroke(Hud.alpha(Color.WHITE, .35f * (1 - w)), u))
+        }
         val name = Hud.glow(Hud.text(17 * u, Hud.alpha(Color.WHITE, t), Hud.BOLD, .24f, Paint.Align.CENTER), 8 * u, Hud.alpha(Hud.CRIMSON, t))
         canvas.drawText(rn.node.name.uppercase(), cx + 2 * u, ringY - 2 * u, name)
         canvas.drawText("${apps.size} APPS", cx, ringY + 12 * u, Hud.text(8 * u, Hud.alpha(Hud.CRIMSON, t), Hud.MONO, .2f, Paint.Align.CENTER))
@@ -523,9 +716,11 @@ class HomeView(context: Context) : View(context) {
             val slot = if (two) i % 8 else i
             val r = if (two) (if (ringNo == 0) 92f else 158f) else 122f
             val size = if (two) 40f else 50f
-            val angle = Math.toRadians(-90.0 + (if (two) slot * 45.0 + ringNo * 22.5 else slot * 360.0 / apps.size))
+            val angle = Math.toRadians(-90.0 + orbitSpin * (1 - ringNo * .5f) + (if (two) slot * 45.0 + ringNo * 22.5 else slot * 360.0 / apps.size))
             // Staggered fly-out from the core.
             val local = ((t - i * .02f) / (1f - apps.size * .02f).coerceAtLeast(.4f)).coerceIn(0f, 1f)
+            // Hologram flicker while they materialise.
+            val flicker = if (local in 0.05f..0.45f && sin(now() * .09 + i * 1.7) < -.2) .35f else 1f
             val e = Hud.easeOutBack(local)
             val rr = r * u * e
             val x = cx + rr * cos(angle).toFloat()
@@ -536,7 +731,7 @@ class HomeView(context: Context) : View(context) {
             }
             val half = size / 2 * u * (.6f + .4f * local)
             val rect = RectF(x - half, y - half, x + half, y + half)
-            drawIcon(canvas, c, rect, (255 * local).toInt(), glow = true)
+            drawIcon(canvas, c, rect, (255 * local * flicker).toInt(), glow = true)
             AppCatalog.entry(c)?.let { entry ->
                 canvas.drawText(Hud.ellipsize(entry.label, label, 64 * u), x, y + half + 10 * u, label)
             }
@@ -789,7 +984,7 @@ class HomeView(context: Context) : View(context) {
             }
             if (abs(dx) > 60 * u) {
                 if (open >= 0) {
-                    openNode((open + (if (dx < 0) 1 else -1) + ring.size) % ring.size)
+                    openNode((open + (if (dx < 0) 1 else -1) + ring.size) % ring.size, if (dx < 0) 1 else -1)
                 } else if (dx > 0) {
                     ring.indexOfFirst { it.node.games }.takeIf { it >= 0 }?.let { openNode(it) }
                 }
@@ -802,6 +997,8 @@ class HomeView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean = gestures.onTouchEvent(event)
 
     private fun tap(x: Float, y: Float) {
+        ripples += floatArrayOf(x, y, now().toFloat())
+        invalidate()
         // Pop-up and bars first: they sit on top.
         if (incoming != null && incomingRect.contains(x, y)) {
             hits.lastOrNull { it.first.contains(x, y) && it.first != incomingRect }?.second?.invoke() ?: run {
@@ -819,7 +1016,7 @@ class HomeView(context: Context) : View(context) {
                 return
             }
             hits.firstOrNull { it.first.contains(x, y) }?.second?.invoke() ?: run {
-                if (d < 200 * u || y in y(612f)..y(640f)) chipAt(x, y)?.let { openNode(it) } ?: closeNode() else closeNode()
+                if (d < 200 * u || y in y(612f)..y(640f)) chipAt(x, y)?.let { openNode(it, if (it > open) 1 else -1) } ?: closeNode() else closeNode()
             }
             return
         }
@@ -854,7 +1051,7 @@ class HomeView(context: Context) : View(context) {
             val ringNo = if (two) i / 8 else 0
             val slot = if (two) i % 8 else i
             val r = (if (two) (if (ringNo == 0) 92f else 158f) else 122f) * u
-            val angle = Math.toRadians(-90.0 + (if (two) slot * 45.0 + ringNo * 22.5 else slot * 360.0 / apps.size))
+            val angle = Math.toRadians(-90.0 + orbitSpin * (1 - ringNo * .5f) + (if (two) slot * 45.0 + ringNo * 22.5 else slot * 360.0 / apps.size))
             val ax = cx + r * cos(angle).toFloat()
             val ay = ringY + r * sin(angle).toFloat()
             if (hypot(x - ax, y - ay) < (if (two) 26 else 32) * u) return c to (ax to ay)
@@ -887,8 +1084,16 @@ class HomeView(context: Context) : View(context) {
         host?.homeMenu(x, y)
     }
 
+    /** Target-lock brackets snap onto the icon, then the app opens from it. */
     private fun launch(component: ComponentName, at: Pair<Float, Float>) {
         performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        lockAt = floatArrayOf(at.first, at.second)
+        lockStart = now()
+        invalidate()
+        postDelayed({ openApp(component, at) }, LOCK_MS)
+    }
+
+    private fun openApp(component: ComponentName, at: Pair<Float, Float>) {
         val s = (24 * u).toInt()
         val loc = IntArray(2)
         getLocationOnScreen(loc)
@@ -896,7 +1101,70 @@ class HomeView(context: Context) : View(context) {
         AppCatalog.launch(context, component, bounds)
     }
 
+    // --- Transient effects ---
+
+    private fun drawLock(canvas: Canvas) {
+        val at = lockAt ?: return
+        val age = now() - lockStart
+        if (age > LOCK_MS + 250) {
+            lockAt = null
+            return
+        }
+        val t = (age / LOCK_MS.toFloat()).coerceIn(0f, 1f)
+        val fade = 1f - ((age - LOCK_MS) / 250f).coerceIn(0f, 1f)
+        val half = (24 + 22 * (1 - Hud.easeOut(t))) * u
+        val len = 9 * u
+        val p = Hud.glow(Hud.stroke(Hud.alpha(Hud.HOT, fade), 2 * u), 6 * u)
+        val (x, y) = at[0] to at[1]
+        for ((sx, sy) in listOf(-1f to -1f, 1f to -1f, -1f to 1f, 1f to 1f)) {
+            val cx = x + sx * half
+            val cy = y + sy * half
+            canvas.drawLine(cx, cy, cx - sx * len, cy, p)
+            canvas.drawLine(cx, cy, cx, cy - sy * len, p)
+        }
+        if (t >= 1f) canvas.drawCircle(x, y, half * 1.2f, Hud.fill(Hud.alpha(Color.WHITE, .25f * fade)))
+    }
+
+    private fun drawRipples(canvas: Canvas) {
+        val now = now()
+        ripples.removeAll { now - it[2] > 380 }
+        val hex = Path()
+        for (r in ripples) {
+            val t = (now - r[2]) / 380f
+            val size = (8 + 26 * Hud.easeOut(t)) * u
+            hex.reset()
+            for (k in 0..5) {
+                val a = Math.toRadians(-90.0 + k * 60.0)
+                val px = r[0] + size * cos(a).toFloat()
+                val py = r[1] + size * sin(a).toFloat()
+                if (k == 0) hex.moveTo(px, py) else hex.lineTo(px, py)
+            }
+            hex.close()
+            canvas.drawPath(hex, Hud.glow(Hud.stroke(Hud.alpha(Hud.HOT, .7f * (1 - t)), 1.5f * u), 5 * u))
+        }
+    }
+
+    /** A sweep down the screen announcing the new mode. */
+    private fun drawModeShift(canvas: Canvas) {
+        if (modeShiftStart == 0L) return
+        val age = now() - modeShiftStart
+        if (age > 1400) {
+            modeShiftStart = 0L
+            return
+        }
+        val t = age / 1400f
+        val y = height * Hud.easeOut(t)
+        canvas.drawRect(0f, y - 40 * u, width.toFloat(), y, Paint().apply {
+            shader = LinearGradient(0f, y - 40 * u, 0f, y, Color.TRANSPARENT, Hud.alpha(Hud.CRIMSON, .25f), Shader.TileMode.CLAMP)
+        })
+        canvas.drawLine(0f, y, width.toFloat(), y, Hud.glow(Hud.stroke(Hud.HOT, 2 * u), 10 * u))
+        val a = if (t < .8f) 1f else (1 - t) / .2f
+        canvas.drawText("◆ MODE SHIFT · ${mode.label}", width / 2f, y - 10 * u, Hud.glow(Hud.text(10 * u, Hud.alpha(Color.WHITE, a), Hud.MONO_BOLD, .3f, Paint.Align.CENTER), 6 * u, Hud.HOT))
+    }
+
     companion object {
+        private const val BOOT_MS = 1700L
+        private const val LOCK_MS = 170L
         private const val INCOMING_MS = 7000L
     }
 }

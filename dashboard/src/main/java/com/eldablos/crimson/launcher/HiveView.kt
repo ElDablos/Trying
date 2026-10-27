@@ -260,6 +260,7 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         if (intro < 1.6f) postInvalidateOnAnimation()
         var nearest: Cell? = null
         var nearestD = Float.MAX_VALUE
+        lifted = null
         canvas.save()
         canvas.clipRect(0f, 0f, width.toFloat(), height - jumpBarH)
         for (c in cells) {
@@ -279,6 +280,11 @@ class HiveView(context: Context, private val u: Float) : View(context) {
                 }
                 val dimmed = searching && app.component !in matches
                 val alpha = if (dimmed) .14f else minOf(1f, .4f + s * .65f)
+                // The picked app is drawn last, on top of its neighbours and their names.
+                if (focus > 1.01f) {
+                    lifted = Lifted(app, x, y, size, focus)
+                    return@copies
+                }
                 val rect = RectF(x - size / 2, y - size / 2, x + size / 2, y + size / 2)
                 if (c === bestCell) {
                     drawHex(canvas, x, y, size * .78f, Hud.glow(Hud.stroke(Hud.HOT, 2 * u), 10 * u))
@@ -315,9 +321,41 @@ class HiveView(context: Context, private val u: Float) : View(context) {
                 }
             }
         }
+        lifted?.let { drawLifted(canvas, it, focusLabel) }
         drawSight(canvas)
         canvas.restore()
         drawJumpBar(canvas)
+    }
+
+    private class Lifted(val app: AppEntry, val x: Float, val y: Float, val size: Float, val focus: Float)
+
+    /** The app in the sight this frame, drawn after everything else. */
+    private var lifted: Lifted? = null
+
+    /**
+     * The picked app, popped out above the comb: a soft shadow and glow under it, the icon, and its name
+     * on a dark plate so nothing behind can cover it.
+     */
+    private fun drawLifted(canvas: Canvas, l: Lifted, labelPaint: android.text.TextPaint) {
+        val lift = ((l.focus - 1f) / .35f).coerceIn(0f, 1f)
+        val rect = RectF(l.x - l.size / 2, l.y - l.size / 2, l.x + l.size / 2, l.y + l.size / 2)
+        val corner = l.size * .24f
+        // Shadow beneath, offset down as if it rose off the comb, and a glow in the theme's colour.
+        canvas.drawRoundRect(RectF(rect.left, rect.top + 5 * u * lift, rect.right, rect.bottom + 5 * u * lift), corner, corner,
+            Hud.glow(Hud.fill(Hud.alpha(Color.BLACK, .55f * lift)), 14 * u, Hud.alpha(Color.BLACK, .8f * lift)))
+        canvas.drawRoundRect(rect, corner, corner, Hud.glow(Hud.fill(Hud.alpha(Hud.BLOOD, .9f)), 16 * u * lift, Hud.alpha(Hud.HOT, .55f * lift)))
+        val icon = AppCatalog.icon(context, l.app.component)
+        if (icon != null) Hud.bitmap(canvas, icon, rect)
+        else canvas.drawRoundRect(rect, corner, corner, Hud.fill(Hud.tint(0xFF3A0A14.toInt())))
+        // The name, on its own plate in front of everything.
+        labelPaint.alpha = (255 * lift).toInt()
+        val name = Hud.ellipsize(l.app.label, labelPaint, spacing * 2.4f)
+        val w = labelPaint.measureText(name) + 16 * u
+        val ty = rect.bottom + 19 * u
+        val plate = RectF(l.x - w / 2, ty - 12 * u, l.x + w / 2, ty + 5 * u)
+        canvas.drawRoundRect(plate, 8.5f * u, 8.5f * u, Hud.glow(Hud.fill(Hud.alpha(0xFF050203.toInt(), .88f * lift)), 8 * u, Hud.alpha(Hud.CRIMSON, .35f * lift)))
+        canvas.drawRoundRect(plate, 8.5f * u, 8.5f * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .5f * lift), u))
+        canvas.drawText(name, l.x, ty, labelPaint)
     }
 
     /** The sight in the middle: brackets that turn and close in as a cell settles. */

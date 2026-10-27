@@ -512,7 +512,9 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             MotionEvent.ACTION_MOVE -> {
                 val dy = e.y - downY
                 // A swipe up closes the Comms Centre when it starts near the bottom, or when the list is at its end.
-                val fromBottom = downY > height - 160 * u
+                // Anywhere above the notifications (toggles, sliders, music) always closes; so does the bottom.
+                val listTop = notifHeader.let { val loc = IntArray(2); it.getLocationInWindow(loc); val me = IntArray(2); getLocationInWindow(me); loc[1] - me[1] }
+                val fromBottom = downY > height - 160 * u || downY < listTop
                 if (-dy > slop && abs(dy) > abs(e.x - downX) * 1.2f && (fromBottom || !scroll.canScrollVertically(1))) {
                     dragOrigin = e.rawY - translationY
                     velocity.clear()
@@ -926,15 +928,44 @@ class SegmentBar(
 
     private fun Float.roundToIntSafe() = kotlin.math.round(this).toInt()
 
+    private var downX = 0f
+    private var downY = 0f
+    private var sliding = false
+    private val slop = ViewConfiguration.get(context).scaledTouchSlop
+
+    /** Sideways drags (or a tap) set the level; an up or down swipe is left to the panel, to close it. */
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        parent.requestDisallowInterceptTouchEvent(true)
         val level = ((e.x - 20 * u) / (width - 56 * u)).coerceIn(0f, 1f)
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                dragging = level
-                if (!write(level)) dragging = null
+            MotionEvent.ACTION_DOWN -> {
+                downX = e.x
+                downY = e.y
+                sliding = false
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> dragging = null
+            MotionEvent.ACTION_MOVE -> {
+                if (!sliding) {
+                    val dx = abs(e.x - downX)
+                    val dy = abs(e.y - downY)
+                    if (dy > slop && dy > dx) return false
+                    if (dx > slop) {
+                        sliding = true
+                        parent.requestDisallowInterceptTouchEvent(true)
+                    }
+                }
+                if (sliding) {
+                    dragging = level
+                    if (!write(level)) dragging = null
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                if (!sliding && abs(e.x - downX) < slop && abs(e.y - downY) < slop) write(level)
+                dragging = null
+                sliding = false
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                dragging = null
+                sliding = false
+            }
         }
         invalidate()
         return true

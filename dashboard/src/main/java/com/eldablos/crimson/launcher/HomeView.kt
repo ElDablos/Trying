@@ -188,12 +188,12 @@ class HomeView(context: Context) : View(context) {
         if (shifted) {
             // Mode shift: sweep the screen and turn the ring to its new top node.
             modeShiftStart = now()
-            val k = ring.indexOfFirst { it.node.name == previousTop }
-            if (k > 0) {
-                var from = -k * 360f / ring.size
-                if (from < -180f) from += 360f
-                spinRing(from)
-            }
+            // Keep every node where it is on screen, then turn so the mode's node lands on top.
+            val k = ring.indexOfFirst { it.node.name == previousTop }.coerceAtLeast(0)
+            var from = (ringOffset - k * 360f / ring.size) % 360f
+            if (from > 180f) from -= 360f
+            if (from < -180f) from += 360f
+            if (abs(from) > .5f) spinRing(from) else ringOffset = 0f
         }
         this.mode = mode
         this.gameCount = gameCount
@@ -500,7 +500,7 @@ class HomeView(context: Context) : View(context) {
     }
 
     private fun dockCentre(i: Int): Pair<Float, Float> {
-        val a = Math.toRadians(-90.0 + i * 360.0 / dock.size.coerceAtLeast(1))
+        val a = Math.toRadians(-90.0 + i * 360.0 / dock.size.coerceAtLeast(1) + dockOffset)
         return width / 2f + 68 * u * cos(a).toFloat() to ringY + 68 * u * sin(a).toFloat()
     }
 
@@ -1064,7 +1064,127 @@ class HomeView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (popTouch(event)) return true
+        if (spinTouch(event)) return true
         return gestures.onTouchEvent(event)
+    }
+
+    // --- Spinning the ring and the core ---
+
+    private var dockOffset = 0f
+    private var spinWhich = 0 // 1 the node ring, 2 the dock
+    private var spinning = false
+    private var spinLastAngle = 0f
+    private var spinTravel = 0f
+    private var spinStartR = 0f
+    private var spinRadialMax = 0f
+    private var spinVelocity = 0f // degrees per second
+    private var spinLastTime = 0L
+    private var spinAnim: ValueAnimator? = null
+
+    private fun angleAt(x: Float, y: Float) = Math.toDegrees(kotlin.math.atan2((y - ringY).toDouble(), (x - width / 2f).toDouble())).toFloat()
+
+    /** Turns a curving drag on the ring (or inside the core) into a spin; straight swipes pass through. */
+    private fun spinTouch(e: MotionEvent): Boolean {
+        val r = hypot(e.x - width / 2f, e.y - ringY)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                spinning = false
+                spinWhich = when {
+                    open >= 0 || booting -> 0
+                    r in 118 * u..200 * u -> 1
+                    r in 40 * u..104 * u -> 2
+                    else -> 0
+                }
+                if (spinWhich != 0) {
+                    spinAnim?.cancel()
+                    spinLastAngle = angleAt(e.x, e.y)
+                    spinTravel = 0f
+                    spinStartR = r
+                    spinRadialMax = 0f
+                    spinVelocity = 0f
+                    spinLastTime = e.eventTime
+                }
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (spinWhich == 0) return false
+                val a = angleAt(e.x, e.y)
+                var d = a - spinLastAngle
+                if (d > 180f) d -= 360f
+                if (d < -180f) d += 360f
+                spinLastAngle = a
+                if (!spinning) {
+                    spinTravel += abs(d) * Math.PI.toFloat() / 180f * r
+                    spinRadialMax = maxOf(spinRadialMax, abs(r - spinStartR))
+                    // Moving round the circle more than in or out of it: that's a spin.
+                    if (spinTravel > 20 * u && spinTravel > spinRadialMax * 1.6f) {
+                        spinning = true
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        val cancel = MotionEvent.obtain(e).apply { action = MotionEvent.ACTION_CANCEL }
+                        gestures.onTouchEvent(cancel)
+                        cancel.recycle()
+                    } else {
+                        return false
+                    }
+                }
+                val dt = (e.eventTime - spinLastTime).coerceAtLeast(1)
+                spinVelocity = spinVelocity * .6f + (d / dt * 1000f) * .4f
+                spinLastTime = e.eventTime
+                turn(d)
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!spinning) {
+                    spinWhich = 0
+                    return false
+                }
+                spinning = false
+                coast()
+                return true
+            }
+        }
+        return spinning
+    }
+
+    private fun slot(): Float = 360f / (if (spinWhich == 1) ring.size else dock.size).coerceAtLeast(1)
+
+    private fun offset(): Float = if (spinWhich == 1) ringOffset else dockOffset
+
+    /** Turns by [d] degrees, ticking as each node passes the top. */
+    private fun turn(d: Float) {
+        val before = kotlin.math.floor((offset() + slot() / 2) / slot())
+        if (spinWhich == 1) ringOffset += d else dockOffset += d
+        val after = kotlin.math.floor((offset() + slot() / 2) / slot())
+        if (before != after) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        invalidate()
+    }
+
+    /** Let go: keeps spinning with the finger's speed, slows, and clicks onto the nearest slot. */
+    private fun coast() {
+        val which = spinWhich
+        val start = offset()
+        val throwBy = (spinVelocity * .32f).coerceIn(-720f, 720f)
+        val end = kotlin.math.round((start + throwBy) / slot()) * slot()
+        var last = start
+        spinAnim?.cancel()
+        spinAnim = ValueAnimator.ofFloat(start, end).apply {
+            duration = (280 + abs(end - start) * 1.4f).toLong().coerceAtMost(1400)
+            interpolator = android.view.animation.DecelerateInterpolator(2f)
+            addUpdateListener {
+                val v = it.animatedValue as Float
+                spinWhich = which
+                turn(v - last)
+                last = v
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    // Keep the numbers small.
+                    if (which == 1) ringOffset %= 360f else dockOffset %= 360f
+                    invalidate()
+                }
+            })
+            start()
+        }
     }
 
     private fun tap(x: Float, y: Float) {

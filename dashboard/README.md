@@ -77,16 +77,22 @@ back to One UI Home the same way at any time.
 - **The ring**: your folders as nodes. Tap one and its apps fly out in orbit round the core (two orbits
   for more than eight). Swipe sideways or tap the chips to hop between nodes, tap the core to close.
   The first time, the nodes are built from the old home-screen folders (MAIN, AI, WORK, APPS, GOOGLE,
-  SAMSUNG) plus GAMES, which fills itself with your Arcade games, most played first.
+  SAMSUNG) plus GAMES, which fills itself with your Arcade games, most played first. Drag round the
+  ring to spin it: it coasts, ticks as each node passes the top and settles on the nearest slot.
 - **The core**: the old dock (WhatsApp, Messenger, Messages, Phone, Camera, Play Store, Chrome) orbits
-  the centre with unread counts. The centre button searches every app.
+  the centre with unread counts. The centre button searches every app. Drag round the core to spin
+  the dock the same way.
 - **Modes**: Morning (05:00–07:00) and Night Ops (from 17:00) put MAIN at the top of the ring; Work
   (07:00–17:00) puts WORK there and dims GAMES. Pick a different top node for each mode in Launcher
   settings. Tap the mode on the status line (◆ NIGHT OPS ▾) to switch by hand; it holds until
   the next change on the clock.
-- **Crimson Weather**: tap the weather for a full forecast: now, rain, wind, humidity and UV, a glowing
-  graph of the next 24 hours, sunrise and sunset, and seven days with their temperature ranges (from
-  Open-Meteo, for the city set in the app). **SAMSUNG ↗** in its corner opens Samsung Weather.
+- **Crimson Weather**: tap the weather for a full forecast, laid out like Samsung Weather: now with a
+  line about the day, 48 hourly cards to swipe through, conditions (feels like, humidity, wind with a
+  compass, UV, rain, cloud), the sun's path, and ten days from yesterday with day and night skies.
+  Tap an hour for its own page (rain amount, wind, humidity, UV, cloud and that day's graph), or a
+  day for its page (day and night, a summary, hour by hour, rain total, wind, UV, sunrise and
+  daylight). Swipe sideways or use ‹ › to step through them; Back returns. From Open-Meteo, for the
+  city set in the app. **SAMSUNG ↗** in its corner opens Samsung Weather.
 - **Around it**: weather, the date and next alarm (tap for the calendar or
   alarms), the steps line (tap for Samsung Health) and the music bar with shuffle, skip, repeat and the
   queue button.

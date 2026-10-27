@@ -217,7 +217,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
-            weather.visibility == View.VISIBLE -> closeWeather()
+            weather.visibility == View.VISIBLE -> if (!weather.back()) closeWeather()
             hub.visibility == View.VISIBLE -> closeGames()
             apps.visibility == View.VISIBLE -> closeApps()
             comms.visibility == View.VISIBLE -> closeComms()

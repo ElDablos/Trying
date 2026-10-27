@@ -192,8 +192,11 @@ class HiveView(context: Context, private val u: Float) : View(context) {
 
     // --- Where things land on screen ---
 
-    /** Fisheye: full size in the middle, shrinking outwards, pulled in a little at the edges. */
-    private fun scaleAt(d: Float): Float = maxOf(.3f, 1.12f * exp(-(d / (185 * u)) * (d / (185 * u))))
+    /** Fisheye: a big bulge in the middle, shrinking outwards. */
+    private fun scaleAt(d: Float): Float = maxOf(.3f, 1.25f * exp(-(d / (240 * u)) * (d / (240 * u))))
+
+    /** How far apart cells sit at scale [s]: spread wide in the bulge so names fit, tighter outside. */
+    private fun pullAt(s: Float): Float = .72f + .7f * s
 
     /**
      * Calls [draw] with the screen position and size of each copy of world point (wx, wy) that's on
@@ -202,8 +205,8 @@ class HiveView(context: Context, private val u: Float) : View(context) {
     private inline fun copies(wx: Float, wy: Float, margin: Float, draw: (x: Float, y: Float, s: Float, d: Float) -> Unit) {
         val baseX = HiveLayout.wrap(wx - camX, periodX)
         val baseY = HiveLayout.wrap(wy - camY, periodY)
-        val reachX = areaCx / (spacing * .78f) + 1.5f
-        val reachY = areaCy / (spacing * .78f) + 1.5f
+        val reachX = areaCx / (spacing * pullAt(.3f)) + 1.5f
+        val reachY = areaCy / (spacing * pullAt(.3f)) + 1.5f
         var ky = -2
         while (ky <= 2) {
             val wyOff = baseY + ky * periodY
@@ -216,7 +219,7 @@ class HiveView(context: Context, private val u: Float) : View(context) {
                         val dy = wyOff * spacing
                         val d = hypot(dx, dy)
                         val s = scaleAt(d)
-                        val pull = .78f + .22f * s
+                        val pull = pullAt(s)
                         val x = areaCx + dx * pull
                         val y = areaCy + dy * pull
                         if (x > -margin && x < width + margin && y > -margin && y < height - jumpBarH + margin) draw(x, y, s, d)
@@ -242,8 +245,8 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         chips.clear()
         val searching = query.isNotEmpty()
         val bestCell = best()
-        val label = Hud.text(7.5f * u, Color.WHITE, Hud.SANS, align = Paint.Align.CENTER).apply { setShadowLayer(3 * u, 0f, 0f, Color.BLACK) }
-        val socket = Hud.stroke(Hud.alpha(Hud.CRIMSON, .16f), u)
+        val label = Hud.text(9 * u, Color.WHITE, Hud.MEDIUM, align = Paint.Align.CENTER).apply { setShadowLayer(4 * u, 0f, 0f, Color.BLACK) }
+        val socket = Hud.stroke(Hud.alpha(Hud.CRIMSON, .1f), u)
         val now = SystemClock.uptimeMillis()
         // Opening: the comb ripples out from the middle.
         val intro = (now - openedAt) / 650f
@@ -257,9 +260,9 @@ class HiveView(context: Context, private val u: Float) : View(context) {
                 val pop = Hud.easeOutBack((intro * 1.6f - d / (420 * u)).coerceIn(0f, 1f))
                 if (pop <= 0f) return@copies
                 val s = s0 * pop
-                val size = 44 * u * s
+                val size = 40 * u * s
                 // Every cell sits in a faint hex socket: the honeycomb itself.
-                drawHex(canvas, x, y, size * .7f, socket)
+                drawHex(canvas, x, y, spacing * pullAt(s) * .54f, socket)
                 val app = c.app ?: return@copies
                 if (d < nearestD) {
                     nearestD = d
@@ -276,9 +279,10 @@ class HiveView(context: Context, private val u: Float) : View(context) {
                 val icon = AppCatalog.icon(context, app.component)
                 if (icon != null) Hud.bitmap(canvas, icon, rect, (255 * alpha).toInt())
                 else canvas.drawRoundRect(rect, size * .24f, size * .24f, Hud.fill(Hud.alpha(0xFF3A0A14.toInt(), alpha)))
-                // Names only while searching; otherwise the sight names the app in the middle.
-                if (searching && !dimmed && s > .8f) {
-                    canvas.drawText(Hud.ellipsize(app.label, label, spacing * 1.15f), x, rect.bottom + 9 * u, label)
+                // Names under the big ones in the bulge, where there's room for them.
+                if (!dimmed && s > .95f) {
+                    label.alpha = (255 * ((s - .95f) / .15f).coerceIn(0f, 1f)).toInt()
+                    canvas.drawText(Hud.ellipsize(app.label, label, spacing * pullAt(s) - 8 * u), x, rect.bottom + 11 * u, label)
                 }
             }
         }
@@ -306,18 +310,20 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         drawJumpBar(canvas)
     }
 
-    /** The sight in the middle: brackets that turn and close in as a cell settles, with its name and node. */
+    /** The sight in the middle: brackets that turn and close in as a cell settles. */
     private fun drawSight(canvas: Canvas) {
         val c = centred ?: return
-        val app = c.app ?: return
-        if (query.isNotEmpty()) return
-        val x = areaCx + HiveLayout.wrap(c.wx - camX, periodX) * spacing
-        val y = areaCy + HiveLayout.wrap(c.wy - camY, periodY) * spacing
+        if (c.app == null || query.isNotEmpty()) return
+        val dx = HiveLayout.wrap(c.wx - camX, periodX) * spacing
+        val dy = HiveLayout.wrap(c.wy - camY, periodY) * spacing
+        val pull = pullAt(scaleAt(hypot(dx, dy)))
+        val x = areaCx + dx * pull
+        val y = areaCy + dy * pull
         // Only once it's settled near the middle.
         val off = hypot(x - areaCx, y - areaCy)
-        if (off > 18 * u) return
-        val a = (1 - off / (18 * u)).coerceIn(0f, 1f)
-        val r = 34 * u
+        if (off > 24 * u) return
+        val a = (1 - off / (24 * u)).coerceIn(0f, 1f)
+        val r = 33 * u
         val k = 9 * u
         val p = Hud.glow(Hud.stroke(Hud.alpha(Hud.HOT, a), 1.6f * u), 6 * u)
         canvas.save()
@@ -330,17 +336,6 @@ class HiveView(context: Context, private val u: Float) : View(context) {
             canvas.restore()
         }
         canvas.restore()
-        val name = Hud.glow(Hud.text(10 * u, Hud.alpha(Color.WHITE, a), Hud.MONO_BOLD, .14f, Paint.Align.CENTER), 6 * u, Hud.alpha(Hud.CRIMSON, a))
-        val title = Hud.ellipsize(app.label.uppercase(), name, width - 100 * u)
-        val group = Hud.text(7 * u, Hud.alpha(Hud.CRIMSON, a), Hud.MONO, .2f, Paint.Align.CENTER)
-        val by = areaCy + 54 * u
-        // On a dark plate, so it reads over the comb.
-        val w = maxOf(name.measureText(title), if (c.group.isEmpty()) 0f else group.measureText("◆ ${c.group}")) + 24 * u
-        val plate = RectF(areaCx - w / 2, by - 13 * u, areaCx + w / 2, by + (if (c.group.isEmpty()) 7 else 19) * u)
-        canvas.drawRoundRect(plate, 6 * u, 6 * u, Hud.glow(Hud.fill(Hud.alpha(0xFF0A0306.toInt(), .92f * a)), 10 * u, Hud.alpha(Hud.CRIMSON, .4f * a)))
-        canvas.drawRoundRect(plate, 6 * u, 6 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .55f * a), u))
-        canvas.drawText(title, areaCx, by, name)
-        if (c.group.isNotEmpty()) canvas.drawText("◆ ${c.group}", areaCx, by + 13 * u, group)
     }
 
     private fun drawHex(canvas: Canvas, x: Float, y: Float, r: Float, paint: Paint) {

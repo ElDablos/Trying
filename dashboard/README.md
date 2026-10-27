@@ -97,8 +97,8 @@ back to One UI Home the same way at any time.
   alarms), the steps line (tap for Samsung Health) and the music bar with shuffle, skip, repeat and the
   queue button.
 - **Swipes**: down for the Comms Centre, up for the Hive Map, right for the Game Hub.
-- **Hive Map**: every app in one round honeycomb ball that grows with your apps, in patches round tags for the dock and each node, big in the
-  middle and shrinking outwards. Drag to fly round it, tap a tag in the jump bar to glide there, or
+- **Hive Map**: every app in a honeycomb that repeats for ever in every direction (no edge), in patches round tags for the dock and each node, big in the
+  middle and shrinking outwards. A sight in the middle names the app under it and it settles onto a cell after a fling. Drag to fly round it, tap a tag in the jump bar to glide there, or
   switch to the A–Z list. Typing lights up the matches and centres the best one; Enter opens it.
 - **Game Hub**: a 3D shelf of your games (most played and last played first), the selected game's
   playtime, last played and install date, **▶ Play** and **⚄** random, the recommended row and every

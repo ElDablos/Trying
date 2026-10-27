@@ -37,6 +37,8 @@ class Telemetry(
     /** Song position and length in ms, when the player reports them. */
     val position: Long,
     val duration: Long,
+    /** A VPN (like NordVPN) is connected. */
+    val vpn: Boolean = false,
 ) {
     val budsPresent: Boolean get() = budsLeft > 0 || budsRight > 0
 
@@ -58,10 +60,20 @@ class Telemetry(
             }
             val connectivity = context.getSystemService(ConnectivityManager::class.java)
             val caps = connectivity?.getNetworkCapabilities(connectivity.activeNetwork)
+            // With a VPN on, the active network is the VPN: look at the real one under it too.
+            @Suppress("DEPRECATION")
+            val all = try {
+                connectivity?.allNetworks.orEmpty().mapNotNull { connectivity?.getNetworkCapabilities(it) }
+            } catch (e: Exception) {
+                emptyList()
+            }
+            val vpn = caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true ||
+                all.any { it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }
+            val real = listOfNotNull(caps) + all.filter { !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }
             val network = when {
                 caps == null -> "NO NET"
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WIFI"
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "DATA"
+                real.any { it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) } -> "WIFI"
+                real.any { it.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) } -> "DATA"
                 else -> "NET"
             }
 
@@ -94,6 +106,7 @@ class Telemetry(
                 },
                 signal = signal,
                 network = network,
+                vpn = vpn,
                 budsLeft = if (buds.present) buds.left else -1,
                 budsRight = if (buds.present) buds.right else -1,
                 budsCase = if (buds.present) buds.case else -1,

@@ -110,6 +110,8 @@ class HomeView(context: Context) : View(context) {
     private var modeShiftStart = 0L
     private var ringOffset = 0f
     private var orbitSpin = 0f
+    /** How far the open node's apps have been spun round by hand. */
+    private var orbitOffset = 0f
     private var lockAt: FloatArray? = null
     private var lockStart = 0L
     private val ripples = ArrayList<FloatArray>()
@@ -247,6 +249,8 @@ class HomeView(context: Context) : View(context) {
     private fun openNode(index: Int, direction: Int = 0) {
         if (index !in ring.indices) return
         performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+        spinAnim?.cancel()
+        orbitOffset = 0f
         if (open >= 0 && open != index) {
             open = index
             openT = .45f
@@ -684,7 +688,7 @@ class HomeView(context: Context) : View(context) {
             val slot = if (two) i % 8 else i
             val r = if (two) (if (ringNo == 0) 92f else 158f) else 122f
             val size = if (two) 40f else 50f
-            val angle = Math.toRadians(-90.0 + orbitSpin * (1 - ringNo * .5f) + (if (two) slot * 45.0 + ringNo * 22.5 else slot * 360.0 / apps.size))
+            val angle = Math.toRadians(-90.0 + orbitSpin * (1 - ringNo * .5f) + orbitOffset + (if (two) slot * 45.0 + ringNo * 22.5 else slot * 360.0 / apps.size))
             // Staggered fly-out from the core.
             val local = ((t - i * .02f) / (1f - apps.size * .02f).coerceAtLeast(.4f)).coerceIn(0f, 1f)
             // Hologram flicker while they materialise.
@@ -1071,7 +1075,7 @@ class HomeView(context: Context) : View(context) {
     // --- Spinning the ring and the core ---
 
     private var dockOffset = 0f
-    private var spinWhich = 0 // 1 the node ring, 2 the dock
+    private var spinWhich = 0 // 1 the node ring, 2 the dock, 3 an open node's apps
     private var spinning = false
     private var spinLastAngle = 0f
     private var spinTravel = 0f
@@ -1090,7 +1094,8 @@ class HomeView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> {
                 spinning = false
                 spinWhich = when {
-                    open >= 0 || booting -> 0
+                    booting -> 0
+                    open >= 0 -> if (r in 64 * u..196 * u) 3 else 0
                     r in 118 * u..200 * u -> 1
                     r in 40 * u..104 * u -> 2
                     else -> 0
@@ -1146,14 +1151,26 @@ class HomeView(context: Context) : View(context) {
         return spinning
     }
 
-    private fun slot(): Float = 360f / (if (spinWhich == 1) ring.size else dock.size).coerceAtLeast(1)
+    private fun slot(): Float = when (spinWhich) {
+        1 -> 360f / ring.size.coerceAtLeast(1)
+        3 -> ring.getOrNull(open)?.apps?.size?.let { if (it > 8) 45f else 360f / it.coerceAtLeast(1) } ?: 360f
+        else -> 360f / dock.size.coerceAtLeast(1)
+    }
 
-    private fun offset(): Float = if (spinWhich == 1) ringOffset else dockOffset
+    private fun offset(): Float = when (spinWhich) {
+        1 -> ringOffset
+        3 -> orbitOffset
+        else -> dockOffset
+    }
 
     /** Turns by [d] degrees, ticking as each node passes the top. */
     private fun turn(d: Float) {
         val before = kotlin.math.floor((offset() + slot() / 2) / slot())
-        if (spinWhich == 1) ringOffset += d else dockOffset += d
+        when (spinWhich) {
+            1 -> ringOffset += d
+            3 -> orbitOffset += d
+            else -> dockOffset += d
+        }
         val after = kotlin.math.floor((offset() + slot() / 2) / slot())
         if (before != after) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         invalidate()
@@ -1179,7 +1196,11 @@ class HomeView(context: Context) : View(context) {
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     // Keep the numbers small.
-                    if (which == 1) ringOffset %= 360f else dockOffset %= 360f
+                    when (which) {
+                        1 -> ringOffset %= 360f
+                        3 -> orbitOffset %= 360f
+                        else -> dockOffset %= 360f
+                    }
                     invalidate()
                 }
             })
@@ -1235,7 +1256,7 @@ class HomeView(context: Context) : View(context) {
             val ringNo = if (two) i / 8 else 0
             val slot = if (two) i % 8 else i
             val r = (if (two) (if (ringNo == 0) 92f else 158f) else 122f) * u
-            val angle = Math.toRadians(-90.0 + orbitSpin * (1 - ringNo * .5f) + (if (two) slot * 45.0 + ringNo * 22.5 else slot * 360.0 / apps.size))
+            val angle = Math.toRadians(-90.0 + orbitSpin * (1 - ringNo * .5f) + orbitOffset + (if (two) slot * 45.0 + ringNo * 22.5 else slot * 360.0 / apps.size))
             val ax = cx + r * cos(angle).toFloat()
             val ay = ringY + r * sin(angle).toFloat()
             if (hypot(x - ax, y - ay) < (if (two) 26 else 32) * u) return c to (ax to ay)

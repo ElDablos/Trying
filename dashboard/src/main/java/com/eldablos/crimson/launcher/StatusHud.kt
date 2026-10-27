@@ -139,6 +139,26 @@ class StatusHud {
             canvas.drawText(sub, mid, 33 * u, budsSub)
             rx -= w + 6 * u
         }
+        if (t.vpn) {
+            // A small shield with VPN beside it, glowing while the tunnel's up.
+            val vp = Hud.glow(Hud.text(8 * u, Hud.GOLD, Hud.MONO_BOLD, .08f, Paint.Align.RIGHT), 4 * u, Hud.alpha(Hud.GOLD, .6f))
+            canvas.drawText("VPN", rx, 30 * u, vp)
+            rx -= vp.measureText("VPN") + 3 * u
+            val sx = rx - 4 * u
+            val shield = android.graphics.Path().apply {
+                moveTo(sx, 21.5f * u)
+                lineTo(sx + 4 * u, 23 * u)
+                lineTo(sx + 4 * u, 26.5f * u)
+                quadTo(sx + 4 * u, 30 * u, sx, 32 * u)
+                quadTo(sx - 4 * u, 30 * u, sx - 4 * u, 26.5f * u)
+                lineTo(sx - 4 * u, 23 * u)
+                close()
+            }
+            canvas.drawPath(shield, Hud.glow(Hud.fill(Hud.alpha(Hud.GOLD, .9f)), 4 * u, Hud.alpha(Hud.GOLD, .6f)))
+            canvas.drawLine(sx - 1.6f * u, 26.6f * u, sx - .2f * u, 28.2f * u, Hud.stroke(0xFF1A0A0D.toInt(), 1.2f * u))
+            canvas.drawLine(sx - .2f * u, 28.2f * u, sx + 2 * u, 24.8f * u, Hud.stroke(0xFF1A0A0D.toInt(), 1.2f * u))
+            rx -= 8 * u + 6 * u
+        }
         val net = Hud.text(8 * u, Hud.DUST, Hud.MONO, align = Paint.Align.RIGHT)
         canvas.drawText(t.network, rx, 30 * u, net)
         rx -= net.measureText(t.network) + 5 * u

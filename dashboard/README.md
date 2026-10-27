@@ -83,7 +83,10 @@ back to One UI Home the same way at any time.
 - **Modes**: Morning (05:00–07:00) and Night Ops (from 17:00) put MAIN at the top of the ring; Work
   (07:00–17:00) puts WORK there and dims GAMES. Pick a different top node for each mode in Launcher
   settings.
-- **Around it**: weather (tap for the Weather app), the date and next alarm (tap for the calendar or
+- **Crimson Weather**: tap the weather for a full forecast: now, rain, wind, humidity and UV, a glowing
+  graph of the next 24 hours, sunrise and sunset, and seven days with their temperature ranges (from
+  Open-Meteo, for the city set in the app). **SAMSUNG ↗** in its corner opens Samsung Weather.
+- **Around it**: weather, the date and next alarm (tap for the calendar or
   alarms), the steps line (tap for Samsung Health) and the music bar with shuffle, skip, repeat and the
   queue button.
 - **Swipes**: down for the Comms Centre, up for the Hive Map, right for the Game Hub.

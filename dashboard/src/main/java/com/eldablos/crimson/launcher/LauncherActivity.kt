@@ -44,6 +44,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private lateinit var comms: CommsView
     private lateinit var apps: AppsView
     private lateinit var hub: GameHubView
+    private lateinit var weather: WeatherView
     private lateinit var anchor: View
     private val handler = Handler(Looper.getMainLooper())
     private var mode = Mode.at(LocalTime.now().hour)
@@ -124,6 +125,12 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             }
         }
         root.addView(hub)
+        weather = WeatherView(this, u).apply {
+            visibility = View.GONE
+            onClose = { closeWeather() }
+            onSamsung = { openSamsungWeather() }
+        }
+        root.addView(weather)
         root.addView(anchor, FrameLayout.LayoutParams(1, 1))
         setContentView(root)
 
@@ -193,6 +200,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         super.onNewIntent(intent)
         // Home pressed while already home: close whatever's open.
         when {
+            weather.visibility == View.VISIBLE -> closeWeather()
             hub.visibility == View.VISIBLE -> closeGames()
             apps.visibility == View.VISIBLE -> closeApps()
             comms.visibility == View.VISIBLE -> closeComms()
@@ -203,6 +211,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
+            weather.visibility == View.VISIBLE -> closeWeather()
             hub.visibility == View.VISIBLE -> closeGames()
             apps.visibility == View.VISIBLE -> closeApps()
             comms.visibility == View.VISIBLE -> closeComms()
@@ -264,7 +273,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     // --- Overlays ---
 
-    private fun overlayOpen() = comms.visibility == View.VISIBLE || apps.visibility == View.VISIBLE || hub.visibility == View.VISIBLE
+    private fun overlayOpen() = comms.visibility == View.VISIBLE || apps.visibility == View.VISIBLE ||
+        hub.visibility == View.VISIBLE || weather.visibility == View.VISIBLE
 
     /** Blurs the home screen behind an overlay, like Samsung's panel does. */
     private fun backdrop(on: Boolean) {
@@ -463,8 +473,26 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         startActivity(Intent(this, QueueActivity::class.java))
     }
 
-    /** Samsung Weather first; any other weather app only if it isn't there. */
+    /** Crimson Weather slides down over the home screen. */
     override fun openWeather() {
+        if (overlayOpen()) return
+        backdrop(true)
+        weather.visibility = View.VISIBLE
+        weather.alpha = 0f
+        weather.translationY = -60 * Hud.u
+        weather.animate().alpha(1f).translationY(0f).setDuration(240).setInterpolator(android.view.animation.DecelerateInterpolator(1.5f)).start()
+        weather.load()
+    }
+
+    private fun closeWeather() {
+        weather.animate().alpha(0f).translationY(60 * Hud.u).setDuration(200).withEndAction {
+            weather.visibility = View.GONE
+            backdrop(false)
+        }.start()
+    }
+
+    /** Samsung Weather first; any other weather app only if it isn't there. */
+    private fun openSamsungWeather() {
         val apps = AppCatalog.apps()
         val samsung = SAMSUNG_WEATHER.firstNotNullOfOrNull { pkg -> apps.firstOrNull { it.component.packageName == pkg } }
             ?: apps.firstOrNull { it.label.equals("Weather", true) && (it.component.packageName.startsWith("com.sec.") || it.component.packageName.startsWith("com.samsung.")) }

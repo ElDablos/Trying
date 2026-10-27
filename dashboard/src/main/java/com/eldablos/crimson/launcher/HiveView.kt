@@ -246,6 +246,7 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         val searching = query.isNotEmpty()
         val bestCell = best()
         val label = Hud.text(9 * u, Color.WHITE, Hud.MEDIUM, align = Paint.Align.CENTER).apply { setShadowLayer(4 * u, 0f, 0f, Color.BLACK) }
+        val focusLabel = Hud.glow(Hud.text(10.5f * u, Color.WHITE, Hud.BOLD, align = Paint.Align.CENTER), 6 * u, Hud.CRIMSON)
         val socket = Hud.stroke(Hud.alpha(Hud.CRIMSON, .1f), u)
         val now = SystemClock.uptimeMillis()
         // Opening: the comb ripples out from the middle.
@@ -260,7 +261,9 @@ class HiveView(context: Context, private val u: Float) : View(context) {
                 val pop = Hud.easeOutBack((intro * 1.6f - d / (420 * u)).coerceIn(0f, 1f))
                 if (pop <= 0f) return@copies
                 val s = s0 * pop
-                val size = 40 * u * s
+                // The app in the sight swells up on top of the bulge, so it's clearly the one picked.
+                val focus = if (c.app != null && query.isEmpty()) 1f + .35f * (1f - d / (30 * u)).coerceIn(0f, 1f) else 1f
+                val size = 40 * u * s * focus
                 // Every cell sits in a faint hex socket: the honeycomb itself.
                 drawHex(canvas, x, y, spacing * pullAt(s) * .54f, socket)
                 val app = c.app ?: return@copies
@@ -281,8 +284,9 @@ class HiveView(context: Context, private val u: Float) : View(context) {
                 else canvas.drawRoundRect(rect, size * .24f, size * .24f, Hud.fill(Hud.alpha(0xFF3A0A14.toInt(), alpha)))
                 // Names under the big ones in the bulge, where there's room for them.
                 if (!dimmed && s > .95f) {
-                    label.alpha = (255 * ((s - .95f) / .15f).coerceIn(0f, 1f)).toInt()
-                    canvas.drawText(Hud.ellipsize(app.label, label, spacing * pullAt(s) - 8 * u), x, rect.bottom + 11 * u, label)
+                    val paint = if (focus > 1.2f) focusLabel else label
+                    paint.alpha = (255 * ((s - .95f) / .15f).coerceIn(0f, 1f)).toInt()
+                    canvas.drawText(Hud.ellipsize(app.label, paint, spacing * pullAt(s) - 8 * u), x, rect.bottom + (if (paint === focusLabel) 15 else 11) * u, paint)
                 }
             }
         }
@@ -323,8 +327,8 @@ class HiveView(context: Context, private val u: Float) : View(context) {
         val off = hypot(x - areaCx, y - areaCy)
         if (off > 24 * u) return
         val a = (1 - off / (24 * u)).coerceIn(0f, 1f)
-        val r = 33 * u
-        val k = 9 * u
+        val r = 38 * u
+        val k = 10 * u
         val p = Hud.glow(Hud.stroke(Hud.alpha(Hud.HOT, a), 1.6f * u), 6 * u)
         canvas.save()
         canvas.rotate(45f * (1 - a), x, y)

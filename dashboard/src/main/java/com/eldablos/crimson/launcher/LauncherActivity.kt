@@ -226,6 +226,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             return
         }
         resumed = true
+        settleOverlays()
         window.insetsController?.hide(WindowInsets.Type.statusBars())
         Comms.addListener(this)
         val prefs = getSharedPreferences("launcher", MODE_PRIVATE)
@@ -368,12 +369,33 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private fun backdrop(on: Boolean) {
         // The blur eases in and out rather than snapping.
         blurAnim?.cancel()
-        blurAnim = android.animation.ValueAnimator.ofFloat(blurLevel, if (on) 1f else 0f).apply {
+        // Only clear the blur once nothing is open, so one overlay closing as another opens can't
+        // leave the home screen sharp behind it, or blurred with nothing in front.
+        val target = if (on || overlayOpen()) 1f else 0f
+        blurAnim = android.animation.ValueAnimator.ofFloat(blurLevel, target).apply {
             duration = if (on) 260 else 220
             addUpdateListener { setBlur(it.animatedValue as Float) }
             start()
         }
-        effects.running = !on && effectsOn()
+        effects.running = target == 0f && effectsOn()
+    }
+
+    /**
+     * Coming back home: finish any overlay that was part-way closing when an app opened, and make sure
+     * the home screen isn't left blurred or faded with nothing in front of it.
+     */
+    private fun settleOverlays() {
+        for (v in listOf(deck, hub, weather)) {
+            if (v.visibility == View.VISIBLE && v.alpha < 1f && v.animation == null) {
+                v.animate().cancel()
+                v.visibility = View.GONE
+            }
+        }
+        if (!overlayOpen()) {
+            blurAnim?.cancel()
+            setBlur(0f)
+        }
+        home.alpha = 1f
     }
 
     private var blurAnim: android.animation.ValueAnimator? = null

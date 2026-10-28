@@ -4,6 +4,8 @@ precision highp float;
 
 uniform vec2 uRes;          // buffer size in pixels
 uniform float uTime;        // seconds
+uniform float uPhase;       // seconds scaled by the mode's energy (.7 calm, 1 normal, 1.3 night), summed frame by frame
+uniform float uSpin;        // the same, also sped up while a call rings
 uniform vec3 uPrimary;      // theme colour
 uniform vec3 uSecondary;    // theme second accent
 uniform vec2 uTilt;         // phone tilt, about -1..1
@@ -15,7 +17,6 @@ uniform float uCharge;      // 0..1 while charging
 uniform float uLevel;       // battery level 0..1
 uniform vec3 uTap;          // tap x, y (0..1 from top-left) and seconds since
 uniform float uBoot;        // seconds since unlock
-uniform float uEnergy;      // mode: .7 calm, 1 normal, 1.3 night
 uniform float uLow;         // 1 on low battery
 
 #define PI 3.14159265
@@ -45,23 +46,29 @@ float gSpin;
 vec3 energyCol() { return mix(vec3(1.0, 0.82, 0.38), uSecondary, 0.25); }
 float gBoot;
 
-// Returns distance; mat: 0 dark metal, 1 glowing, 2 copper coils.
-float map(vec3 p, out float mat, out float glow) {
-    // Housing: a thick outer ring.
-    float housing = sdTorus(p, 1.0, 0.11);
-    // Ten coils round it, slowly turning.
+// Rounded box: softer edges catch the light instead of stair-stepping.
+float sdRound(vec3 p, vec3 b, float r) { return sdBox(p, b - r) - r; }
+
+// The coils' frame: turned with the coils, folded into the first of ten sectors.
+vec3 coilSpace(vec3 p) {
     vec3 q = p;
     q.xy = rot(gSpin * 0.25) * q.xy;
-    q = sector(q, 10.0);
-    float coil = sdBox(q - vec3(0.78, 0.0, 0.0), vec3(0.12, 0.075, 0.1)) - 0.015;
-    // Coil windings: thin glowing bands across each coil.
-    float wind = sdBox(q - vec3(0.78, 0.0, -0.02), vec3(0.135, 0.02, 0.105));
+    return sector(q, 10.0);
+}
+
+// Returns distance; mat: 0 dark metal, 1 glowing, 2 copper coils.
+float map(vec3 p, out float mat, out float glow) {
+    // Housing: a thick outer ring with a raised lip round its face.
+    float housing = min(sdTorus(p, 1.0, 0.105), sdTorus(p - vec3(0.0, 0.0, -0.06), 1.0, 0.07));
+    // Ten copper coils round it, slowly turning, wound round rounded cores.
+    vec3 q = coilSpace(p);
+    float coil = sdRound(q - vec3(0.78, 0.0, 0.0), vec3(0.125, 0.07, 0.095), 0.035);
     // Inner glowing ring and a counter-spinning segmented ring.
-    float inner = sdTorus(p, 0.56, 0.035);
+    float inner = sdTorus(p, 0.56, 0.032);
     vec3 s = p;
     s.xy = rot(-gSpin) * s.xy;
     s = sector(s, 6.0);
-    float seg = sdBox(s - vec3(0.44, 0.0, 0.03), vec3(0.03, 0.12, 0.03));
+    float seg = sdRound(s - vec3(0.44, 0.0, 0.03), vec3(0.028, 0.11, 0.028), 0.02);
     // Core: a lens with a triangle set in it.
     float core = length(p * vec3(1.0, 1.0, 2.2)) - 0.27;
     vec3 t = p;
@@ -69,11 +76,12 @@ float map(vec3 p, out float mat, out float glow) {
     float tri = max(max(-t.y - 0.1, dot(t.xy, vec2(0.866, 0.5)) - 0.1), dot(t.xy, vec2(-0.866, 0.5)) - 0.1);
     tri = max(abs(tri) - 0.012, abs(t.z + 0.06) - 0.03);
 
-    // Bolts round the housing's face.
+    // Bolts round the housing's face, and the collar between coils and core.
     vec3 b = sector(p, 20.0);
-    float bolt = length(b - vec3(1.0, 0.0, -0.1)) - 0.028;
-    float metal = min(min(housing, bolt), sdTorus(p - vec3(0.0, 0.0, 0.08), 0.66, 0.05));
-    float hot = min(min(inner, seg), min(core, min(tri, wind)));
+    float bolt = length(b - vec3(1.0, 0.0, -0.13)) - 0.024;
+    float collar = sdTorus(p - vec3(0.0, 0.0, 0.08), 0.66, 0.045);
+    float metal = min(min(housing, bolt), collar);
+    float hot = min(min(inner, seg), min(core, tri));
     glow = hot;
     float d = min(metal, min(hot, coil));
     mat = d == hot ? 1.0 : (d == coil ? 2.0 : 0.0);
@@ -87,6 +95,38 @@ vec3 normalAt(vec3 p) {
         map(p + e.xyy, m, g) - map(p - e.xyy, m, g),
         map(p + e.yxy, m, g) - map(p - e.yxy, m, g),
         map(p + e.yyx, m, g) - map(p - e.yyx, m, g)));
+}
+
+// Lights a point on the reactor.
+vec3 shade(vec3 p, vec3 rd, float mat, vec3 col, vec3 col2, vec3 hotCol, float boot) {
+    vec3 n = normalAt(p);
+    vec3 key = normalize(vec3(-0.4, 0.6, -1.0));
+    vec3 l = normalize(-p);
+    float diff = max(dot(n, l), 0.0);
+    if (mat > 1.5) {
+        // Copper coils in the second colour: fine windings, a lit seam down the middle, and a soft
+        // highlight that rolls over the rounded edges.
+        vec3 q = coilSpace(p);
+        float wire = 0.6 + 0.4 * smoothstep(-0.3, 0.6, cos((q.x - 0.78) * TAU * 34.0));
+        float fres = pow(1.0 - max(dot(n, -rd), 0.0), 2.0);
+        float spec = pow(max(dot(reflect(rd, n), key), 0.0), 32.0);
+        vec3 c = col2 * (0.1 + 0.6 * diff * wire + 0.45 * fres) * boot + mix(col2, vec3(1.0), 0.55) * spec * 0.9;
+        float seam = smoothstep(0.03, 0.006, abs(q.y)) * smoothstep(0.02, -0.04, q.z);
+        float halo = exp(-abs(q.y) * 40.0) * 0.35;
+        return c * (1.0 - seam * 0.6) + hotCol * (seam * 1.5 + halo) * boot;
+    } else if (mat > 0.5) {
+        // Hotter towards the middle: a swirling white-hot core, the theme colour outside.
+        float pr2 = length(p.xy);
+        float heat = smoothstep(0.6, 0.0, pr2);
+        float swirl = 0.5 + 0.5 * sin(atan(p.y, p.x) * 3.0 + pr2 * 14.0 - uPhase * 1.4);
+        float rings = 0.5 + 0.5 * sin(pr2 * 60.0 - uPhase * 2.6);
+        return mix(hotCol * (1.25 + 0.3 * swirl + 0.2 * rings), vec3(1.0, 0.97, 0.97) * 1.7, heat * 0.55) * boot;
+    }
+    // Brushed dark metal lit by the core, a rim of the theme colour and a sharp highlight.
+    float fres = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
+    float spec = pow(max(dot(reflect(rd, n), key), 0.0), 48.0);
+    float brushed = 0.85 + 0.15 * sin(atan(p.y, p.x) * 180.0);
+    return vec3(0.055, 0.05, 0.058) * brushed + col * (0.32 * diff + 0.85 * fres) * boot + vec3(spec * 0.75);
 }
 
 // --- The tunnel behind it: hex cells on the walls of an endless tube rushing towards you. ---
@@ -105,7 +145,7 @@ float hexEdge(vec2 p) {
 vec3 tunnel(vec2 uv, float speed, vec3 col, vec3 col2) {
     float r = length(uv);
     float a = atan(uv.y, uv.x);
-    float z = 0.42 / max(r, 0.02) + uTime * speed;
+    float z = 0.42 / max(r, 0.02) + uPhase * speed;
     vec2 tp = vec2(a / TAU * 28.0, z * 3.4);
     float e = hexEdge(tp);
     // A thin bright edge with a soft glow round it.
@@ -115,7 +155,7 @@ vec3 tunnel(vec2 uv, float speed, vec3 col, vec3 col2) {
     float lit = step(0.93, hash(cellId + floor(uTime * 0.3))) * smoothstep(0.1, 0.3, e);
     // Data pulses running along the walls towards you.
     float lane = floor(a / TAU * 28.0);
-    float band = pow(0.5 + 0.5 * sin(z * 1.6 - uTime * 1.3 * uEnergy + lane * 1.7), 24.0);
+    float band = pow(0.5 + 0.5 * sin(z * 1.6 - uPhase * 1.3 + lane * 1.7), 24.0);
     float fog = smoothstep(0.08, 0.9, r) * (0.6 + 0.4 * smoothstep(1.6, 0.4, r));
     vec3 c = col * (line * (0.18 + 1.8 * band) + lit * 0.22) * fog;
     // Each cell a panel, shaded a little differently, so the walls read as surfaces.
@@ -123,7 +163,7 @@ vec3 tunnel(vec2 uv, float speed, vec3 col, vec3 col2) {
     // Warp streaks flying past.
     float sl = floor(a / TAU * 90.0);
     float sh = hash(vec2(sl, 3.0));
-    float sz = fract(z * 0.35 * (0.6 + sh) - uTime * 0.1 * uEnergy + sh * 7.0);
+    float sz = fract(z * 0.35 * (0.6 + sh) - uPhase * 0.1 + sh * 7.0);
     c += mix(col, vec3(1.0), 0.4) * step(0.82, sh) * smoothstep(0.0, 0.04, sz) * smoothstep(0.12, 0.04, sz) * fog * 0.7;
     // A message: the walls light up in the app's colour as the wave passes out through them.
     float wave = uPulseT * 1.4;
@@ -150,15 +190,14 @@ void main() {
 
     float boot = clamp(uBoot / 1.6, 0.0, 1.0);
     gBoot = boot;
-    float callSpin = 1.0 + 5.0 * uCall;
-    gSpin = uTime * 0.28 * uEnergy * callSpin + (1.0 - boot) * 6.0;
+    gSpin = uSpin * 0.28 + (1.0 - boot) * 6.0;
 
     vec3 col = uPrimary;
     vec3 col2 = uSecondary;
     if (uLow > 0.5) col *= 0.55 + 0.45 * pow(0.5 + 0.5 * sin(uTime * 2.2), 3.0);
 
     // Background tunnel, with a little parallax from the tilt.
-    vec3 c = tunnel(uv - uTilt * 0.06, 0.2 * uEnergy, col, col2) * boot;
+    vec3 c = tunnel(uv - uTilt * 0.06, 0.2, col, col2) * boot;
 
     // Ray-march the reactor, tilted with the phone.
     vec3 ro = vec3(0.0, 0.0, -3.0);
@@ -173,12 +212,18 @@ void main() {
     float glowAcc = 0.0;
     float mat = 0.0;
     float hit = 0.0;
-    for (int i = 0; i < 56; i++) {
+    // The ray's closest pass, for smooth edges: a pixel the reactor only partly covers is blended.
+    float best = 1e3;
+    float bestT = 0.0;
+    float px = 1.6 / uRes.x;
+    for (int i = 0; i < 64; i++) {
         vec3 p = ro + rd * t;
         float g;
         float d = map(p, mat, g);
         glowAcc += exp(-g * 22.0) * 0.045;
-        if (d < 0.001) { hit = 1.0; break; }
+        float footprint = px * t;
+        if (d / footprint < best) { best = d / footprint; bestT = t; }
+        if (d < 0.0008) { hit = 1.0; break; }
         t += d * 0.9;
         if (t > 7.0) break;
     }
@@ -188,33 +233,16 @@ void main() {
     corePulse += beat * 0.8;
     vec3 hotCol = mix(col, vec3(1.0), 0.18) * corePulse;
     hotCol = mix(hotCol, energyCol() * corePulse, uCharge * 0.6);
-    if (hit > 0.5) {
-        vec3 p = ro + rd * t;
-        vec3 n = normalAt(p);
-        if (mat > 1.5) {
-            // Copper coils in the second colour, catching the core's light.
-            vec3 l = normalize(-p);
-            float diff = max(dot(n, l), 0.0);
-            float fres = pow(1.0 - max(dot(n, -rd), 0.0), 2.0);
-            float spec = pow(max(dot(reflect(rd, n), normalize(vec3(-0.4, 0.6, -1.0))), 0.0), 24.0);
-            c = col2 * (0.12 + 0.55 * diff + 0.5 * fres) * boot + mix(col2, vec3(1.0), 0.5) * spec;
-        } else if (mat > 0.5) {
-            // Hotter towards the middle: a swirling white-hot core, the theme colour outside.
-            float pr2 = length(p.xy);
-            float heat = smoothstep(0.6, 0.0, pr2);
-            float swirl = 0.5 + 0.5 * sin(atan(p.y, p.x) * 3.0 + pr2 * 14.0 - uTime * 1.4 * uEnergy);
-            float rings = 0.5 + 0.5 * sin(pr2 * 60.0 - uTime * 2.6 * uEnergy);
-            c = mix(hotCol * (1.25 + 0.3 * swirl + 0.2 * rings), vec3(1.0, 0.97, 0.97) * 1.7, heat * 0.55) * boot;
-        } else {
-            // Dark metal lit by the core and a rim of the theme colour.
-            vec3 l = normalize(-p);
-            float diff = max(dot(n, l), 0.0);
-            float fres = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
-            vec3 refl = reflect(rd, n);
-            float spec = pow(max(dot(refl, normalize(vec3(-0.4, 0.6, -1.0))), 0.0), 40.0);
-            c = vec3(0.05, 0.045, 0.05) + col * (0.35 * diff + 0.9 * fres) * boot + vec3(spec * 0.8);
-        }
+    float cover = hit > 0.5 ? 1.0 : smoothstep(1.0, 0.0, best);
+    if (cover > 0.0) {
+        float tt = hit > 0.5 ? t : bestT;
+        vec3 p = ro + rd * tt;
+        float m, g;
+        map(p, m, g);
+        vec3 surf = shade(p, rd, m, col, col2, hotCol, boot);
+        c = mix(c, surf, cover);
     }
+    hit = cover;
     c += hotCol * glowAcc * boot;
 
     // Bloom round the core, and light rays streaming out through the coils.
@@ -260,7 +288,7 @@ void main() {
     // Embers drifting up on three depths.
     for (int k = 0; k < 3; k++) {
         float depth = 1.0 + float(k) * 0.8;
-        vec2 ep = (frag / uRes.x) * 9.0 * depth + vec2(float(k) * 13.1, uTime * (0.17 / depth) * uEnergy) + uTilt * 0.4 * float(k);
+        vec2 ep = (frag / uRes.x) * 9.0 * depth + vec2(float(k) * 13.1, uPhase * (0.17 / depth)) + uTilt * 0.4 * float(k);
         vec2 cell = floor(ep);
         vec2 f = fract(ep) - 0.5;
         float h = hash(cell + float(k));

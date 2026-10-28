@@ -48,12 +48,19 @@ class ReactorService : WallpaperService() {
         private var width = 1
         private var height = 1
         private var visible = false
-        private val started = SystemClock.uptimeMillis()
+        // The wallpaper's own clock: it only runs while drawing, and a frame never moves it more than
+        // a tenth of a second, so coming back from an app carries on smoothly instead of leaping.
+        private var clock = 0.0
+        private var lastFrame = 0L
+        // Motion is summed frame by frame at the current pace. Multiplying the clock by the pace
+        // instead would race whenever the pace eased between modes, the clock being up to an hour.
+        private var phase = 0f
+        private var spin = 0f
 
         private var primary = prefs.getInt("primary", 0xFFE04358.toInt())
         private var secondary = prefs.getInt("secondary", 0xFFFFD27A.toInt())
         private var centerY = prefs.getFloat("centerY", .43f)
-        private var pulseAt = -100f
+        private var pulseAt = -100.0
         private var pulseColor = 0xFF25D366.toInt()
         private var callTarget = 0f
         private var call = 0f
@@ -64,8 +71,8 @@ class ReactorService : WallpaperService() {
         private var low = false
         private var tapX = .5f
         private var tapY = .5f
-        private var tapAt = -100f
-        private var bootAt = -100f
+        private var tapAt = -100.0
+        private var bootAt = -100.0
         private var energyTarget = prefs.getFloat("energy", 1f)
         private var energy = energyTarget
 
@@ -106,7 +113,7 @@ class ReactorService : WallpaperService() {
             registerReceiver(receiver, IntentFilter(Intent.ACTION_USER_PRESENT))
         }
 
-        private fun now() = (SystemClock.uptimeMillis() - started) / 1000f
+        private fun now() = clock
 
         /** Something happened: draw it straight away rather than waiting for the next frame. */
         private fun wake() {
@@ -160,6 +167,7 @@ class ReactorService : WallpaperService() {
             handler.post {
                 visible = isVisible
                 handler.removeCallbacks(loop)
+                lastFrame = 0L
                 if (isVisible) {
                     hasRest = false
                     registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.let { battery(it) }
@@ -233,29 +241,36 @@ class ReactorService : WallpaperService() {
 
         private fun draw() {
             val r = renderer ?: return
-            val t = now()
+            val ms = SystemClock.uptimeMillis()
+            val dt = if (lastFrame == 0L) 0f else ((ms - lastFrame) / 1000f).coerceIn(0f, MAX_STEP)
+            lastFrame = ms
+            clock += dt.toDouble()
+            phase = (phase + dt * energy) % WRAP
+            spin = (spin + dt * energy * (1f + 5f * call)) % WRAP
+            val t = clock
             tiltX += (targetX - tiltX) * EASE
             tiltY += (targetY - tiltY) * EASE
             call += (callTarget - call) * .08f
             charge += ((if (charging) 1f else 0f) - charge) * .06f
             energy += (energyTarget - energy) * .05f
             try {
-                r.begin(width, height, SCALE)
+                r.begin(width, height, if (power?.isPowerSaveMode == true) SAVER_SCALE else SCALE)
                 // Time wraps every hour to keep the shader's maths precise.
-                r.set("uTime", t % 3600f)
+                r.set("uTime", (t % WRAP).toFloat())
+                r.set("uPhase", phase)
+                r.set("uSpin", spin)
                 r.set("uPrimary", Color.red(primary) / 255f, Color.green(primary) / 255f, Color.blue(primary) / 255f)
                 r.set("uSecondary", Color.red(secondary) / 255f, Color.green(secondary) / 255f, Color.blue(secondary) / 255f)
                 r.set("uTilt", -tiltX, tiltY)
                 r.set("uCenterY", centerY)
-                r.set("uPulseT", (t - pulseAt).coerceAtMost(99f))
+                r.set("uPulseT", (t - pulseAt).coerceAtMost(99.0).toFloat())
                 val pc = if (call > .05f) callColor else pulseColor
                 r.set("uPulseColor", Color.red(pc) / 255f, Color.green(pc) / 255f, Color.blue(pc) / 255f)
                 r.set("uCall", call)
                 r.set("uCharge", charge)
                 r.set("uLevel", level)
-                r.set("uTap", tapX, tapY, (t - tapAt).coerceAtMost(99f))
-                r.set("uBoot", (t - bootAt).coerceAtMost(99f))
-                r.set("uEnergy", energy)
+                r.set("uTap", tapX, tapY, (t - tapAt).coerceAtMost(99.0).toFloat())
+                r.set("uBoot", (t - bootAt).coerceAtMost(99.0).toFloat())
                 r.set("uLow", if (low) 1f else 0f)
                 r.end(width, height)
             } catch (e: Exception) {
@@ -301,9 +316,12 @@ class ReactorService : WallpaperService() {
         const val MODE = "com.eldablos.crimson.MODE"
         private const val FRAME_MS = 33L
         private const val SAVER_MS = 50L
-        private const val SCALE = .45f
+        private const val SCALE = .6f
+        private const val SAVER_SCALE = .45f
         private const val REST_FOLLOW = 0.015f
         private const val TILT_RANGE = 0.3f
         private const val EASE = 0.12f
+        private const val MAX_STEP = .1f
+        private const val WRAP = 3600f
     }
 }

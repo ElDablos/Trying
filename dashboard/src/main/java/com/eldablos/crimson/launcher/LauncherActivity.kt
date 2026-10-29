@@ -166,6 +166,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             onSettings = { startActivity(Intent(this@LauncherActivity, LauncherSettingsActivity::class.java)) }
             onComms = { closeDeck(); handler.postDelayed({ openComms(null) }, 220) }
             onWeather = { closeDeck(); handler.postDelayed({ openWeather() }, 220) }
+            onWeatherDay = { day -> closeDeck(); handler.postDelayed({ showWeather(day) }, 220) }
             onLaunch = { component -> AppCatalog.launch(this@LauncherActivity, component) }
             onVoice = { askByVoice() }
         }
@@ -663,14 +664,17 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     }
 
     /** Crimson Weather slides down over the home screen. */
-    override fun openWeather() {
+    override fun openWeather() = showWeather(null)
+
+    /** Crimson Weather, on [day]'s page when given. */
+    private fun showWeather(day: java.time.LocalDate?) {
         if (overlayOpen()) return
         backdrop(true)
         weather.visibility = View.VISIBLE
         weather.alpha = 0f
         weather.translationY = -60 * Hud.u
         weather.animate().alpha(1f).translationY(0f).setDuration(240).setInterpolator(android.view.animation.DecelerateInterpolator(1.5f)).start()
-        weather.load()
+        weather.load(day)
     }
 
     private fun closeWeather() {

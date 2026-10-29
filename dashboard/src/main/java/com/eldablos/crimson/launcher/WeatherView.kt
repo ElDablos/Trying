@@ -77,8 +77,8 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
 
     private val top get() = 66 * u
 
-    /** Shows the last forecast straight away, then fetches a fresh one. */
-    fun load() {
+    /** Shows the last forecast straight away, then fetches a fresh one; with [day], opens on that day's page. */
+    fun load(day: LocalDate? = null) {
         openedAt = SystemClock.uptimeMillis()
         touchedAt = openedAt
         forecast = Forecast.cached(context)
@@ -88,6 +88,12 @@ class WeatherView(context: Context, private val u: Float) : View(context) {
         strip = 0f
         swipe = 0f
         pull = 0f
+        val i = day?.let { d -> forecast?.days?.indexOfFirst { it.date == d } } ?: -1
+        if (i >= 0) {
+            dayIndex = i
+            page = Page.DAY
+            history += Page.MAIN
+        }
         refresh()
         invalidate()
     }

@@ -326,12 +326,14 @@ object ClaudeLink {
     fun recent(context: Context): List<String> =
         prefs(context).getString("claude_recent", null).orEmpty().split('\u001F').filter { it.isNotBlank() }
 
-    /** Starts a new chat in Claude with [text], remembering it for the recent list. */
-    fun ask(context: Context, text: String) {
+    /** Starts a new chat in Claude with [text], remembering it for the recent list if [remember]. */
+    fun ask(context: Context, text: String, remember: Boolean = true) {
         val q = text.trim()
         if (q.isEmpty()) return open(context)
-        val list = listOf(q) + recent(context).filter { it != q }
-        prefs(context).edit().putString("claude_recent", list.take(MAX_RECENT).joinToString("\u001F")).apply()
+        if (remember) {
+            val list = listOf(q) + recent(context).filter { it != q }
+            prefs(context).edit().putString("claude_recent", list.take(MAX_RECENT).joinToString("\u001F")).apply()
+        }
         val send = Intent(Intent.ACTION_SEND).setPackage(PACKAGE).setType("text/plain")
             .putExtra(Intent.EXTRA_TEXT, q).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {

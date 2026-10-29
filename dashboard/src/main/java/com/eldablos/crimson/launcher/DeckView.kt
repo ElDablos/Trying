@@ -131,6 +131,64 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     private var holdings: Map<String, DeckStore.Holding> = emptyMap()
     private var focus: DeckStore.Focus? = null
     private var focusLength = 25
+    private var briefOpen = context.getSharedPreferences("deck", Context.MODE_PRIVATE).getBoolean("brief_open", false)
+
+    /** One line of the briefing: a glyph, what it is, the detail, its colour and urgency (0 = most), a
+     *  headline if it's the most pressing thing, how to say it aloud, and where a tap goes. */
+    private class Intel(
+        val glyph: String,
+        val label: String,
+        val value: String,
+        val color: Int,
+        val rank: Int,
+        val headline: String?,
+        val speech: String,
+        val action: (() -> Unit)?,
+    )
+
+    // Reading the briefing aloud.
+    private var tts: android.speech.tts.TextToSpeech? = null
+    private var speaking = false
+
+    private fun speak(text: String) {
+        val ready = tts
+        if (ready != null) {
+            say(ready, text)
+            return
+        }
+        tts = android.speech.tts.TextToSpeech(context.applicationContext) { status ->
+            if (status == android.speech.tts.TextToSpeech.SUCCESS) tts?.let { say(it, text) }
+            else Toast.makeText(context, "Text to speech isn't available", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun say(t: android.speech.tts.TextToSpeech, text: String) {
+        t.language = Locale.getDefault()
+        t.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+            override fun onStart(id: String?) { main.post { speaking = true; board.invalidate() } }
+            override fun onDone(id: String?) { main.post { speaking = false; board.invalidate() } }
+            @Deprecated("Deprecated in Java")
+            override fun onError(id: String?) { main.post { speaking = false; board.invalidate() } }
+        })
+        t.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "briefing")
+    }
+
+    private fun stopSpeaking() {
+        tts?.stop()
+        speaking = false
+        board.invalidate()
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (visibility != VISIBLE && speaking) stopSpeaking()
+    }
+
+    override fun onDetachedFromWindow() {
+        tts?.shutdown()
+        tts = null
+        super.onDetachedFromWindow()
+    }
 
     init {
         addView(board, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -694,87 +752,306 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             return briefingCard(canvas, y + 108 * u, now)
         }
 
-        /** The briefing: one short read of what matters now, key parts brighter. */
-        private fun briefing(): List<Pair<String, Boolean>> {
-            val out = ArrayList<Pair<String, Boolean>>()
-            fun say(text: String, strong: Boolean = false) { out += text to strong }
-            val time = LocalDateTime.now()
-            say(when (time.hour) { in 5 until 12 -> "Good morning."; in 12 until 18 -> "Good afternoon."; else -> "Good evening." })
-            val nowMs = System.currentTimeMillis()
-            val tf = DateTimeFormatter.ofPattern("HH:mm")
-            fun at(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault())
-            val live = agenda.firstOrNull { !it.allDay && it.begin <= nowMs && nowMs < it.end }
-            val todayLeft = agenda.filter { !it.allDay && it.begin > nowMs && at(it.begin).toLocalDate() == LocalDate.now() }
-            val tomorrow = agenda.firstOrNull { at(it.begin).toLocalDate() == LocalDate.now().plusDays(1) }
-            when {
-                live != null -> { say("Now:"); say(live.title + ".", true) }
-                todayLeft.isNotEmpty() -> {
-                    val e = todayLeft.first()
-                    say("Next"); say("${at(e.begin).format(tf)} ${e.title}", true)
-                    say("(in ${duration(e.begin - nowMs)})" + if (todayLeft.size > 1) ", ${todayLeft.size - 1} more today." else ".")
-                }
-                tomorrow != null -> { say("Nothing else today; tomorrow starts"); say(if (tomorrow.allDay) tomorrow.title + "." else "${at(tomorrow.begin).format(tf)} ${tomorrow.title}.", true) }
-                else -> say("Nothing on the calendar.")
-            }
-            forecast?.let { f ->
-                val nowH = time.withMinute(0).withSecond(0).withNano(0)
-                val next = f.hours.filter { !it.time.isBefore(nowH) }.take(12)
-                val wet = next.firstOrNull { it.rain >= 50 }
-                if (wet != null) say(if (wet.time == nowH) "Rain now," else "Rain from ${wet.time.format(tf)},", true) else say("Dry for now,")
-                say("${f.temp}°" + (f.today?.let { " → ${it.high}°." } ?: "."))
-            }
-            telemetry?.let { t ->
-                say("Battery"); say("${t.battery}%" + (batteryEstimate()?.let { ", ${it.lowercase()}" } ?: "") + ".", t.battery <= 20)
-                t.alarm?.let { a -> say("Alarm"); say(at(a).format(tf), true); say("(in ${duration(a - nowMs)}).") }
-            }
-            groups.sumOf { it.count }.takeIf { it > 0 }?.let { say("$it unread.", true) }
-            focus?.let { say("Focusing, ${duration((it.endAt - nowMs).coerceAtLeast(0))} left.", true) }
-            countdowns.firstOrNull { val d = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), it.date); d in 0..7 }?.let { c ->
-                val d = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), c.date)
-                say(c.name + if (d == 0L) " is today." else " in $d day${if (d == 1L) "" else "s"}.", true)
-            }
-            coins.maxByOrNull { abs(it.changePct) }?.let { c -> say("${c.symbol} " + (if (c.changePct >= 0) "▲" else "▼") + " %.1f%%.".format(Locale.ROOT, abs(c.changePct)), true) }
-            return out
-        }
+        /** What the briefing is about: the rest of today, or tomorrow once it's evening. */
+        private fun eveningMode() = LocalDateTime.now().hour >= 19
 
-        private fun briefingCard(canvas: Canvas, top: Float, now: Long): Float {
-            val r0 = RectF(14 * u, top, width - 14 * u, top)
-            val plain = Hud.text(11.5f * u, Hud.SOFT, Hud.SANS)
-            val strong = Hud.text(11.5f * u, Color.WHITE, Hud.MEDIUM)
-            // Lay the words out first to know the card's height.
-            val maxW = r0.width() - 28 * u
-            val words = briefing().flatMap { (t, b) -> t.split(' ').filter { it.isNotEmpty() }.map { it to b } }
-            val lines = ArrayList<MutableList<Pair<String, Boolean>>>()
-            var lineW = 0f
-            val space = plain.measureText(" ")
-            for (w in words) {
-                val ww = (if (w.second) strong else plain).measureText(w.first)
-                if (lines.isEmpty() || lineW + space + ww > maxW) {
-                    lines += mutableListOf(w)
-                    lineW = ww
-                } else {
-                    lines.last() += w
-                    lineW += space + ww
-                }
+        /** Every line of intel, most urgent first. */
+        private fun intel(): List<Intel> {
+            val out = ArrayList<Intel>()
+            val nowMs = System.currentTimeMillis()
+            val zone = ZoneId.systemDefault()
+            val tf = DateTimeFormatter.ofPattern("HH:mm")
+            fun at(ms: Long) = Instant.ofEpochMilli(ms).atZone(zone)
+            val today = LocalDate.now()
+            val evening = eveningMode()
+            val blue = 0xFF6FA8FF.toInt()
+
+            // Agenda: what's on now, what's next, or how tomorrow starts.
+            val live = agenda.firstOrNull { !it.allDay && it.begin <= nowMs && nowMs < it.end }
+            val left = agenda.filter { !it.allDay && it.begin > nowMs && at(it.begin).toLocalDate() == today }
+            val tomorrow = agenda.filter { at(it.begin).toLocalDate() == today.plusDays(1) }
+            if (live != null) {
+                out += Intel("◉", "NOW", "${live.title} · until ${at(live.end).format(tf)}", Hud.HOT, 1,
+                    "In ${live.title} until ${at(live.end).format(tf)}.", "You're in ${live.title} until ${at(live.end).format(tf)}.") { DeckData.openEvent(context, live) }
             }
-            val lineH = 17 * u
-            val h = 34 * u + lines.size * lineH + 8 * u
-            card(canvas, now, top, h) {
-                val r = RectF(14 * u, top, width - 14 * u, top + h)
-                panel(canvas, r, Hud.GOLD)
-                canvas.drawText("◆ BRIEFING", r.left + 14 * u, top + 20 * u, Hud.text(8.5f * u, Hud.GOLD, Hud.MONO, .2f))
-                canvas.drawText("LIVE", r.right - 14 * u, top + 20 * u, Hud.text(8 * u, Hud.DUST, Hud.MONO, .16f, Paint.Align.RIGHT))
-                lines.forEachIndexed { i, line ->
-                    var x = r.left + 14 * u
-                    val yy = top + 40 * u + i * lineH
-                    for ((w, b) in line) {
-                        val p = if (b) strong else plain
-                        canvas.drawText(w, x, yy, p)
-                        x += p.measureText(w) + space
+            val next = left.firstOrNull()
+            if (next != null) {
+                val inMs = next.begin - nowMs
+                val more = if (left.size > 1) " · +${left.size - 1} MORE" else ""
+                val rank = when { inMs < 30 * 60_000L -> 0; inMs < 2 * 3600_000L -> 2; else -> 4 }
+                out += Intel("◷", "NEXT", "${at(next.begin).format(tf)} ${next.title} · in ${duration(inMs)}$more", Hud.GOLD, rank,
+                    "${next.title} in ${duration(inMs)}.", "Next, ${next.title} at ${at(next.begin).format(tf)}, in ${duration(inMs)}.") { DeckData.openEvent(context, next) }
+            } else if (evening && tomorrow.isNotEmpty()) {
+                val first = tomorrow.firstOrNull { !it.allDay } ?: tomorrow.first()
+                val time = if (first.allDay) "ALL DAY" else at(first.begin).format(tf)
+                out += Intel("◷", "TOMORROW", "$time ${first.title}" + if (tomorrow.size > 1) " · ${tomorrow.size} EVENTS" else "", Hud.GOLD, 3,
+                    "Tomorrow starts ${if (first.allDay) "with" else "at $time with"} ${first.title}.", "Tomorrow starts ${if (first.allDay) "with" else "at $time with"} ${first.title}.") { DeckData.openEvent(context, first) }
+            } else if (live == null) {
+                out += Intel("◷", "AGENDA", if (evening) "Nothing tomorrow morning" else "Nothing else today", Hud.DUST, 9, null,
+                    if (evening) "Nothing on tomorrow morning." else "Nothing else on today.", null)
+            }
+
+            // Sky: rain soon, or tomorrow's weather in the evening.
+            forecast?.let { f ->
+                val nowH = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0)
+                if (evening) {
+                    f.days.firstOrNull { it.date == today.plusDays(1) }?.let { d ->
+                        val wet = d.rain >= 50
+                        out += Intel(if (wet) "☂" else "☀", "TOMORROW", "${Weather.describe(d.code, true).label} · ${d.high}° / ${d.low}° · rain ${d.rain}%", if (wet) blue else Hud.SOFT, if (wet) 3 else 7,
+                            if (wet) "Rain tomorrow (${d.rain}%), high of ${d.high}°." else null,
+                            "Tomorrow: ${Weather.describe(d.code, true).label.lowercase()}, high of ${d.high}, low of ${d.low}.") { onWeatherDay?.invoke(d.date) }
+                    }
+                } else {
+                    val next12 = f.hours.filter { !it.time.isBefore(nowH) }.take(12)
+                    val wet = next12.firstOrNull { it.rain >= 50 }
+                    val high = f.today?.high
+                    if (wet != null) {
+                        val soon = Duration.between(nowH, wet.time).toHours() < 2
+                        val from = if (wet.time == nowH) "now" else "from ${wet.time.format(tf)}"
+                        out += Intel("☂", "SKY", "Rain $from (${wet.rain}%) · ${f.temp}°" + (high?.let { " → $it°" } ?: ""), blue, if (soon) 1 else 3,
+                            "Rain $from. Take a coat.", "Rain $from, ${wet.rain} percent chance.") { onWeather?.invoke() }
+                    } else {
+                        out += Intel("☀", "SKY", "Dry for 12h · ${f.temp}° now" + (high?.let { " · high $it°" } ?: ""), Hud.SOFT, 7, null,
+                            "Dry for the next twelve hours, ${f.temp} degrees now.") { onWeather?.invoke() }
                     }
                 }
             }
+
+            // Power.
+            telemetry?.let { t ->
+                val est = batteryEstimate()
+                val low = !t.charging && t.battery <= 20
+                val value = (if (t.charging) "⚡ " else "") + "${t.battery}%" + (est?.let { " · ${it.lowercase()}" } ?: "")
+                out += Intel("▮", "POWER", value, if (low) DOWN else if (t.charging) UP else Hud.SOFT, if (low) 0 else 8,
+                    if (low) "Battery ${t.battery}%. Charge soon." else null,
+                    "Battery ${t.battery} percent" + (est?.let { ", ${it.lowercase()}" } ?: "") + ".") { start(Intent(Intent.ACTION_POWER_USAGE_SUMMARY)) }
+
+                // The alarm: always in the evening, otherwise when it's within twelve hours.
+                val alarm = t.alarm
+                if (alarm != null && (evening || alarm - nowMs < 12 * 3600_000L)) {
+                    val sleep = alarm - nowMs
+                    out += Intel("⏰", "ALARM", "${at(alarm).format(tf)} · in ${duration(sleep)}", Hud.SOFT, if (evening) 4 else 6,
+                        if (evening && LocalDateTime.now().hour >= 22) "${duration(sleep)} until your ${at(alarm).format(tf)} alarm." else null,
+                        "Your alarm is at ${at(alarm).format(tf)}, in ${duration(sleep)}.") { start(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
+                } else if (alarm == null && evening) {
+                    out += Intel("⏰", "ALARM", "None set for tomorrow · tap to set", Hud.DUST, 5, null, "No alarm set for tomorrow.") { start(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
+                }
+
+                // Steps, from the afternoon, while short of the goal.
+                val steps = t.steps
+                if (steps != null && LocalDateTime.now().hour >= 15 && steps < t.goal) {
+                    out += Intel("👣", "STEPS", "%,d / %,d · %,d to go".format(steps, t.goal, t.goal - steps), Hud.SOFT, 8, null,
+                        "${t.goal - steps} steps to go today.", null)
+                }
+            }
+
+            // Messages, by who's waiting.
+            val unread = groups.sumOf { it.count }
+            if (unread > 0) {
+                val who = groups.mapNotNull { Comms.title(it.latest).takeIf { n -> n.isNotBlank() } }.distinct().take(2)
+                out += Intel("✉", "COMMS", "$unread unread" + (if (who.isNotEmpty()) " · " + who.joinToString(", ") else ""), Hud.HOT, if (unread > 5) 2 else 4,
+                    if (unread > 5) "$unread messages waiting." else null,
+                    "$unread unread message${if (unread == 1) "" else "s"}" + (if (who.isNotEmpty()) ", from ${who.joinToString(" and ")}" else "") + ".") { onComms?.invoke() }
+            }
+
+            // Focus running.
+            focus?.let { fs ->
+                val leftMs = (fs.endAt - nowMs).coerceAtLeast(0)
+                out += Intel("◎", "FOCUS", "${duration(leftMs)} left of ${fs.minutes}m", Hud.HOT, 1, "Focusing: ${duration(leftMs)} to go.", "Focus session, ${duration(leftMs)} left.", null)
+            }
+
+            // Habits not yet done, later in the day.
+            if (habits.isNotEmpty()) {
+                val done = habits.count { today in it.done }
+                val open = habits.filter { today !in it.done }.map { it.name }
+                if (open.isNotEmpty()) {
+                    val late = LocalDateTime.now().hour >= 17
+                    out += Intel("◇", "HABITS", "$done of ${habits.size} done · ${open.take(2).joinToString(", ")} left", if (late) Hud.GOLD else Hud.SOFT, if (late) 5 else 9, null,
+                        "$done of ${habits.size} habits done today.", null)
+                } else {
+                    out += Intel("◆", "HABITS", "All ${habits.size} done today 🔥", UP, 9, null, "All habits done today.", null)
+                }
+            }
+
+            // Countdowns within a week.
+            countdowns.filter { val d = java.time.temporal.ChronoUnit.DAYS.between(today, it.date); d in 0..7 }.take(2).forEach { c ->
+                val d = java.time.temporal.ChronoUnit.DAYS.between(today, c.date)
+                val text = if (d == 0L) "${c.name} is today" else "${c.name} in $d day${if (d == 1L) "" else "s"}"
+                out += Intel("⏳", "SOON", text, Hud.GOLD, if (d <= 1) 2 else 5, if (d <= 1) "$text." else null, "$text.", null)
+            }
+
+            // Markets: the portfolio, or the biggest mover.
+            val held = coins.filter { holdings.containsKey(it.id) }
+            if (held.isNotEmpty()) {
+                val value = held.sumOf { holdings.getValue(it.id).amount * it.price }
+                val move = held.sumOf { holdings.getValue(it.id).amount * it.change }
+                val pct = if (value - move > 0) move / (value - move) * 100 else 0.0
+                out += Intel("◈", "PORTFOLIO", Markets.money(value) + " · " + (if (move >= 0) "▲ " else "▼ ") + Markets.money(abs(move)) + " today", if (move >= 0) UP else DOWN,
+                    if (abs(pct) >= 5) 3 else 7, if (abs(pct) >= 5) "Portfolio ${if (move >= 0) "up" else "down"} %.1f%% today.".format(Locale.ROOT, abs(pct)) else null,
+                    "Portfolio ${Markets.money(value)}, ${if (move >= 0) "up" else "down"} ${Markets.money(abs(move))} today.") { openCoin(held.maxBy { holdings.getValue(it.id).amount * it.price }.id) }
+            } else {
+                coins.maxByOrNull { abs(it.changePct) }?.let { c ->
+                    out += Intel("◈", "MARKETS", "${c.symbol} ${if (c.changePct >= 0) "▲" else "▼"} %.1f%% · ${Markets.money(c.price)}".format(Locale.ROOT, abs(c.changePct)), if (c.changePct >= 0) UP else DOWN,
+                        if (abs(c.changePct) >= 5) 3 else 8, if (abs(c.changePct) >= 5) "${c.name} ${if (c.changePct >= 0) "up" else "down"} %.1f%%.".format(Locale.ROOT, abs(c.changePct)) else null,
+                        "${c.name} ${if (c.changePct >= 0) "up" else "down"} %.1f percent.".format(Locale.ROOT, abs(c.changePct))) { openCoin(c.id) }
+                }
+            }
+            return out.sortedBy { it.rank }
+        }
+
+        /** The headline: the most pressing thing, or a calm line when nothing presses. */
+        private fun headline(list: List<Intel>): String = list.firstOrNull { it.headline != null }?.headline ?: when {
+            eveningMode() -> "Quiet evening. Tomorrow looks clear."
+            LocalDateTime.now().hour < 12 -> "All clear. A good morning to get ahead."
+            else -> "All systems nominal. Nothing needs you."
+        }
+
+        private fun briefingCard(canvas: Canvas, top: Float, now: Long): Float {
+            val list = intel()
+            val head = headline(list)
+            val open = briefOpen
+            val shown = if (open) list else list.take(4)
+            // The headline, wrapped to two lines at most.
+            val hp = Hud.text(15 * u, Color.WHITE, Hud.MEDIUM)
+            val maxW = width - 28 * u - 28 * u
+            val lines = ArrayList<String>()
+            var line = ""
+            for (w in head.split(' ')) {
+                val tryLine = if (line.isEmpty()) w else "$line $w"
+                if (hp.measureText(tryLine) > maxW && line.isNotEmpty()) { lines += line; line = w } else line = tryLine
+            }
+            if (line.isNotEmpty()) lines += line
+            val headLines = lines.take(2)
+            val headH = headLines.size * 20 * u
+            val tlTop = 40 * u + headH + 8 * u
+            val tlH = 50 * u
+            val rowsTop = tlTop + tlH + 8 * u
+            val rowH = 30 * u
+            val h = rowsTop + shown.size * rowH + 42 * u
+            card(canvas, now, top, h) {
+                val r = RectF(14 * u, top, width - 14 * u, top + h)
+                val status = when {
+                    list.any { it.rank == 0 } -> "ALERT" to DOWN
+                    agenda.count { !it.allDay && it.end > System.currentTimeMillis() && Instant.ofEpochMilli(it.begin).atZone(ZoneId.systemDefault()).toLocalDate() == LocalDate.now() } >= 3 || groups.sumOf { it.count } > 5 -> "BUSY" to Hud.GOLD
+                    else -> "CLEAR" to UP
+                }
+                panel(canvas, r, Hud.GOLD, strong = true)
+                // A slow scan line across the card.
+                val sx = r.left + ((now % 6000) / 6000f) * r.width()
+                canvas.drawRect(sx - 40 * u, r.top + 2 * u, sx, r.bottom - 2 * u, Paint().apply {
+                    shader = LinearGradient(sx - 40 * u, 0f, sx, 0f, Color.TRANSPARENT, Hud.alpha(Hud.GOLD, .06f), Shader.TileMode.CLAMP)
+                })
+                val hour = LocalDateTime.now().hour
+                val mode = when { eveningMode() -> "EVENING BRIEF · TOMORROW"; hour < 12 -> "MORNING BRIEF"; else -> "AFTERNOON BRIEF" }
+                canvas.drawText("◆ $mode", r.left + 14 * u, top + 20 * u, Hud.text(8.5f * u, Hud.GOLD, Hud.MONO, .18f))
+                // The status lamp, beating when there's an alert.
+                val sp = Hud.text(7.5f * u, status.second, Hud.MONO_BOLD, .16f, Paint.Align.RIGHT)
+                val sw = sp.measureText(status.first)
+                canvas.drawText(status.first, r.right - 14 * u, top + 20 * u, sp)
+                val beat = if (status.first == "ALERT") .5f + .5f * kotlin.math.sin(now / 160.0).toFloat() else 1f
+                canvas.drawCircle(r.right - 22 * u - sw, top + 17 * u, 3.5f * u, Hud.glow(Hud.fill(Hud.alpha(status.second, .4f + .6f * beat)), 8 * u, status.second))
+                // The headline types itself in as the deck opens.
+                val typed = ((now - openedAt - 250) / 18).toInt().coerceAtLeast(0)
+                var budget = typed
+                headLines.forEachIndexed { i, l ->
+                    val part = l.take(budget.coerceAtLeast(0))
+                    budget -= l.length + 1
+                    canvas.drawText(part, r.left + 14 * u, top + 54 * u + i * 20 * u, Hud.glow(Hud.text(15 * u, Color.WHITE, Hud.MEDIUM), 8 * u, Hud.alpha(Hud.GOLD, .35f)))
+                    if (part.length < l.length && part.isNotEmpty() && budget < 0) {
+                        val cx = r.left + 14 * u + hp.measureText(part) + 2 * u
+                        canvas.drawRect(cx, top + 42 * u + i * 20 * u, cx + 7 * u, top + 56 * u + i * 20 * u, Hud.fill(Hud.alpha(Hud.GOLD, .8f)))
+                    }
+                }
+                timeline(canvas, RectF(r.left + 14 * u, top + tlTop, r.right - 14 * u, top + tlTop + tlH))
+                // The intel, most urgent first.
+                shown.forEachIndexed { i, it ->
+                    val ry = top + rowsTop + i * rowH
+                    val row = RectF(r.left + 8 * u, ry, r.right - 8 * u, ry + rowH - 3 * u)
+                    if (it.rank <= 1) canvas.drawRect(row, Hud.fill(Hud.alpha(it.color, .08f)))
+                    hex(canvas, row.left + 16 * u, row.centerY(), 10 * u, Hud.fill(Hud.alpha(it.color, .14f)))
+                    hex(canvas, row.left + 16 * u, row.centerY(), 10 * u, Hud.stroke(Hud.alpha(it.color, .8f), u))
+                    canvas.drawText(it.glyph, row.left + 16 * u, row.centerY() + 3.5f * u, Hud.fit(it.glyph, Hud.text(9 * u, it.color, Hud.SANS, align = Paint.Align.CENTER), 14 * u))
+                    canvas.drawText(it.label, row.left + 34 * u, row.centerY() + 3 * u, Hud.fit(it.label, Hud.text(7 * u, it.color, Hud.MONO_BOLD, .12f), 62 * u))
+                    val vx = row.left + 102 * u
+                    canvas.drawText(Hud.ellipsize(it.value, Hud.text(10.5f * u, Color.WHITE, Hud.SANS), row.right - vx - 16 * u), vx, row.centerY() + 4 * u, Hud.text(10.5f * u, Color.WHITE, Hud.SANS))
+                    val act = it.action
+                    if (act != null) {
+                        canvas.drawText("›", row.right - 4 * u, row.centerY() + 4 * u, Hud.text(12 * u, Hud.alpha(Hud.GOLD, .7f), Hud.MONO, align = Paint.Align.RIGHT))
+                        tap(row) { act() }
+                    }
+                }
+                // Read it out, hand it to Claude, or see it all.
+                val by = r.bottom - 34 * u
+                val bw = (r.width() - 28 * u - 12 * u) / 3
+                button(canvas, RectF(r.left + 14 * u, by, r.left + 14 * u + bw, by + 26 * u), if (speaking) "■ STOP" else "🔊 READ IT") {
+                    if (speaking) stopSpeaking() else speak(headline(intel()) + " " + intel().joinToString(" ") { x -> x.speech })
+                }
+                button(canvas, RectF(r.left + 20 * u + bw, by, r.left + 20 * u + 2 * bw, by + 26 * u), "ASK CLAUDE ✳", solid = true) {
+                    val text = intel().joinToString("; ") { x -> "${x.label.lowercase()}: ${x.value}" }
+                    ClaudeLink.ask(context, "Here's my day so far — $text. Help me plan the rest of it.", remember = false)
+                }
+                val more = list.size - 4
+                button(canvas, RectF(r.left + 26 * u + 2 * bw, by, r.right - 14 * u, by + 26 * u), if (open) "▴ LESS" else if (more > 0) "▾ ALL ${list.size}" else "▾ ALL") {
+                    briefOpen = !briefOpen
+                    context.getSharedPreferences("deck", Context.MODE_PRIVATE).edit().putBoolean("brief_open", briefOpen).apply()
+                }
+            }
             return top + h
+        }
+
+        /** The next twelve hours as a strip: night shaded, rain in blue, events in gold, the alarm and now. */
+        private fun timeline(canvas: Canvas, r: RectF) {
+            val zone = ZoneId.systemDefault()
+            val start = System.currentTimeMillis()
+            val end = start + 12 * 3600_000L
+            fun x(ms: Long) = r.left + r.width() * ((ms - start).toFloat() / (end - start)).coerceIn(0f, 1f)
+            val track = RectF(r.left, r.top + 8 * u, r.right, r.top + 30 * u)
+            canvas.drawRect(track, Hud.fill(Hud.alpha(Hud.tint(0xFF0A0305.toInt()), .7f)))
+            val f = forecast
+            // Night: between sunset and sunrise.
+            f?.days?.forEach { d ->
+                val set = d.sunset?.atZone(zone)?.toInstant()?.toEpochMilli() ?: return@forEach
+                val rise = f.days.firstOrNull { it.date == d.date.plusDays(1) }?.sunrise?.atZone(zone)?.toInstant()?.toEpochMilli() ?: (set + 14 * 3600_000L)
+                if (rise < start || set > end) return@forEach
+                canvas.drawRect(x(set), track.top, x(rise), track.bottom, Hud.fill(Hud.alpha(0xFF203060.toInt(), .45f)))
+                if (set in start..end) canvas.drawText("☾", x(set), track.top - 1.5f * u, Hud.text(8 * u, Hud.SOFT, Hud.SANS, align = Paint.Align.CENTER))
+                if (rise in start..end) canvas.drawText("☀", x(rise), track.top - 1.5f * u, Hud.text(8 * u, Hud.GOLD, Hud.SANS, align = Paint.Align.CENTER))
+            }
+            // Rain, as blue bars rising from the bottom of the track.
+            f?.hours?.forEach { hr ->
+                val t = hr.time.atZone(zone).toInstant().toEpochMilli()
+                if (t + 3600_000L < start || t > end || hr.rain < 20) return@forEach
+                val bh = (track.height() - 2 * u) * hr.rain / 100f
+                canvas.drawRect(x(t) + .5f * u, track.bottom - bh, x(t + 3600_000L) - .5f * u, track.bottom, Hud.fill(Hud.alpha(0xFF6FA8FF.toInt(), .2f + .5f * hr.rain / 100f)))
+            }
+            // Events as gold blocks along the top half.
+            val ep = Hud.text(7 * u, Theme.on(Hud.GOLD), Hud.SANS)
+            agenda.filter { !it.allDay && it.end > start && it.begin < end }.forEach { e ->
+                val b = RectF(x(e.begin), track.top + 2 * u, maxOf(x(e.end), x(e.begin) + 4 * u), track.top + 13 * u)
+                canvas.drawRect(b, Hud.glow(Hud.fill(Hud.alpha(Hud.GOLD, .85f)), 4 * u, Hud.GOLD))
+                if (b.width() > 30 * u) canvas.drawText(Hud.ellipsize(e.title, ep, b.width() - 4 * u), b.left + 2 * u, b.bottom - 3 * u, ep)
+            }
+            // The alarm and the end of a focus session.
+            telemetry?.alarm?.takeIf { it in start..end }?.let { a ->
+                canvas.drawLine(x(a), track.top - 2 * u, x(a), track.bottom + 2 * u, Hud.stroke(Hud.SOFT, 1.2f * u))
+                canvas.drawText("⏰", x(a), track.top - 1.5f * u, Hud.text(8 * u, Hud.SOFT, Hud.SANS, align = Paint.Align.CENTER))
+            }
+            focus?.endAt?.takeIf { it in start..end }?.let { e ->
+                canvas.drawLine(x(e), track.top, x(e), track.bottom, Hud.glow(Hud.stroke(Hud.HOT, 1.4f * u), 4 * u))
+            }
+            canvas.drawRect(track, Hud.stroke(Hud.alpha(Hud.GOLD, .3f), u))
+            // Hours along the bottom; now at the left edge.
+            val lp = Hud.text(6.5f * u, Hud.DUST, Hud.MONO, align = Paint.Align.CENTER)
+            val firstHour = Instant.ofEpochMilli(start).atZone(zone).withMinute(0).withSecond(0).withNano(0).plusHours(1)
+            for (k in 0 until 12) {
+                val t = firstHour.plusHours(k.toLong())
+                val tx = x(t.toInstant().toEpochMilli())
+                canvas.drawLine(tx, track.bottom, tx, track.bottom + (if (t.hour % 3 == 0) 4f else 2f) * u, Hud.stroke(Hud.alpha(Hud.GOLD, .5f), u))
+                if (t.hour % 3 == 0 && tx > r.left + 20 * u && tx < r.right - 10 * u) canvas.drawText(t.format(DateTimeFormatter.ofPattern("HH")), tx, track.bottom + 13 * u, lp)
+            }
+            canvas.drawLine(r.left, track.top - 3 * u, r.left, track.bottom + 3 * u, Hud.glow(Hud.stroke(Color.WHITE, 2 * u), 6 * u, Hud.GOLD))
+            canvas.drawText("NOW", r.left + 1 * u, track.bottom + 13 * u, Hud.text(6.5f * u, Hud.GOLD, Hud.MONO_BOLD))
+            canvas.drawText("+12H", r.right, track.bottom + 13 * u, Hud.text(6.5f * u, Hud.DUST, Hud.MONO, align = Paint.Align.RIGHT))
         }
 
         // --- Ask Claude ---

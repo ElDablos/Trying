@@ -82,6 +82,39 @@ object Comms {
         return !title.isNullOrBlank() || !text.isNullOrBlank()
     }
 
+    /**
+     * Whether a notification is worth reading out in the briefing: real messages and reminders, not
+     * downloads or anything with a progress bar, weather (it has its own part), email (likewise), system
+     * notices, promotions or anything silent and ongoing.
+     */
+    fun important(sbn: StatusBarNotification): Boolean {
+        if (!shows(sbn) || sbn.isOngoing) return false
+        val n = sbn.notification
+        val e = n.extras
+        val pkg = sbn.packageName
+        if (pkg == Mail.GMAIL || pkg in NOT_READ) return false
+        if (pkg.contains("weather", ignoreCase = true) || pkg.contains("download", ignoreCase = true)) return false
+        val label = AppCatalog.forPackage(pkg)?.label.orEmpty()
+        if (label.contains("weather", ignoreCase = true)) return false
+        if (n.category in setOf(Notification.CATEGORY_PROGRESS, Notification.CATEGORY_TRANSPORT, Notification.CATEGORY_SERVICE,
+                Notification.CATEGORY_SYSTEM, Notification.CATEGORY_STATUS, Notification.CATEGORY_PROMO, Notification.CATEGORY_RECOMMENDATION,
+                Notification.CATEGORY_NAVIGATION, Notification.CATEGORY_LOCATION_SHARING, Notification.CATEGORY_STOPWATCH)) return false
+        if ((e?.getInt(Notification.EXTRA_PROGRESS_MAX, 0) ?: 0) > 0 || e?.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE) == true) return false
+        val text = (title(sbn) + " " + text(sbn)).lowercase()
+        if (DOWNLOADISH.any { it in text }) return false
+        return title(sbn).isNotBlank() || text(sbn).isNotBlank()
+    }
+
+    /** Apps whose notifications are never read out: downloads, stores, weather, system. */
+    private val NOT_READ = setOf(
+        "com.android.providers.downloads", "com.android.vending", "com.sec.android.app.samsungapps", "com.samsung.android.app.updatecenter",
+        "com.sec.android.daemonapp", "com.google.android.apps.weather", "com.accuweather.android", "com.handmark.expressweather",
+        "com.meteored.android", "com.android.systemui", "android", "com.samsung.android.lool", "com.samsung.android.sm.devicesecurity",
+    )
+
+    /** Words that mark a download or install, whatever app it's from. */
+    private val DOWNLOADISH = listOf("downloading", "download complete", "downloaded", "installing", "installed", "uploading", "update available", "updating")
+
     /** Every notification up now, summaries and all. */
     fun all(): List<StatusBarNotification> = try {
         service?.get()?.activeNotifications.orEmpty().toList()

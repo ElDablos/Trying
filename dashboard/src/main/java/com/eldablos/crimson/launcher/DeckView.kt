@@ -1139,10 +1139,11 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 }
             }
 
-            // Messages, by who's waiting.
-            val unread = groups.sumOf { it.count }
+            // Messages that matter, by who's waiting (no downloads, weather or email here).
+            val important = Comms.active().filter { Comms.important(it) }
+            val unread = important.sumOf { maxOf(1, it.notification.number) }
             if (unread > 0) {
-                val who = groups.mapNotNull { Comms.title(it.latest).takeIf { n -> n.isNotBlank() } }.distinct().take(2)
+                val who = important.mapNotNull { Comms.title(it).takeIf { n -> n.isNotBlank() } }.distinct().take(2)
                 out += Intel("✉", "COMMS", "$unread unread" + (if (who.isNotEmpty()) " · " + who.joinToString(", ") else ""), Hud.HOT, if (unread > 5) 2 else 4,
                     if (unread > 5) "$unread messages waiting." else null,
                     "$unread unread message${if (unread == 1) "" else "s"}" + (if (who.isNotEmpty()) ", from ${who.joinToString(" and ")}" else "") + ".") { onComms?.invoke() }
@@ -1407,9 +1408,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             list.firstOrNull { it.label == "WAKE UP" }?.let { out += "x:wake" to it.speech + " Just tap the warning on the deck and I'll set it up for you." }
 
             // Who's been in touch, and what the latest one said.
-            val msgs = Comms.active().filter { !Comms.isCall(it) && Comms.text(it).isNotBlank() }
+            val msgs = Comms.active().filter { Comms.important(it) && Comms.text(it).isNotBlank() }
             if (msgs.isNotEmpty()) {
-                val unread = groups.sumOf { it.count }
+                val unread = msgs.sumOf { maxOf(1, it.notification.number) }
                 val who = msgs.map { Comms.title(it) }.filter { it.isNotBlank() }.distinct().take(3)
                 val latest = msgs.first()
                 val said = Comms.text(latest).replace('\n', ' ').let { if (it.length > 140) it.take(137).substringBeforeLast(' ') + "…" else it }
@@ -1418,7 +1419,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     (if (who.size > 1) ", from ${who.dropLast(1).joinToString(", ")} and ${who.last()}" else if (who.size == 1) " from ${who[0]}" else "") +
                     ". The latest is from $from, saying: $said"
             } else {
-                out += "x:msgs" to "No new messages. All quiet."
+                out += "x:msgs" to "No messages waiting for you. All quiet."
             }
 
             // Email: each inbox's count today and yesterday; the company one email by email.
@@ -1537,7 +1538,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 val status = when {
                     list.any { it.rank == 0 } -> "ALERT" to DOWN
-                    agenda.count { it.id !in shiftEvents && !it.allDay && it.end > System.currentTimeMillis() && Instant.ofEpochMilli(it.begin).atZone(ZoneId.systemDefault()).toLocalDate() == LocalDate.now() } >= 3 || groups.sumOf { it.count } > 5 -> "BUSY" to Hud.GOLD
+                    agenda.count { it.id !in shiftEvents && !it.allDay && it.end > System.currentTimeMillis() && Instant.ofEpochMilli(it.begin).atZone(ZoneId.systemDefault()).toLocalDate() == LocalDate.now() } >= 3 || Comms.active().count { Comms.important(it) } > 5 -> "BUSY" to Hud.GOLD
                     else -> "CLEAR" to UP
                 }
                 panel(canvas, r, Hud.GOLD, strong = true)

@@ -482,6 +482,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             Section.HABITS -> habitsCard(canvas, top, now)
             Section.COUNTDOWNS -> countdownsCard(canvas, top, now)
             Section.CLOCKS -> clocksCard(canvas, top, now)
+            Section.WEEK -> weekCard(canvas, top, now)
             Section.COMMS -> messages(canvas, top, now)
             Section.VITALS -> vitals(canvas, top, now)
             Section.AUDIO -> music(canvas, top, now)
@@ -1650,6 +1651,57 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val area = Path(p).apply { lineTo(r.right, r.bottom); lineTo(r.left, r.bottom); close() }
             canvas.drawPath(area, Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = LinearGradient(0f, r.top, 0f, r.bottom, Hud.alpha(color, .3f), Color.TRANSPARENT, Shader.TileMode.CLAMP) })
             canvas.drawPath(p, Hud.glow(Hud.stroke(color, 1.4f * u), 3 * u))
+        }
+
+        // --- The week ahead: one row a day, temperatures as bars on a shared scale ---
+
+        private fun weekCard(canvas: Canvas, top: Float, now: Long): Float {
+            val f = forecast
+            val days = f?.days?.filter { !it.date.isBefore(LocalDate.now()) }?.take(7).orEmpty()
+            val rowH = 32 * u
+            val h = 40 * u + days.size.coerceAtLeast(1) * rowH + 8 * u
+            card(canvas, now, top, h) {
+                val r = RectF(14 * u, top, width - 14 * u, top + h)
+                panel(canvas, r)
+                title(canvas, r, Section.WEEK, telemetry?.place?.uppercase())
+                tap(r) { onWeather?.invoke() }
+                if (days.isEmpty()) {
+                    canvas.drawText("Tap for Crimson Weather", r.left + 14 * u, top + 60 * u, Hud.text(11 * u, Hud.DUST, Hud.SANS))
+                    return@card
+                }
+                val lo = days.minOf { it.low }
+                val hi = days.maxOf { it.high }.coerceAtLeast(lo + 1)
+                val barL = r.left + 186 * u
+                val barR = r.right - 44 * u
+                days.forEachIndexed { i, d ->
+                    val ry = top + 34 * u + i * rowH
+                    val cy = ry + rowH / 2
+                    if (i > 0) canvas.drawLine(r.left + 12 * u, ry, r.right - 12 * u, ry, Hud.stroke(Hud.alpha(Hud.CRIMSON, .1f), u))
+                    val name = if (i == 0) "TODAY" else d.date.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).uppercase()
+                    canvas.drawText(name, r.left + 14 * u, cy + 4 * u, Hud.text(9 * u, if (i == 0) Hud.HOT else Hud.SOFT, Hud.MONO, .1f))
+                    WeatherArt.draw(canvas, Weather.describe(d.code, true).icon, r.left + 78 * u, cy, 7 * u)
+                    // Rain chance, blue when it's likely, and wind.
+                    canvas.drawText(if (d.rain > 0) "☂ ${d.rain}%" else "—", r.left + 94 * u, cy + 4 * u, Hud.text(8 * u, if (d.rain >= 40) 0xFF6FA8FF.toInt() else Hud.DUST, Hud.MONO))
+                    canvas.drawText("≋${d.windMax}", r.left + 146 * u, cy + 4 * u, Hud.text(8 * u, Hud.DUST, Hud.MONO, align = Paint.Align.CENTER))
+                    canvas.drawText("${d.low}°", barL - 6 * u, cy + 4 * u, Hud.text(10 * u, Hud.DUST, Hud.MONO, align = Paint.Align.RIGHT))
+                    val track = RectF(barL, cy - 2 * u, barR, cy + 2 * u)
+                    canvas.drawRoundRect(track, 2 * u, 2 * u, Hud.fill(Hud.alpha(Hud.CRIMSON, .12f)))
+                    val x0 = barL + (barR - barL) * (d.low - lo) / (hi - lo).toFloat()
+                    val x1 = barL + (barR - barL) * (d.high - lo) / (hi - lo).toFloat()
+                    val span = RectF(x0, cy - 2.5f * u, x1.coerceAtLeast(x0 + 4 * u), cy + 2.5f * u)
+                    canvas.drawRoundRect(span, 2.5f * u, 2.5f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        shader = LinearGradient(span.left, 0f, span.right, 0f, 0xFF6FA8FF.toInt(), Hud.HOT, Shader.TileMode.CLAMP)
+                        setShadowLayer(4 * u, 0f, 0f, Hud.alpha(Hud.HOT, .6f))
+                    })
+                    // Now, on today's bar.
+                    if (i == 0) f?.temp?.let { t ->
+                        val tx = barL + (barR - barL) * ((t - lo) / (hi - lo).toFloat()).coerceIn(0f, 1f)
+                        canvas.drawCircle(tx, cy, 3.5f * u, Hud.glow(Hud.fill(Color.WHITE), 5 * u, Hud.HOT))
+                    }
+                    canvas.drawText("${d.high}°", r.right - 14 * u, cy + 4 * u, Hud.text(10 * u, Color.WHITE, Hud.MONO, align = Paint.Align.RIGHT))
+                }
+            }
+            return top + h
         }
 
         // --- Notes: a checklist ---

@@ -335,6 +335,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         coinId = null
         board.scrollTo(0f)
         board.forget()
+        // Count any email still in the shade that wasn't seen arriving.
+        Mail.catchUp(context)
         groups = Comms.groups()
         claudeInstalled = ClaudeLink.installed(context)
         refreshState()
@@ -1150,7 +1152,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             for (acct in Mail.ACCOUNTS) {
                 val t = Mail.day(context, today, acct.address)
                 val y = Mail.day(context, today.minusDays(1), acct.address)
-                if (t.count == 0 && y.count == 0) continue
+                // The company inbox always shows, so you know it's being watched; others when there's mail.
+                if (!acct.detailed && t.count == 0 && y.count == 0) continue
                 val latest = t.latest?.let { " · latest ${it.from}" }.orEmpty()
                 val rank = when {
                     acct.detailed && t.items.any { nowMs - it.at < 2 * 3600_000L } -> 2
@@ -1158,7 +1161,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     t.count >= 10 -> 4
                     else -> 6
                 }
-                out += Intel("@", acct.label, "${t.count} new today · ${y.count} yesterday$latest", if (acct.detailed) Hud.GOLD else Hud.SOFT, rank,
+                out += Intel("@", acct.label, (if (t.count == 0) "No new email today" else "${t.count} new today") + " · ${y.count} yesterday$latest", if (acct.detailed) Hud.GOLD else Hud.SOFT, rank,
                     if (acct.detailed && t.items.any { nowMs - it.at < 60 * 60_000L }) "New email in ${acct.spoken.removePrefix("the ")}." else null,
                     "${t.count} new emails today in ${acct.spoken}.") { showMail(acct) }
             }
@@ -1437,7 +1440,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         line.append(".")
                         if (t.items.size > recent.size) line.append(" Plus ${t.items.size - recent.size} more earlier on.")
                     }
-                    if (t.count > 0 || y.count > 0) out += "x:mail:${acct.address}" to line.toString()
+                    if (t.count == 0 && y.count == 0) line.setLength(0).also { line.append("Nothing new in ${acct.spoken} today or yesterday.") }
+                    out += "x:mail:${acct.address}" to line.toString()
                 } else if (t.count > 0 || y.count > 0) {
                     line.append("In ${acct.spoken}, you've had ${n(t.count)} today")
                     line.append(if (y.count > 0) ", and ${y.count} yesterday." else ".")
@@ -1613,7 +1617,10 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val bw = (r.width() - 28 * u - 18 * u) / 4
                 fun slot(k: Int) = RectF(r.left + 14 * u + k * (bw + 6 * u), by, r.left + 14 * u + k * (bw + 6 * u) + bw, by + 26 * u)
                 button(canvas, slot(0), if (speaking) "■ STOP" else "🔊 READ", solid = speaking) {
-                    if (speaking) stopSpeaking() else speak(spoken(intel()))
+                    if (speaking) stopSpeaking() else {
+                        Mail.catchUp(context)
+                        speak(spoken(intel()))
+                    }
                 }
                 // Hold to choose the voice.
                 hold(slot(0)) { chooseVoice() }

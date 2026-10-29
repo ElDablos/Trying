@@ -82,6 +82,13 @@ object Comms {
         return !title.isNullOrBlank() || !text.isNullOrBlank()
     }
 
+    /** Every notification up now, summaries and all. */
+    fun all(): List<StatusBarNotification> = try {
+        service?.get()?.activeNotifications.orEmpty().toList()
+    } catch (e: Exception) {
+        emptyList()
+    }
+
     fun active(): List<StatusBarNotification> = try {
         service?.get()?.activeNotifications.orEmpty().filter { shows(it) }.sortedByDescending { it.postTime }
     } catch (e: Exception) {

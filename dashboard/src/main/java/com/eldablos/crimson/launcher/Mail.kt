@@ -32,33 +32,63 @@ object Mail {
 
     private fun prefs(context: Context) = context.getSharedPreferences("mail", Context.MODE_PRIVATE)
 
-    /** Keeps a new Gmail notification, once, under the account it names. */
-    fun record(context: Context, sbn: StatusBarNotification) {
+    private val ADDRESS = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
+
+    /**
+     * The inbox a Gmail notification belongs to: named on it (Gmail puts the account in the small header
+     * text), or else on the summary of its group, which always names it.
+     */
+    fun accountOf(sbn: StatusBarNotification, others: List<StatusBarNotification>): String? {
+        fun named(n: StatusBarNotification): String? {
+            val e = n.notification.extras
+            val texts = listOfNotNull(
+                e?.getCharSequence(Notification.EXTRA_SUB_TEXT), e?.getCharSequence(Notification.EXTRA_SUMMARY_TEXT),
+                e?.getCharSequence(Notification.EXTRA_INFO_TEXT), n.notification.group, n.groupKey,
+            ).map { it.toString() }
+            // One of your inboxes by name first, then any address in the header.
+            texts.forEach { t -> ACCOUNTS.firstOrNull { t.contains(it.address, ignoreCase = true) }?.let { return it.address } }
+            return listOfNotNull(e?.getCharSequence(Notification.EXTRA_SUB_TEXT), e?.getCharSequence(Notification.EXTRA_SUMMARY_TEXT))
+                .firstNotNullOfOrNull { ADDRESS.find(it)?.value }?.lowercase()
+        }
+        named(sbn)?.let { return it }
+        return others.filter { it.packageName == GMAIL && it.groupKey == sbn.groupKey && it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 }
+            .firstNotNullOfOrNull { named(it) }
+    }
+
+    /** Keeps a Gmail notification, once, under its inbox and the day it arrived. */
+    fun record(context: Context, sbn: StatusBarNotification, others: List<StatusBarNotification> = Comms.all()) {
         if (sbn.packageName != GMAIL) return
         val n = sbn.notification
         if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
         val e = n.extras ?: return
-        val account = listOf(Notification.EXTRA_SUB_TEXT, Notification.EXTRA_SUMMARY_TEXT)
-            .mapNotNull { e.getCharSequence(it)?.toString() }
-            .firstOrNull { '@' in it }?.trim()?.lowercase() ?: return
-        val today = LocalDate.now().toString()
+        val account = accountOf(sbn, others) ?: return
+        val day = java.time.Instant.ofEpochMilli(sbn.postTime).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+        if (day.isBefore(LocalDate.now().minusDays(3))) return
+        val date = day.toString()
         val p = prefs(context)
         // Gmail reposts a notification when it updates; each email is kept the first time only.
-        val seenKey = "seen:$today"
+        val seenKey = "seen:$date"
         val seen = p.getStringSet(seenKey, emptySet()).orEmpty()
         if (sbn.key in seen) return
         val from = e.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty().clean()
         val subject = e.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.lineSequence()?.firstOrNull().orEmpty().clean()
-        val itemsKey = "items:$account:$today"
-        val items = (p.getString(itemsKey, null)?.split('\n')?.filter { it.isNotBlank() }.orEmpty() + "${sbn.postTime}\t$from\t$subject").takeLast(40)
+        val itemsKey = "items:$account:$date"
+        val items = (p.getString(itemsKey, null)?.split('\n')?.filter { it.isNotBlank() }.orEmpty() + "${sbn.postTime}\t$from\t$subject")
+            .sortedBy { it.substringBefore('\t').toLongOrNull() ?: 0L }.takeLast(40)
         val edit = p.edit()
             .putStringSet(seenKey, seen + sbn.key)
-            .putInt("count:$account:$today", p.getInt("count:$account:$today", 0) + 1)
+            .putInt("count:$account:$date", p.getInt("count:$account:$date", 0) + 1)
             .putString(itemsKey, items.joinToString("\n"))
         // Only the last few days are kept.
         val keep = (0..3).map { LocalDate.now().minusDays(it.toLong()).toString() }
         p.all.keys.filter { k -> k.contains(':') && keep.none { k.endsWith(it) } }.forEach { edit.remove(it) }
         edit.apply()
+    }
+
+    /** Counts any Gmail notifications still up that weren't seen arriving (the deck was closed, or before an update). */
+    fun catchUp(context: Context) {
+        val all = Comms.all()
+        all.filter { it.packageName == GMAIL }.forEach { record(context, it, all) }
     }
 
     private fun String.clean() = replace('\t', ' ').replace('\n', ' ').trim()

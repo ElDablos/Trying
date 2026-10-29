@@ -165,6 +165,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             onClose = { closeDeck() }
             onSettings = { startActivity(Intent(this@LauncherActivity, LauncherSettingsActivity::class.java)) }
             onComms = { closeDeck(); handler.postDelayed({ openComms(null) }, 220) }
+            onReply = { pkg -> closeDeck(); handler.postDelayed({ openComms(pkg) }, 220) }
             onWeather = { closeDeck(); handler.postDelayed({ openWeather() }, 220) }
             onWeatherDay = { day -> closeDeck(); handler.postDelayed({ showWeather(day) }, 220) }
             onLaunch = { component -> AppCatalog.launch(this@LauncherActivity, component) }

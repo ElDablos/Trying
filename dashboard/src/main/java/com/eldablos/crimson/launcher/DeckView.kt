@@ -69,6 +69,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     var onComms: (() -> Unit)? = null
     var onWeather: (() -> Unit)? = null
     var onWeatherDay: ((LocalDate) -> Unit)? = null
+    var onReply: ((String) -> Unit)? = null
     var onVoice: (() -> Unit)? = null
     var onLaunch: ((ComponentName) -> Unit)? = null
 
@@ -167,6 +168,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         customizing = false
         coinId = null
         board.scrollTo(0f)
+        board.forget()
         groups = Comms.groups()
         claudeInstalled = ClaudeLink.installed(context)
         refreshState()
@@ -923,41 +925,147 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
         // --- Comms ---
 
+        /** Senders' photos from their notifications, and each app's colour, kept while the deck is open. */
+        private val avatars = HashMap<String, Bitmap?>()
+        private val appColours = HashMap<String, Int>()
+
+        /** Drops the photos and colours, so a fresh open picks up new ones. */
+        fun forget() {
+            avatars.clear()
+            appColours.clear()
+        }
+
+        private fun avatar(sbn: StatusBarNotification): Bitmap? = avatars.getOrPut(sbn.key) {
+            try {
+                val d = sbn.notification.getLargeIcon()?.loadDrawable(context) ?: return@getOrPut null
+                val size = (40 * u).toInt().coerceAtLeast(1)
+                Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).also { b ->
+                    val c = Canvas(b)
+                    d.setBounds(0, 0, size, size)
+                    d.draw(c)
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        private fun appColour(pkg: String): Int = appColours.getOrPut(pkg) {
+            val icon = AppCatalog.forPackage(pkg)?.let { AppCatalog.icon(context, it.component) }
+            com.eldablos.crimson.Arcade.accent(icon).let { if (it == 0xFFB3182C.toInt()) Hud.HOT else it }
+        }
+
+        /** "NOW", "4M", "2H", "3D". */
+        private fun ago(time: Long): String {
+            val m = (System.currentTimeMillis() - time) / 60_000
+            return when {
+                m < 1 -> "NOW"
+                m < 60 -> "${m}M"
+                m < 24 * 60 -> "${m / 60}H"
+                else -> "${m / (24 * 60)}D"
+            }
+        }
+
+        /** Comms: who's waiting, app by app, then the latest messages with photos, reply and clear. */
         private fun messages(canvas: Canvas, top: Float, now: Long): Float {
             val open = Section.COMMS in expanded
-            val items: List<StatusBarNotification> = if (open) Comms.active().take(8) else emptyList()
-            val list = groups.take(4)
-            val rows = if (open) items.size.coerceAtLeast(1) else list.size.coerceAtLeast(1)
-            val h = 40 * u + rows * 40 * u + (if (open) 38 * u else 0f)
+            val all = Comms.active().filter { !Comms.isCall(it) && (Comms.title(it).isNotBlank() || Comms.text(it).isNotBlank()) }
+            val items = all.take(if (open) 8 else 3)
+            val stripH = if (groups.isNotEmpty()) 44 * u else 0f
+            val rowH = 60 * u
+            val h = 36 * u + stripH + items.size.coerceAtLeast(1) * rowH + (if (open || all.size > items.size) 36 * u else 6 * u)
             card(canvas, now, top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r, strong = open)
                 val total = groups.sumOf { it.count }
                 title(canvas, r, Section.COMMS, if (total > 0) "$total UNREAD" else "ALL CLEAR", if (total > 0) Hud.HOT else Hud.DUST)
-                if ((open && items.isEmpty()) || (!open && list.isEmpty())) {
-                    canvas.drawText(if (Comms.connected) "No new messages." else "Notification access is off.", r.left + 14 * u, top + 60 * u, Hud.text(11 * u, Hud.DUST, Hud.SANS))
-                }
-                fun row(i: Int, pkg: String, head: String, body: String, count: Int, action: () -> Unit) {
-                    val ry = top + 34 * u + i * 40 * u
-                    val icon = RectF(r.left + 14 * u, ry + 5 * u, r.left + 40 * u, ry + 31 * u)
-                    AppCatalog.forPackage(pkg)?.let { AppCatalog.icon(context, it.component) }?.let { Hud.bitmap(canvas, it, icon) }
-                    val tx = icon.right + 10 * u
-                    canvas.drawText(Hud.ellipsize(head, Hud.text(11.5f * u, Color.WHITE, Hud.MEDIUM), r.right - 60 * u - tx), tx, ry + 16 * u, Hud.text(11.5f * u, Color.WHITE, Hud.MEDIUM))
-                    canvas.drawText(Hud.ellipsize(body, Hud.text(9.5f * u, Hud.DUST, Hud.SANS), r.right - 60 * u - tx), tx, ry + 30 * u, Hud.text(9.5f * u, Hud.DUST, Hud.SANS))
-                    if (count > 0) Hud.badge(canvas, r.right - 26 * u, ry + 18 * u, count, u)
-                    tap(RectF(r.left + 8 * u, ry, r.right - 8 * u, ry + 38 * u), action)
-                }
-                if (open) {
-                    items.forEachIndexed { i, sbn ->
-                        val label = AppCatalog.forPackage(sbn.packageName)?.label ?: sbn.packageName
-                        row(i, sbn.packageName, "$label · ${Comms.title(sbn)}", Comms.text(sbn).replace('\n', ' '), 0) { Comms.open(context, sbn) }
+                // Channels: each app with something waiting, its count on its icon.
+                if (groups.isNotEmpty()) {
+                    val sy = top + 34 * u
+                    var x = r.left + 14 * u
+                    groups.take(8).forEach { g ->
+                        val ic = RectF(x, sy + 4 * u, x + 28 * u, sy + 32 * u)
+                        val col = appColour(g.packageName)
+                        canvas.drawRoundRect(RectF(ic).apply { inset(-3 * u, -3 * u) }, 9 * u, 9 * u, Hud.stroke(Hud.alpha(col, .7f), 1.2f * u))
+                        AppCatalog.forPackage(g.packageName)?.let { AppCatalog.icon(context, it.component) }?.let { Hud.bitmap(canvas, it, ic) }
+                        Hud.badge(canvas, ic.right, ic.top, g.count, u * .85f)
+                        tap(RectF(ic).apply { inset(-4 * u, -4 * u) }) { onReply?.invoke(g.packageName) }
+                        x += 40 * u
                     }
-                    button(canvas, RectF(r.left + 14 * u, r.bottom - 34 * u, r.right - 14 * u, r.bottom - 10 * u), "OPEN COMMS CENTRE ›") { onComms?.invoke() }
-                } else {
-                    list.forEachIndexed { i, g ->
-                        val label = AppCatalog.forPackage(g.packageName)?.label ?: g.packageName
-                        row(i, g.packageName, "$label · ${Comms.title(g.latest)}", Comms.text(g.latest).replace('\n', ' '), g.count) { onComms?.invoke() }
+                    canvas.drawLine(r.left + 14 * u, sy + 40 * u, r.right - 14 * u, sy + 40 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .15f), u))
+                }
+                val listTop = top + 36 * u + stripH
+                if (items.isEmpty()) {
+                    // All clear: a quiet radar sweep.
+                    val cx = r.left + 34 * u
+                    val cy = listTop + rowH / 2
+                    canvas.drawCircle(cx, cy, 16 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .35f), u))
+                    canvas.drawCircle(cx, cy, 8 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f), u))
+                    val a = (now % 3000) / 3000f * 360f
+                    canvas.drawArc(RectF(cx - 16 * u, cy - 16 * u, cx + 16 * u, cy + 16 * u), a, 50f, true, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        shader = SweepGradient(cx, cy, intArrayOf(Color.TRANSPARENT, Hud.alpha(Hud.HOT, .5f)), floatArrayOf(0f, 1f)).also {
+                            it.setLocalMatrix(android.graphics.Matrix().apply { setRotate(a, cx, cy) })
+                        }
+                    })
+                    canvas.drawText(if (Comms.connected) "No new messages." else "Notification access is off.", cx + 30 * u, cy - 1 * u, Hud.text(12 * u, Color.WHITE, Hud.SANS))
+                    canvas.drawText(if (Comms.connected) "ALL CHANNELS QUIET" else "ALLOW IT IN LAUNCHER SETTINGS", cx + 30 * u, cy + 13 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .14f))
+                }
+                items.forEachIndexed { i, sbn ->
+                    val ry = listTop + i * rowH
+                    val row = RectF(r.left + 8 * u, ry + 3 * u, r.right - 8 * u, ry + rowH - 3 * u)
+                    val col = appColour(sbn.packageName)
+                    // A faint wash and an edge in the app's colour.
+                    canvas.drawRect(row, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        shader = LinearGradient(row.left, 0f, row.right, 0f, Hud.alpha(col, .1f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+                    })
+                    canvas.drawRect(row.left, row.top + 4 * u, row.left + 2.5f * u, row.bottom - 4 * u, Hud.glow(Hud.fill(col), 5 * u))
+                    // The sender's photo, or the app's icon, with the app small on its corner.
+                    val av = RectF(row.left + 12 * u, row.centerY() - 18 * u, row.left + 48 * u, row.centerY() + 18 * u)
+                    val appIcon = AppCatalog.forPackage(sbn.packageName)?.let { AppCatalog.icon(context, it.component) }
+                    val photo = avatar(sbn)
+                    if (photo != null) {
+                        canvas.save()
+                        canvas.clipPath(Path().apply { addCircle(av.centerX(), av.centerY(), av.width() / 2, Path.Direction.CW) })
+                        Hud.bitmap(canvas, photo, av)
+                        canvas.restore()
+                        canvas.drawCircle(av.centerX(), av.centerY(), av.width() / 2, Hud.stroke(Hud.alpha(col, .9f), 1.4f * u))
+                        appIcon?.let { Hud.bitmap(canvas, it, RectF(av.right - 13 * u, av.bottom - 13 * u, av.right + 3 * u, av.bottom + 3 * u)) }
+                    } else {
+                        appIcon?.let { Hud.bitmap(canvas, it, av) }
                     }
+                    val tx = av.right + 12 * u
+                    val actions = r.right - 72 * u
+                    val label = AppCatalog.forPackage(sbn.packageName)?.label ?: sbn.packageName
+                    val who = Comms.title(sbn).ifBlank { label }
+                    canvas.drawText(Hud.ellipsize(who, Hud.text(12.5f * u, Color.WHITE, Hud.BOLD), actions - tx - 30 * u), tx, ry + 22 * u, Hud.text(12.5f * u, Color.WHITE, Hud.BOLD))
+                    canvas.drawText(ago(sbn.postTime), actions - 4 * u, ry + 21 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .1f, Paint.Align.RIGHT))
+                    val body = Comms.text(sbn).replace('\n', ' ')
+                    canvas.drawText(Hud.ellipsize(body, Hud.text(10.5f * u, Hud.SOFT, Hud.SANS), actions - tx), tx, ry + 37 * u, Hud.text(10.5f * u, Hud.SOFT, Hud.SANS))
+                    val n = sbn.notification.number
+                    val tag = label.uppercase() + if (n > 1) " · $n MESSAGES" else ""
+                    canvas.drawText(Hud.ellipsize(tag, Hud.text(6.5f * u, col, Hud.MONO, .14f), actions - tx), tx, ry + 50 * u, Hud.text(6.5f * u, Theme.readable(col), Hud.MONO, .14f))
+                    tap(RectF(row.left, row.top, actions, row.bottom)) { Comms.open(context, sbn) }
+                    // Reply (in the Comms Centre) and clear.
+                    val replyR = RectF(actions + 4 * u, row.centerY() - 14 * u, actions + 32 * u, row.centerY() + 14 * u)
+                    val clearR = RectF(replyR.right + 6 * u, replyR.top, replyR.right + 34 * u, replyR.bottom)
+                    if (Comms.replyAction(sbn) != null) {
+                        hex(canvas, replyR.centerX(), replyR.centerY(), 13 * u, Hud.fill(Hud.alpha(Hud.BLOOD, .5f)))
+                        hex(canvas, replyR.centerX(), replyR.centerY(), 13 * u, Hud.stroke(Hud.alpha(Hud.HOT, .8f), u))
+                        canvas.drawText("↩", replyR.centerX(), replyR.centerY() + 4.5f * u, Hud.text(12 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER))
+                        tap(replyR) { onReply?.invoke(sbn.packageName) }
+                    }
+                    if (sbn.isClearable) {
+                        hex(canvas, clearR.centerX(), clearR.centerY(), 13 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .5f), u))
+                        canvas.drawText("✓", clearR.centerX(), clearR.centerY() + 4.5f * u, Hud.text(11 * u, Hud.SOFT, Hud.SANS, align = Paint.Align.CENTER))
+                        tap(clearR) {
+                            Comms.dismiss(sbn)
+                            avatars.remove(sbn.key)
+                            invalidate()
+                        }
+                    }
+                }
+                if (open || all.size > items.size) {
+                    val more = all.size - items.size
+                    button(canvas, RectF(r.left + 14 * u, r.bottom - 32 * u, r.right - 14 * u, r.bottom - 8 * u), if (more > 0) "+ $more MORE · OPEN COMMS CENTRE ›" else "OPEN COMMS CENTRE ›") { onComms?.invoke() }
                 }
             }
             return top + h

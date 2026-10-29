@@ -10,6 +10,7 @@ object DeckStore {
         CLAUDE("ASK CLAUDE", false),
         AGENDA("AGENDA", true),
         CALENDAR("CALENDAR", true),
+        NOTES("NOTES", true),
         COMMS("COMMS", true),
         VITALS("VITALS", true),
         AUDIO("AUDIO", true),
@@ -17,7 +18,6 @@ object DeckStore {
         FOCUS("FOCUS", false),
         SKY("SKY", true),
         WEEK("7-DAY FORECAST", false),
-        NOTES("NOTES", true),
         HABITS("HABITS", false),
         COUNTDOWNS("COUNTDOWNS", false),
         CLOCKS("CLOCKS", false),
@@ -50,7 +50,22 @@ object DeckStore {
 
     private fun prefs(context: Context) = context.getSharedPreferences("deck", Context.MODE_PRIVATE)
 
-    fun order(context: Context): List<Section> = mergeOrder(prefs(context).getString("order", null))
+    fun order(context: Context): List<Section> {
+        val p = prefs(context)
+        val order = mergeOrder(p.getString("order", null))
+        // Once: notes moved above comms in a deck already arranged before that became the default.
+        if (!p.getBoolean("notes_above_comms", false)) {
+            p.edit().putBoolean("notes_above_comms", true).apply()
+            val n = order.indexOf(Section.NOTES)
+            val c = order.indexOf(Section.COMMS)
+            if (p.contains("order") && n > c) {
+                val moved = order.toMutableList().apply { remove(Section.NOTES); add(c, Section.NOTES) }
+                setOrder(context, moved)
+                return moved
+            }
+        }
+        return order
+    }
 
     /** The saved order, with sections new since it was saved slotted in after the one they follow by default. */
     fun mergeOrder(raw: String?): List<Section> {

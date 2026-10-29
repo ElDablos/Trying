@@ -139,7 +139,7 @@ object DeckStore {
         }
     }.toMap()
 
-    // --- Clocks: other cities (time zone ids); home is always first ---
+    // --- Clocks: other cities (time zone ids, one city per zone); home is always first ---
 
     fun clocks(context: Context): List<String> =
         prefs(context).getString("clocks", null)?.split(',')?.filter { it.isNotBlank() } ?: listOf("Europe/Vilnius", "Europe/Oslo")
@@ -149,8 +149,8 @@ object DeckStore {
     /** Cities to pick from, by zone. */
     val CITIES = listOf(
         "London" to "Europe/London", "Dublin" to "Europe/Dublin", "Lisbon" to "Europe/Lisbon", "Paris" to "Europe/Paris",
-        "Madrid" to "Europe/Madrid", "Berlin" to "Europe/Berlin", "Rome" to "Europe/Rome", "Vilnius" to "Europe/Vilnius",
-        "Molde" to "Europe/Oslo", "Oslo" to "Europe/Oslo", "Stockholm" to "Europe/Stockholm", "Athens" to "Europe/Athens", "Istanbul" to "Europe/Istanbul", "Moscow" to "Europe/Moscow", "Dubai" to "Asia/Dubai",
+        "Madrid" to "Europe/Madrid", "Berlin" to "Europe/Berlin", "Rome" to "Europe/Rome", "Klaipėda" to "Europe/Vilnius",
+        "Molde" to "Europe/Oslo", "Stockholm" to "Europe/Stockholm", "Athens" to "Europe/Athens", "Istanbul" to "Europe/Istanbul", "Moscow" to "Europe/Moscow", "Dubai" to "Asia/Dubai",
         "Delhi" to "Asia/Kolkata", "Bangkok" to "Asia/Bangkok", "Singapore" to "Asia/Singapore", "Hong Kong" to "Asia/Hong_Kong",
         "Tokyo" to "Asia/Tokyo", "Seoul" to "Asia/Seoul", "Sydney" to "Australia/Sydney", "Auckland" to "Pacific/Auckland",
         "Honolulu" to "Pacific/Honolulu", "Los Angeles" to "America/Los_Angeles", "Denver" to "America/Denver",

@@ -1658,7 +1658,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private fun weekCard(canvas: Canvas, top: Float, now: Long): Float {
             val f = forecast
             val days = f?.days?.filter { !it.date.isBefore(LocalDate.now()) }?.take(7).orEmpty()
-            val tileH = 164 * u
+            val tileH = 140 * u
             val h = 36 * u + (if (days.isEmpty()) 40 * u else tileH) + 10 * u
             card(canvas, now, top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
@@ -1672,15 +1672,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val gap = 4 * u
                 val tw = (r.width() - 20 * u - gap * (days.size - 1)) / days.size
                 val ty = top + 34 * u
-                val lo = days.minOf { it.low }
-                val hi = days.maxOf { it.high }.coerceAtLeast(lo + 1)
-                // The band the two temperature lines run through.
-                val bandT = ty + 66 * u
-                val bandB = ty + 92 * u
-                fun tempY(t: Int) = bandB - (bandB - bandT) * (t - lo) / (hi - lo).toFloat()
                 val blue = 0xFF6FA8FF.toInt()
-                val highs = ArrayList<Pair<Float, Float>>()
-                val lows = ArrayList<Pair<Float, Float>>()
                 days.forEachIndexed { i, d ->
                     val c = RectF(r.left + 10 * u + i * (tw + gap), ty, r.left + 10 * u + i * (tw + gap) + tw, ty + tileH)
                     val isToday = d.date == LocalDate.now()
@@ -1699,27 +1691,13 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     // Day: its weather, and the high.
                     WeatherArt.draw(canvas, Weather.describe(d.code, true).icon, cx, c.top + 39 * u, 7.5f * u)
                     canvas.drawText("${d.high}°", cx + 1.5f * u, c.top + 61 * u, Hud.text(12 * u, Color.WHITE, Hud.MEDIUM, align = Paint.Align.CENTER))
-                    highs += cx to tempY(d.high)
-                    lows += cx to tempY(d.low)
                     // Night: its weather (moon variants), and the low.
-                    canvas.drawText("${d.low}°", cx + 1.5f * u, c.top + 110 * u, Hud.text(11 * u, Theme.readable(blue), Hud.SANS, align = Paint.Align.CENTER))
-                    WeatherArt.draw(canvas, Weather.describe(f.nightCode(d.date), false).icon, cx, c.top + 125 * u, 6.5f * u)
+                    canvas.drawText("${d.low}°", cx + 1.5f * u, c.top + 86 * u, Hud.text(11 * u, Theme.readable(blue), Hud.SANS, align = Paint.Align.CENTER))
+                    WeatherArt.draw(canvas, Weather.describe(f.nightCode(d.date), false).icon, cx, c.top + 102 * u, 6.5f * u)
                     // Rain and wind along the bottom.
-                    canvas.drawText(if (d.rain > 0) "💧${d.rain}%" else "DRY", cx, c.top + 146 * u, Hud.fit("💧100%", Hud.text(7 * u, if (d.rain >= 40) blue else Hud.DUST, Hud.MONO, align = Paint.Align.CENTER), tw - 2 * u))
-                    canvas.drawText("≋${d.windMax}", cx, c.top + 157 * u, Hud.text(6.5f * u, Hud.DUST, Hud.MONO, align = Paint.Align.CENTER))
+                    canvas.drawText(if (d.rain > 0) "💧${d.rain}%" else "DRY", cx, c.top + 122 * u, Hud.fit("💧100%", Hud.text(7 * u, if (d.rain >= 40) blue else Hud.DUST, Hud.MONO, align = Paint.Align.CENTER), tw - 2 * u))
+                    canvas.drawText("≋${d.windMax}", cx, c.top + 133 * u, Hud.text(6.5f * u, Hud.DUST, Hud.MONO, align = Paint.Align.CENTER))
                     tap(c) { onWeatherDay?.invoke(d.date) }
-                }
-                // Highs in the theme's colour, lows in blue, each a smooth line through the week.
-                for ((pts, color) in listOf(highs to Hud.HOT, lows to blue)) {
-                    val line = Path()
-                    pts.forEachIndexed { i, (x, y) ->
-                        if (i == 0) line.moveTo(x, y) else {
-                            val (px, py) = pts[i - 1]
-                            line.cubicTo((px + x) / 2, py, (px + x) / 2, y, x, y)
-                        }
-                    }
-                    canvas.drawPath(line, Hud.glow(Hud.stroke(color, 1.6f * u), 5 * u))
-                    pts.forEachIndexed { i, (x, y) -> canvas.drawCircle(x, y, if (i == 0) 3.2f * u else 2.2f * u, Hud.glow(Hud.fill(if (i == 0) Color.WHITE else color), 4 * u, color)) }
                 }
             }
             return top + h

@@ -6,24 +6,33 @@ import android.service.notification.StatusBarNotification
 import java.time.LocalDate
 
 /**
- * New-email counts for the briefing, without signing in to anything: Gmail posts a notification for each
- * new email, labelled with the account it came to, and every one is counted per account per day as it
- * arrives, with the latest sender and subject. Only mail Gmail notifies about is counted.
+ * New email for the briefing, without signing in to anything: Gmail posts a notification for each new
+ * email, labelled with the account it came to, and each is kept per account per day as it arrives (who
+ * it's from, what it's about, when). Only mail Gmail notifies about is seen.
  */
 object Mail {
     const val GMAIL = "com.google.android.gm"
-    const val DEFAULT_ACCOUNT = "veekuisys@gmail.com"
 
-    class Day(val count: Int, val from: String?, val subject: String?)
+    /**
+     * An inbox the briefing reports on: [name] in full, [label] on the deck, [spoken] when read out; a [detailed] one has
+     * each new email read out, not just the count.
+     */
+    class Account(val address: String, val name: String, val label: String, val spoken: String, val detailed: Boolean)
+
+    val ACCOUNTS = listOf(
+        Account("evenusltd@gmail.com", "Even Us Mailbox", "EVEN US", "the Even Us Mailbox", detailed = true),
+        Account("veekuisys@gmail.com", "Personal email", "PERSONAL", "your personal email", detailed = false),
+    )
+
+    class Item(val at: Long, val from: String, val subject: String)
+
+    class Day(val count: Int, val items: List<Item>) {
+        val latest: Item? get() = items.lastOrNull()
+    }
 
     private fun prefs(context: Context) = context.getSharedPreferences("mail", Context.MODE_PRIVATE)
 
-    /** The account the briefing reports on. */
-    fun account(context: Context): String = prefs(context).getString("account", null) ?: DEFAULT_ACCOUNT
-
-    fun setAccount(context: Context, a: String) = prefs(context).edit().putString("account", a.trim().lowercase()).apply()
-
-    /** Counts a new Gmail notification, once, for the account it names. */
+    /** Keeps a new Gmail notification, once, under the account it names. */
     fun record(context: Context, sbn: StatusBarNotification) {
         if (sbn.packageName != GMAIL) return
         val n = sbn.notification
@@ -34,28 +43,36 @@ object Mail {
             .firstOrNull { '@' in it }?.trim()?.lowercase() ?: return
         val today = LocalDate.now().toString()
         val p = prefs(context)
-        // Gmail reposts a notification when it updates; each email is counted the first time only.
+        // Gmail reposts a notification when it updates; each email is kept the first time only.
         val seenKey = "seen:$today"
         val seen = p.getStringSet(seenKey, emptySet()).orEmpty()
         if (sbn.key in seen) return
-        val from = e.getCharSequence(Notification.EXTRA_TITLE)?.toString()
-        val subject = e.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.lineSequence()?.firstOrNull()
-        val countKey = "count:$account:$today"
+        val from = e.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty().clean()
+        val subject = e.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.lineSequence()?.firstOrNull().orEmpty().clean()
+        val itemsKey = "items:$account:$today"
+        val items = (p.getString(itemsKey, null)?.split('\n')?.filter { it.isNotBlank() }.orEmpty() + "${sbn.postTime}\t$from\t$subject").takeLast(40)
         val edit = p.edit()
             .putStringSet(seenKey, seen + sbn.key)
-            .putInt(countKey, p.getInt(countKey, 0) + 1)
-            .putString("from:$account:$today", from)
-            .putString("subject:$account:$today", subject)
+            .putInt("count:$account:$today", p.getInt("count:$account:$today", 0) + 1)
+            .putString(itemsKey, items.joinToString("\n"))
         // Only the last few days are kept.
         val keep = (0..3).map { LocalDate.now().minusDays(it.toLong()).toString() }
-        p.all.keys.filter { k -> (k.startsWith("seen:") || k.startsWith("count:") || k.startsWith("from:") || k.startsWith("subject:")) && keep.none { k.endsWith(it) } }
-            .forEach { edit.remove(it) }
+        p.all.keys.filter { k -> k.contains(':') && keep.none { k.endsWith(it) } }.forEach { edit.remove(it) }
         edit.apply()
     }
 
-    fun day(context: Context, date: LocalDate, account: String = account(context)): Day {
+    private fun String.clean() = replace('\t', ' ').replace('\n', ' ').trim()
+
+    fun day(context: Context, date: LocalDate, account: String): Day {
         val p = prefs(context)
         val d = date.toString()
-        return Day(p.getInt("count:$account:$d", 0), p.getString("from:$account:$d", null), p.getString("subject:$account:$d", null))
+        val items = parseItems(p.getString("items:$account:$d", null))
+        return Day(maxOf(p.getInt("count:$account:$d", 0), items.size), items)
+    }
+
+    fun parseItems(raw: String?): List<Item> = raw.orEmpty().split('\n').mapNotNull { line ->
+        val parts = line.split('\t')
+        val at = parts.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
+        Item(at, parts.getOrNull(1).orEmpty(), parts.getOrNull(2).orEmpty())
     }
 }

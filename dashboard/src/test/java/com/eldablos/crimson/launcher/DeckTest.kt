@@ -126,4 +126,12 @@ class DeckTest {
         val world = listOf(News.Story("Second", "", "", true), News.Story("Abroad", "", "", true))
         assertEquals(listOf("Big story", "Second", "Abroad"), News.mix(top, world).map { it.title })
     }
+
+    @Test
+    fun readsKeptEmails() {
+        val items = Mail.parseItems("1000\tAmazon\tYour order has shipped\nbad\n2000\tSupplier\t")
+        assertEquals(listOf("Amazon", "Supplier"), items.map { it.from })
+        assertEquals("", items[1].subject)
+        assertEquals("Even Us Mailbox", Mail.ACCOUNTS.first { it.address == "evenusltd@gmail.com" }.name)
+    }
 }

@@ -166,11 +166,22 @@ object Shifts {
         return shifts.filter { (d, s) -> done[d] != s.signature(title) }.keys + ids.keys.filter { it !in shifts && !it.isBefore(from) }
     }
 
+    /** Whether event [id] is still in the calendar (not deleted there). */
+    private fun exists(context: Context, id: Long): Boolean = try {
+        context.contentResolver.query(
+            ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id),
+            arrayOf(CalendarContract.Events.DELETED), null, null, null,
+        )?.use { c -> c.moveToFirst() && c.getInt(0) == 0 } ?: false
+    } catch (e: Exception) {
+        false
+    }
+
     /**
      * Brings the calendar in line with the shifts from [syncFrom] on: adds new ones, updates changed ones
-     * in place, removes days now off. Returns how many it changed, or -1 without calendar access.
+     * in place, removes days now off; [force] rewrites every one. Returns how many it changed, or -1
+     * without calendar access.
      */
-    fun sync(context: Context): Int {
+    fun sync(context: Context, force: Boolean = false): Int {
         if (!canWrite(context)) return -1
         val cal = calendarId(context) ?: return -1
         val cr = context.contentResolver
@@ -180,7 +191,9 @@ object Shifts {
         val ids = eventIds(context).toMutableMap()
         val done = synced(context).toMutableMap()
         var changed = 0
-        for (d in pending(context)) {
+        // Forced: every shift from syncFrom on, so any deleted in the calendar go back in.
+        val todo = if (force) shifts.keys.filter { !it.isBefore(syncFrom()) }.toSet() + pending(context) else pending(context)
+        for (d in todo) {
             val s = shifts[d]
             val existing = ids[d]
             try {
@@ -199,7 +212,7 @@ object Shifts {
                     put(CalendarContract.Events.CALENDAR_ID, cal)
                     put(CalendarContract.Events.DESCRIPTION, "Shift from the Crimson Command Deck")
                 }
-                val updated = existing?.let { cr.update(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, it), v, null, null) } ?: 0
+                val updated = existing?.takeIf { exists(context, it) }?.let { cr.update(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, it), v, null, null) } ?: 0
                 if (updated == 0) {
                     val uri = cr.insert(CalendarContract.Events.CONTENT_URI, v) ?: continue
                     val id = ContentUris.parseId(uri)

@@ -551,6 +551,21 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         }.start()
     }
 
+    /** Writes every shift into the calendar now, and says how it went. */
+    private fun populateShifts() {
+        if (!Shifts.canWrite(context)) return askCalendarAccess()
+        val app = context.applicationContext
+        Toast.makeText(context, "Adding your shifts to the calendar…", Toast.LENGTH_SHORT).show()
+        Thread {
+            val n = Shifts.sync(app, force = true)
+            val cal = Shifts.calendarId(app)?.let { id -> Shifts.calendars(app).firstOrNull { it.id == id }?.name } ?: "your calendar"
+            main.post {
+                Toast.makeText(context, if (n <= 0) "Nothing to add: no shifts from last week on" else "$n shift${if (n == 1) "" else "s"} saved to $cal", Toast.LENGTH_LONG).show()
+                loadShifts()
+            }
+        }.start()
+    }
+
     /** Calendar access was just granted (or refused): try saving the shifts again. */
     fun calendarAccessChanged() = loadShifts()
 
@@ -1131,14 +1146,21 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     "$unread unread message${if (unread == 1) "" else "s"}" + (if (who.isNotEmpty()) ", from ${who.joinToString(" and ")}" else "") + ".") { onComms?.invoke() }
             }
 
-            // New email today in your account, from Gmail's notifications.
-            val mailToday = Mail.day(context, today)
-            val mailYesterday = Mail.day(context, today.minusDays(1))
-            if (mailToday.count > 0 || mailYesterday.count > 0) {
-                out += Intel("@", "PERSONAL", "${mailToday.count} new today · ${mailYesterday.count} yesterday" + (mailToday.from?.let { " · latest $it" } ?: ""), Hud.SOFT, if (mailToday.count >= 10) 4 else 6, null,
-                    "${mailToday.count} new emails today in your personal email.") {
-                    AppCatalog.forPackage(Mail.GMAIL)?.let { app -> onLaunch?.invoke(app.component) }
+            // New email in each inbox, from Gmail's notifications; the company one counts for more.
+            for (acct in Mail.ACCOUNTS) {
+                val t = Mail.day(context, today, acct.address)
+                val y = Mail.day(context, today.minusDays(1), acct.address)
+                if (t.count == 0 && y.count == 0) continue
+                val latest = t.latest?.let { " · latest ${it.from}" }.orEmpty()
+                val rank = when {
+                    acct.detailed && t.items.any { nowMs - it.at < 2 * 3600_000L } -> 2
+                    acct.detailed && t.count > 0 -> 3
+                    t.count >= 10 -> 4
+                    else -> 6
                 }
+                out += Intel("@", acct.label, "${t.count} new today · ${y.count} yesterday$latest", if (acct.detailed) Hud.GOLD else Hud.SOFT, rank,
+                    if (acct.detailed && t.items.any { nowMs - it.at < 60 * 60_000L }) "New email in ${acct.spoken.removePrefix("the ")}." else null,
+                    "${t.count} new emails today in ${acct.spoken}.") { showMail(acct) }
             }
 
             // Focus running.
@@ -1189,6 +1211,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         /** Whether [line] belongs to the part being read aloud, to light it up. */
         private fun lit(line: Intel): Boolean {
             val id = speakingId ?: return false
+            // An inbox's part lights that inbox's line.
+            if (id.startsWith("x:mail:")) return line.glyph == "@" && Mail.ACCOUNTS.any { it.address == id.removePrefix("x:mail:") && it.label == line.label }
             val glyphs = when (id) {
                 "x:work" -> setOf("⧗", "▤")
                 "x:plan" -> setOf("◷")
@@ -1196,7 +1220,6 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 "x:sleep" -> setOf("⏰")
                 "x:wake" -> setOf("⚠")
                 "x:msgs" -> setOf("✉")
-                "x:mail" -> setOf("@")
                 "x:bits" -> setOf("▮", "◇", "◆", "⏳", "◎", "👣")
                 "x:money" -> setOf("◈")
                 else -> return false
@@ -1232,6 +1255,21 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             canvas.drawRect(tagR, Hud.fill(Hud.alpha(Hud.GOLD, .85f)))
             canvas.drawText(tag, tagR.left + 6 * u, r.centerY() + 3 * u, tp)
             tap(r) { showNews() }
+        }
+
+        /** Today's email in an inbox, newest first; open Gmail from there. */
+        private fun showMail(acct: Mail.Account) {
+            val items = Mail.day(context, LocalDate.now(), acct.address).items.reversed()
+            val tf = DateTimeFormatter.ofPattern("HH:mm")
+            val lines = if (items.isEmpty()) arrayOf("Nothing new today") else items.map { m ->
+                "${Instant.ofEpochMilli(m.at).atZone(ZoneId.systemDefault()).format(tf)}  ${m.from}" + (m.subject.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "")
+            }.toTypedArray()
+            AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("◆ ${acct.name.uppercase()} · TODAY")
+                .setItems(lines, null)
+                .setPositiveButton("OPEN GMAIL") { _, _ -> AppCatalog.forPackage(Mail.GMAIL)?.let { app -> onLaunch?.invoke(app.component) } }
+                .setNegativeButton("CLOSE", null)
+                .show()
         }
 
         private fun showNews() {
@@ -1380,15 +1418,32 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 out += "x:msgs" to "No new messages. All quiet."
             }
 
-            // Email: today's and yesterday's count, and the latest.
-            run {
-                val t = Mail.day(context, today)
-                val y = Mail.day(context, today.minusDays(1))
+            // Email: each inbox's count today and yesterday; the company one email by email.
+            for (acct in Mail.ACCOUNTS) {
+                val t = Mail.day(context, today, acct.address)
+                val y = Mail.day(context, today.minusDays(1), acct.address)
                 fun n(c: Int) = when (c) { 0 -> "no new emails"; 1 -> "one new email"; else -> "$c new emails" }
-                val line = StringBuilder("In your personal email, you've had ${n(t.count)} today")
-                line.append(if (y.count > 0) ", and ${y.count} yesterday." else ".")
-                if (t.from != null) line.append(" The latest is from ${t.from}" + (t.subject?.takeIf { it.isNotBlank() }?.let { ", about ${it.take(90)}" } ?: "") + ".")
-                if (t.count > 0 || y.count > 0) out += "x:mail" to line.toString()
+                val line = StringBuilder()
+                if (acct.detailed) {
+                    line.append(acct.spoken.replaceFirstChar { it.uppercase() } + ": ${n(t.count)} today")
+                    line.append(if (y.count > 0) ", and ${y.count} yesterday. " else ". ")
+                    val recent = t.items.takeLast(6).reversed()
+                    if (recent.isNotEmpty()) {
+                        line.append(if (recent.size == 1) "It's " else "Most recent first: ")
+                        line.append(recent.joinToString(". Then ") { m ->
+                            "from ${m.from.ifBlank { "someone" }}" + (m.subject.takeIf { it.isNotBlank() }?.let { s2 -> ", about ${s2.take(90)}" } ?: "") +
+                                ", at ${at(m.at).format(tf)}"
+                        })
+                        line.append(".")
+                        if (t.items.size > recent.size) line.append(" Plus ${t.items.size - recent.size} more earlier on.")
+                    }
+                    if (t.count > 0 || y.count > 0) out += "x:mail:${acct.address}" to line.toString()
+                } else if (t.count > 0 || y.count > 0) {
+                    line.append("In ${acct.spoken}, you've had ${n(t.count)} today")
+                    line.append(if (y.count > 0) ", and ${y.count} yesterday." else ".")
+                    t.latest?.let { m -> line.append(" The latest is from ${m.from}" + (m.subject.takeIf { it.isNotBlank() }?.let { s2 -> ", about ${s2.take(90)}" } ?: "") + ".") }
+                    out += "x:mail:${acct.address}" to line.toString()
+                }
             }
 
             // The little things: battery, habits, countdowns, focus, steps.
@@ -3302,7 +3357,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             top += 38 * u
 
             // The calendar: where they go, what they're called, a reminder, and access.
-            val ch = 128 * u
+            val ch = 166 * u
             card(canvas, now, top, ch) {
                 val r = RectF(14 * u, top, width - 14 * u, top + ch)
                 panel(canvas, r, if (Shifts.canWrite(context)) UP else Hud.HOT)
@@ -3338,6 +3393,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     canvas.drawText("✎", row.right - 8 * u, row.centerY() + 4 * u, Hud.text(10 * u, Hud.HOT, Hud.SANS, align = Paint.Align.RIGHT))
                     tap(row) { act() }
                 }
+                // Push every shift into the calendar now, putting back any deleted there.
+                button(canvas, RectF(r.left + 14 * u, r.bottom - 36 * u, r.right - 14 * u, r.bottom - 10 * u), "⇪ ADD ALL SHIFTS TO CALENDAR", solid = true) { populateShifts() }
             }
             return top + ch
         }

@@ -103,7 +103,7 @@ back to One UI Home the same way at any time.
   your alarm, unread messages, countdowns and the biggest crypto mover), then Ask Claude (type or speak;
   it starts a new chat in the Claude app, and your recent questions are a tap away), then the agenda; a
   full-month **calendar** of your Google (or any synced) calendars, with a dot per event in its colour:
-  swipe up or down on the month or use ‹ TODAY ›, tap a day for its events and *+ Add* there; comms;
+  use ‹ TODAY › to change month, tap a day for its events and *+ Add* there; comms;
   vitals; audio; quick actions; a **focus** timer (15/25/50 minutes or a 5-minute break; it rings at the
   end and can silence the phone); sky (with the sun's path and the next 12 hours' rain chance when
   expanded); notes; **habits** (tap a day to tick it, with streaks); **countdowns** to your dates;

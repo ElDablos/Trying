@@ -1,7 +1,6 @@
 package com.eldablos.crimson.launcher
 
 import android.content.Context
-import org.xmlpull.v1.XmlPullParser
 import java.io.StringReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -58,38 +57,21 @@ object News {
     /** The items of an RSS feed. */
     fun parse(xml: String, world: Boolean): List<Story> {
         if (xml.isBlank()) return emptyList()
-        val out = ArrayList<Story>()
-        try {
-            val p = org.xmlpull.v1.XmlPullParserFactory.newInstance().newPullParser()
-            p.setInput(StringReader(xml))
-            var inItem = false
-            var tag = ""
-            var title = ""
-            var desc = ""
-            var link = ""
-            while (p.next() != XmlPullParser.END_DOCUMENT) {
-                when (p.eventType) {
-                    XmlPullParser.START_TAG -> {
-                        tag = p.name
-                        if (tag == "item") { inItem = true; title = ""; desc = ""; link = "" }
-                    }
-                    XmlPullParser.TEXT, XmlPullParser.CDSECT -> if (inItem) when (tag) {
-                        "title" -> title += p.text
-                        "description" -> desc += p.text
-                        "link" -> link += p.text
-                    }
-                    XmlPullParser.END_TAG -> {
-                        if (p.name == "item") {
-                            inItem = false
-                            if (title.isNotBlank()) out += Story(title.trim(), desc.trim(), link.trim(), world)
-                        }
-                        tag = ""
-                    }
-                }
+        return try {
+            val f = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+            // A feed has no business pulling in other files.
+            try { f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) } catch (e: Exception) { }
+            f.isExpandEntityReferences = false
+            val doc = f.newDocumentBuilder().parse(org.xml.sax.InputSource(StringReader(xml)))
+            val items = doc.getElementsByTagName("item")
+            (0 until items.length).mapNotNull { i ->
+                val item = items.item(i) as? org.w3c.dom.Element ?: return@mapNotNull null
+                fun text(tag: String) = item.getElementsByTagName(tag).item(0)?.textContent?.trim().orEmpty()
+                val title = text("title")
+                if (title.isBlank()) null else Story(title, text("description"), text("link"), world)
             }
         } catch (e: Exception) {
-            // Whatever parsed before the problem.
+            emptyList()
         }
-        return out
     }
 }

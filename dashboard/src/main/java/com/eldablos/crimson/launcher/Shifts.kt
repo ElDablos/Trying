@@ -136,11 +136,25 @@ object Shifts {
         return out.sortedWith(compareByDescending<Calendar> { it.primary }.thenByDescending { it.account.contains("@") })
     }
 
+    /**
+     * Where shifts go: the calendar you picked; otherwise the shared Even Us calendar when it's there
+     * (shifts belong with the business), or else your main one.
+     */
     fun calendarId(context: Context): Long? {
-        val saved = prefs(context).getLong("calendar", -1L)
+        val p = prefs(context)
         val list = calendars(context)
-        return list.firstOrNull { it.id == saved }?.id ?: list.firstOrNull()?.id
+        val evenUs = list.firstOrNull { it.name.trim().equals(EVEN_US, ignoreCase = true) }
+        // Once: move to Even Us even if another calendar was in use before.
+        if (evenUs != null && !p.getBoolean("even_us_default", false)) {
+            p.edit().putBoolean("even_us_default", true).putLong("calendar", evenUs.id).apply()
+            return evenUs.id
+        }
+        val saved = p.getLong("calendar", -1L)
+        return list.firstOrNull { it.id == saved }?.id ?: evenUs?.id ?: list.firstOrNull()?.id
     }
+
+    /** The shared business calendar that shifts go to by default. */
+    const val EVEN_US = "Even Us"
 
     fun setCalendar(context: Context, id: Long) = prefs(context).edit().putLong("calendar", id).apply()
 
@@ -153,10 +167,10 @@ object Shifts {
         try { LocalDate.parse(it.substringBefore('=')) to it.substringAfter('=') } catch (e: Exception) { null }
     }.toMap()
 
-    /** Days whose shift isn't in the calendar as it stands. */
     /** The first day kept in the calendar: last week's Monday, so this week's earlier days go in too. */
     fun syncFrom(today: LocalDate = LocalDate.now()): LocalDate = monday(today).minusWeeks(1)
 
+    /** Days whose shift isn't in the calendar as it stands. */
     fun pending(context: Context): Set<LocalDate> {
         val title = title(context)
         val from = syncFrom()
@@ -166,14 +180,14 @@ object Shifts {
         return shifts.filter { (d, s) -> done[d] != s.signature(title) }.keys + ids.keys.filter { it !in shifts && !it.isBefore(from) }
     }
 
-    /** Whether event [id] is still in the calendar (not deleted there). */
-    private fun exists(context: Context, id: Long): Boolean = try {
+    /** The calendar event [id] is in, or null when it's gone (or deleted there). */
+    private fun calendarOf(context: Context, id: Long): Long? = try {
         context.contentResolver.query(
             ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id),
-            arrayOf(CalendarContract.Events.DELETED), null, null, null,
-        )?.use { c -> c.moveToFirst() && c.getInt(0) == 0 } ?: false
+            arrayOf(CalendarContract.Events.DELETED, CalendarContract.Events.CALENDAR_ID), null, null, null,
+        )?.use { c -> if (c.moveToFirst() && c.getInt(0) == 0) c.getLong(1) else null }
     } catch (e: Exception) {
-        false
+        null
     }
 
     /**
@@ -191,8 +205,10 @@ object Shifts {
         val ids = eventIds(context).toMutableMap()
         val done = synced(context).toMutableMap()
         var changed = 0
-        // Forced: every shift from syncFrom on, so any deleted in the calendar go back in.
-        val todo = if (force) shifts.keys.filter { !it.isBefore(syncFrom()) }.toSet() + pending(context) else pending(context)
+        // Forced, or the calendar changed: every shift from syncFrom on, so they all land in the one calendar
+        // and any deleted there go back in.
+        val moved = prefs(context).getLong("calendar_used", -1L) != cal
+        val todo = if (force || moved) shifts.keys.filter { !it.isBefore(syncFrom()) }.toSet() + pending(context) else pending(context)
         for (d in todo) {
             val s = shifts[d]
             val existing = ids[d]
@@ -212,7 +228,10 @@ object Shifts {
                     put(CalendarContract.Events.CALENDAR_ID, cal)
                     put(CalendarContract.Events.DESCRIPTION, "Shift from the Crimson Command Deck")
                 }
-                val updated = existing?.takeIf { exists(context, it) }?.let { cr.update(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, it), v, null, null) } ?: 0
+                // An event can't change calendar: one in another calendar is removed and made again here.
+                val where = existing?.let { calendarOf(context, it) }
+                if (existing != null && where != null && where != cal) cr.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, existing), null, null)
+                val updated = existing?.takeIf { where == cal }?.let { cr.update(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, it), v, null, null) } ?: 0
                 if (updated == 0) {
                     val uri = cr.insert(CalendarContract.Events.CONTENT_URI, v) ?: continue
                     val id = ContentUris.parseId(uri)
@@ -232,6 +251,7 @@ object Shifts {
             }
         }
         prefs(context).edit()
+            .putLong("calendar_used", cal)
             .putString("events", ids.entries.joinToString(";") { "${it.key}=${it.value}" })
             .putString("synced", done.entries.joinToString("\n") { "${it.key}=${it.value}" })
             .apply()

@@ -84,4 +84,26 @@ class DeckTest {
         assertEquals(6, DeckStore.streak(days + today, today))
         assertEquals(0, DeckStore.streak(setOf(today.minusDays(3)), today))
     }
+
+    @Test
+    fun shiftsRoundTripAndRunOvernight() {
+        val raw = "2026-10-27=06:00-14:00|EARLY;2026-10-28=22:00-06:00|NIGHT;bad"
+        val m = Shifts.parse(raw)
+        assertEquals(2, m.size)
+        val night = m.getValue(java.time.LocalDate.of(2026, 10, 28))
+        assertTrue(night.overnight)
+        assertEquals(8 * 60L, night.minutes)
+        assertEquals(m.keys, Shifts.parse(Shifts.format(m)).keys)
+        assertEquals("06:00–14:00", m.getValue(java.time.LocalDate.of(2026, 10, 27)).times())
+    }
+
+    @Test
+    fun findsTheShiftOnNowAndTheNextOne() {
+        val zone = java.time.ZoneOffset.UTC
+        val m = Shifts.parse("2026-10-28=22:00-06:00|NIGHT;2026-10-30=06:00-14:00|EARLY")
+        val at3am = java.time.LocalDateTime.of(2026, 10, 29, 3, 0).atZone(zone).toInstant().toEpochMilli()
+        assertEquals(java.time.LocalDate.of(2026, 10, 28), Shifts.current(m, at3am, zone)?.first)
+        assertEquals(java.time.LocalDate.of(2026, 10, 30), Shifts.next(m, at3am, zone)?.first)
+        assertEquals(java.time.LocalDate.of(2026, 10, 26), Shifts.monday(java.time.LocalDate.of(2026, 11, 1)))
+    }
 }

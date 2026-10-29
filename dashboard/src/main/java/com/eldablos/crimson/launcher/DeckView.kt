@@ -133,6 +133,14 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     private var focusLength = 25
     private var briefOpen = context.getSharedPreferences("deck", Context.MODE_PRIVATE).getBoolean("brief_open", false)
 
+    // Work shifts: the planner page, its week, and what's in the calendar.
+    private var shiftsOpen = false
+    private var shiftWeek: LocalDate = Shifts.monday(LocalDate.now())
+    private var shifts: Map<LocalDate, Shifts.Shift> = emptyMap()
+    private var shiftEvents: Set<Long> = emptySet()
+    private var shiftPending: Set<LocalDate> = emptySet()
+    private var shiftCalendar: String? = null
+
     /** One line of the briefing: a glyph, what it is, the detail, its colour and urgency (0 = most), a
      *  headline if it's the most pressing thing, how to say it aloud, and where a tap goes. */
     private class Intel(
@@ -150,32 +158,57 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     private var tts: android.speech.tts.TextToSpeech? = null
     private var speaking = false
 
-    private fun speak(text: String) {
+    /** The part being read right now ("row:2" for the third line), to light it up. */
+    private var speakingId: String? = null
+
+    /** Reads [parts] (id to text) one after another, lighting up each as it's read. */
+    private fun speak(parts: List<Pair<String, String>>) {
         val ready = tts
         if (ready != null) {
-            say(ready, text)
+            say(ready, parts)
             return
         }
+        speaking = true
         tts = android.speech.tts.TextToSpeech(context.applicationContext) { status ->
-            if (status == android.speech.tts.TextToSpeech.SUCCESS) tts?.let { say(it, text) }
-            else Toast.makeText(context, "Text to speech isn't available", Toast.LENGTH_SHORT).show()
+            if (status == android.speech.tts.TextToSpeech.SUCCESS) tts?.let { say(it, parts) }
+            else main.post {
+                speaking = false
+                Toast.makeText(context, "Text to speech isn't available", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
-    private fun say(t: android.speech.tts.TextToSpeech, text: String) {
+    private fun say(t: android.speech.tts.TextToSpeech, parts: List<Pair<String, String>>) {
+        if (parts.isEmpty()) return
         t.language = Locale.getDefault()
+        t.setSpeechRate(1.02f)
+        t.setPitch(.96f)
+        val last = parts.last().first
         t.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-            override fun onStart(id: String?) { main.post { speaking = true; board.invalidate() } }
-            override fun onDone(id: String?) { main.post { speaking = false; board.invalidate() } }
+            override fun onStart(id: String?) { main.post { speaking = true; speakingId = id; board.invalidate() } }
+            override fun onDone(id: String?) { if (id == last) main.post { speaking = false; speakingId = null; board.invalidate() } }
             @Deprecated("Deprecated in Java")
-            override fun onError(id: String?) { main.post { speaking = false; board.invalidate() } }
+            override fun onError(id: String?) { main.post { speaking = false; speakingId = null; board.invalidate() } }
         })
-        t.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "briefing")
+        parts.forEachIndexed { i, (id, text) ->
+            t.speak(speakable(text), if (i == 0) android.speech.tts.TextToSpeech.QUEUE_FLUSH else android.speech.tts.TextToSpeech.QUEUE_ADD, null, id)
+            // A short breath between parts.
+            if (i < parts.lastIndex) t.playSilentUtterance(220, android.speech.tts.TextToSpeech.QUEUE_ADD, "pause:$i")
+        }
     }
+
+    /** Short forms said out loud: "7h 11m" as hours and minutes, "14°" as degrees, and so on. */
+    private fun speakable(text: String): String = text
+        .replace(Regex("(\\d+)d (\\d+)h"), "$1 days $2 hours")
+        .replace(Regex("(\\d+)h (\\d+)m"), "$1 hours $2 minutes")
+        .replace(Regex("\\b(\\d+)h\\b"), "$1 hours")
+        .replace(Regex("\\b(\\d+)m\\b"), "$1 minutes")
+        .replace("°", " degrees").replace("%", " percent").replace("·", ",").replace("▲", "up").replace("▼", "down").replace("→", "to")
 
     private fun stopSpeaking() {
         tts?.stop()
         speaking = false
+        speakingId = null
         board.invalidate()
     }
 
@@ -240,6 +273,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         countdowns = DeckStore.countdowns(context)
         habits = DeckStore.habits(context)
         holdings = DeckStore.holdings(context)
+        shiftsOpen = false
+        shiftWeek = Shifts.monday(LocalDate.now())
+        loadShifts()
         FocusTimer.check(context)
         focus = DeckStore.focus(context)
         calMonth = YearMonth.now()
@@ -314,6 +350,11 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         }
         if (customizing) {
             customizing = false
+            board.invalidate()
+            return true
+        }
+        if (shiftsOpen) {
+            shiftsOpen = false
             board.invalidate()
             return true
         }
@@ -407,6 +448,98 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         if (downRates.size % 5 == 0) net = DeckData.network(context)
     }
 
+    /** Reads the shifts, then brings the calendar up to date with them in the background. */
+    private fun loadShifts() {
+        shifts = Shifts.all(context)
+        shiftEvents = Shifts.eventIds(context).values.toSet()
+        shiftPending = Shifts.pending(context)
+        val app = context.applicationContext
+        Thread {
+            Shifts.sync(app)
+            val pending = Shifts.pending(app)
+            val ids = Shifts.eventIds(app).values.toSet()
+            val cal = Shifts.calendarId(app)?.let { id -> Shifts.calendars(app).firstOrNull { it.id == id }?.name }
+            main.post {
+                shiftPending = pending
+                shiftEvents = ids
+                shiftCalendar = cal
+                board.invalidate()
+            }
+        }.start()
+    }
+
+    /** Calendar access was just granted (or refused): try saving the shifts again. */
+    fun calendarAccessChanged() = loadShifts()
+
+    private fun askCalendarAccess() {
+        (context as? android.app.Activity)?.requestPermissions(
+            arrayOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR), CALENDAR_REQUEST,
+        )
+    }
+
+    private fun setShift(date: LocalDate, shift: Shifts.Shift?) {
+        Shifts.set(context, date, shift)
+        loadShifts()
+        board.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+    }
+
+    /** A day's shift: one of your usual ones, custom times, or off. */
+    private fun pickShift(date: LocalDate) {
+        val templates = Shifts.templates(context)
+        val items = templates.map { "${it.name}  ·  ${it.times()}" } + listOf("Custom times…", "Day off")
+        AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("◆ " + date.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault())).uppercase())
+            .setItems(items.toTypedArray()) { _, i ->
+                when {
+                    i < templates.size -> setShift(date, templates[i])
+                    i == templates.size -> pickTimes("SHIFT") { s -> setShift(date, s) }
+                    else -> setShift(date, null)
+                }
+            }
+            .show()
+    }
+
+    /** Start then end time, as a shift called [name]. */
+    private fun pickTimes(name: String, then: (Shifts.Shift) -> Unit) {
+        android.app.TimePickerDialog(context, { _, h, m ->
+            val start = java.time.LocalTime.of(h, m)
+            android.app.TimePickerDialog(context, { _, h2, m2 ->
+                then(Shifts.Shift(start, java.time.LocalTime.of(h2, m2), name))
+            }, (h + 8) % 24, m, true).apply { setTitle("SHIFT ENDS") }.show()
+        }, 9, 0, true).apply { setTitle("SHIFT STARTS") }.show()
+    }
+
+    private fun addTemplate() {
+        val f = field("Name, e.g. Early")
+        dialog("◆ NEW SHIFT TYPE", f, "PICK TIMES") {
+            val n = f.text.toString().trim().uppercase().ifEmpty { "SHIFT" }
+            pickTimes(n) { s ->
+                Shifts.setTemplates(context, Shifts.templates(context) + s)
+                board.invalidate()
+            }
+        }
+    }
+
+    private fun pickCalendar() {
+        val app = context.applicationContext
+        Thread {
+            val list = Shifts.calendars(app)
+            main.post {
+                if (list.isEmpty()) {
+                    Toast.makeText(context, "No calendars to add to", Toast.LENGTH_SHORT).show()
+                    return@post
+                }
+                AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle("◆ SAVE SHIFTS TO")
+                    .setItems(list.map { "${it.name}  ·  ${it.account}" }.toTypedArray()) { _, i ->
+                        Shifts.setCalendar(app, list[i].id)
+                        loadShifts()
+                    }
+                    .show()
+            }
+        }.start()
+    }
+
     private fun openCoin(id: String) {
         coinId = id
         range = Markets.Range.DAY
@@ -489,6 +622,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             fieldTop = -1000 * u
             when {
                 coinId != null -> y = coinPage(canvas, y, now)
+                shiftsOpen -> y = shiftPage(canvas, y, now)
                 customizing -> y = customize(canvas, y, now)
                 else -> {
                     y = header(canvas, y, now)
@@ -513,7 +647,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             input.visibility = if (fy < -40 * u || fy > height) INVISIBLE else VISIBLE
 
             // Animate while opening or touched lately; otherwise only the clock ticks.
-            val live = now - touchedAt < LIVE_MS || now - openedAt < 1600
+            val live = now - touchedAt < LIVE_MS || now - openedAt < 1600 || speaking
             if (live) postInvalidateDelayed(33) else postInvalidateDelayed(1000 - System.currentTimeMillis() % 1000)
         }
 
@@ -765,6 +899,53 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val today = LocalDate.now()
             val evening = eveningMode()
             val blue = 0xFF6FA8FF.toInt()
+            // Shifts are briefed on their own, so their calendar events are left out of the agenda here.
+            val agenda = this@DeckView.agenda.filter { it.id !in shiftEvents }
+
+            // Work: on shift now, the next one, and an alarm to get up for an early start.
+            val cur = Shifts.current(shifts, nowMs, zone)
+            val nextShift = Shifts.next(shifts, nowMs, zone)
+            if (cur != null) {
+                val (d, sh) = cur
+                val ends = sh.finish(d, zone)
+                val doneF = (nowMs - sh.begin(d, zone)).toFloat() / (ends - sh.begin(d, zone))
+                out += Intel("⧗", "ON SHIFT", "Until ${at(ends).format(tf)} · ${duration(ends - nowMs)} left · ${(doneF * 100).toInt()}% done", Hud.HOT, 1,
+                    "On shift: ${duration(ends - nowMs)} to go.", "You're on shift until ${at(ends).format(tf)}, ${duration(ends - nowMs)} to go.") { shiftsOpen = true; board.scrollTo(0f) }
+            }
+            if (nextShift != null) {
+                val (d, sh) = nextShift
+                val begins = sh.begin(d, zone)
+                val inMs = begins - nowMs
+                if (inMs < 36 * 3600_000L) {
+                    val day = when (d) { today -> "TODAY"; today.plusDays(1) -> "TOMORROW"; else -> d.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())).uppercase() }
+                    val rank = when { inMs < 60 * 60_000L -> 0; inMs < 4 * 3600_000L -> 2; d == today.plusDays(1) && evening -> 2; else -> 4 }
+                    out += Intel("⧗", "SHIFT", "$day ${sh.times()} · ${sh.name} · in ${duration(inMs)}", Hud.GOLD, rank,
+                        if (inMs < 60 * 60_000L) "Shift starts in ${duration(inMs)}." else if (evening && d == today.plusDays(1)) "${sh.name.lowercase().replaceFirstChar { it.uppercase() }} shift tomorrow at ${sh.start.format(tf)}." else null,
+                        "Your next shift is ${if (d == today) "today" else if (d == today.plusDays(1)) "tomorrow" else "on " + d.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())}, ${sh.start.format(tf)} to ${sh.end.format(tf)}, in ${duration(inMs)}.") { shiftsOpen = true; board.scrollTo(0f) }
+                    // Up early for it, with no alarm to wake you in time: offer one an hour before.
+                    val alarm = telemetry?.alarm
+                    val early = inMs > 60 * 60_000L && sh.start.hour < 11 && d != today
+                    if (early && (alarm == null || alarm > begins - 30 * 60_000L)) {
+                        val wake = sh.start.minusHours(1)
+                        out += Intel("⚠", "WAKE UP", "No alarm before your ${sh.start.format(tf)} shift · tap to set ${wake.format(tf)}", DOWN, 0,
+                            "Set an alarm: your shift starts at ${sh.start.format(tf)}.", "Heads up: there's no alarm before your ${sh.start.format(tf)} shift. Tap to set one for ${wake.format(tf)}.") {
+                            start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, wake.hour).putExtra(AlarmClock.EXTRA_MINUTES, wake.minute)
+                                .putExtra(AlarmClock.EXTRA_MESSAGE, "Shift at ${sh.start.format(tf)}").putExtra(AlarmClock.EXTRA_SKIP_UI, false))
+                        }
+                    }
+                }
+            }
+            // The week's shifts, or a prompt to add them.
+            val monday = Shifts.monday(today)
+            val week = (0 until 7).mapNotNull { k -> shifts[monday.plusDays(k.toLong())] }
+            if (week.isNotEmpty()) {
+                val hours = week.sumOf { it.minutes } / 60
+                val left = (0 until 7).map { monday.plusDays(it.toLong()) }.count { it.isAfter(today) && shifts[it] != null }
+                out += Intel("▤", "THIS WEEK", "${week.size} shift${if (week.size == 1) "" else "s"} · ${hours}h · $left still to go", Hud.SOFT, 7, null,
+                    "This week: ${week.size} shift${if (week.size == 1) "" else "s"}, $hours hours, $left still to go.") { shiftsOpen = true; board.scrollTo(0f) }
+            } else {
+                out += Intel("▤", "SHIFTS", "None entered this week · tap to add", Hud.DUST, 8, null, "No shifts entered for this week.") { shiftsOpen = true; board.scrollTo(0f) }
+            }
 
             // Agenda: what's on now, what's next, or how tomorrow starts.
             val live = agenda.firstOrNull { !it.allDay && it.begin <= nowMs && nowMs < it.end }
@@ -899,6 +1080,44 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             return out.sortedBy { it.rank }
         }
 
+        /** The whole briefing to read aloud: hello, the headline, the plan, every line, the week's shifts, sleep. */
+        private fun spoken(list: List<Intel>): List<Pair<String, String>> {
+            val out = ArrayList<Pair<String, String>>()
+            val nowT = LocalDateTime.now()
+            val tf = DateTimeFormatter.ofPattern("HH:mm")
+            val zone = ZoneId.systemDefault()
+            val evening = eveningMode()
+            val greet = when (nowT.hour) { in 5 until 12 -> "Good morning"; in 12 until 18 -> "Good afternoon"; else -> "Good evening" }
+            val d = nowT.dayOfMonth
+            val suffix = if (d in 11..13) "th" else when (d % 10) { 1 -> "st"; 2 -> "nd"; 3 -> "rd"; else -> "th" }
+            out += "x:hello" to "$greet. It's ${nowT.format(tf)} on ${nowT.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())} the $d$suffix of ${nowT.month.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())}. Here's your briefing."
+            out += "x:head" to headline(list)
+            // The plan: every event left today, or tomorrow's in the evening.
+            val dayOf = if (evening) LocalDate.now().plusDays(1) else LocalDate.now()
+            val plan = agenda.filter { it.id !in shiftEvents && Instant.ofEpochMilli(it.begin).atZone(zone).toLocalDate() == dayOf && (it.allDay || it.end > System.currentTimeMillis()) }
+            if (plan.isNotEmpty()) {
+                val items = plan.map { e -> if (e.allDay) "${e.title}, all day" else "${e.title} at ${Instant.ofEpochMilli(e.begin).atZone(zone).format(tf)}" }
+                val joined = if (items.size == 1) items[0] else items.dropLast(1).joinToString(", ") + ", and " + items.last()
+                out += "x:plan" to (if (evening) "Tomorrow you have " else "Still to come today: ") + joined + "."
+            }
+            list.forEachIndexed { i, it -> if (!(plan.isNotEmpty() && it.glyph == "◷")) out += "row:$i" to it.speech }
+            // The week's shifts, day by day.
+            val monday = Shifts.monday(LocalDate.now())
+            val week = (0 until 7).map { monday.plusDays(it.toLong()) }.filter { !it.isBefore(LocalDate.now()) }.mapNotNull { day -> shifts[day]?.let { day to it } }
+            if (week.size > 1) {
+                out += "x:shifts" to "Your shifts for the rest of the week: " + week.joinToString("; ") { (day, sh) ->
+                    "${if (day == LocalDate.now()) "today" else day.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())}, ${sh.name.lowercase()}, ${sh.start.format(tf)} to ${sh.end.format(tf)}"
+                } + "."
+            }
+            // Sleep, late in the evening.
+            telemetry?.alarm?.let { a ->
+                if (evening && a - System.currentTimeMillis() < 14 * 3600_000L) out += "x:sleep" to "If you sleep now, you'll get ${duration(a - System.currentTimeMillis())} before your alarm."
+            }
+            forecast?.let { f -> if (!evening) out += "x:feel" to "Right now it's ${f.temp} degrees, feeling like ${f.feels}, wind ${f.wind} kilometres an hour." }
+            out += "x:end" to if (evening) "That's everything. Sleep well." else "That's everything. Have a good one."
+            return out
+        }
+
         /** The headline: the most pressing thing, or a calm line when nothing presses. */
         private fun headline(list: List<Intel>): String = list.firstOrNull { it.headline != null }?.headline ?: when {
             eveningMode() -> "Quiet evening. Tomorrow looks clear."
@@ -910,7 +1129,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val list = intel()
             val head = headline(list)
             val open = briefOpen
-            val shown = if (open) list else list.take(4)
+            // While it's being read, every line shows, so each can light up in turn.
+            val shown = if (open || speaking) list else list.take(4)
             // The headline, wrapped to two lines at most.
             val hp = Hud.text(15 * u, Color.WHITE, Hud.MEDIUM)
             val maxW = width - 28 * u - 28 * u
@@ -927,12 +1147,13 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val tlH = 50 * u
             val rowsTop = tlTop + tlH + 8 * u
             val rowH = 30 * u
-            val h = rowsTop + shown.size * rowH + 42 * u
+            val waveH = if (speaking) 22 * u else 0f
+            val h = rowsTop + shown.size * rowH + waveH + 42 * u
             card(canvas, now, top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 val status = when {
                     list.any { it.rank == 0 } -> "ALERT" to DOWN
-                    agenda.count { !it.allDay && it.end > System.currentTimeMillis() && Instant.ofEpochMilli(it.begin).atZone(ZoneId.systemDefault()).toLocalDate() == LocalDate.now() } >= 3 || groups.sumOf { it.count } > 5 -> "BUSY" to Hud.GOLD
+                    agenda.count { it.id !in shiftEvents && !it.allDay && it.end > System.currentTimeMillis() && Instant.ofEpochMilli(it.begin).atZone(ZoneId.systemDefault()).toLocalDate() == LocalDate.now() } >= 3 || groups.sumOf { it.count } > 5 -> "BUSY" to Hud.GOLD
                     else -> "CLEAR" to UP
                 }
                 panel(canvas, r, Hud.GOLD, strong = true)
@@ -968,6 +1189,15 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     val ry = top + rowsTop + i * rowH
                     val row = RectF(r.left + 8 * u, ry, r.right - 8 * u, ry + rowH - 3 * u)
                     if (it.rank <= 1) canvas.drawRect(row, Hud.fill(Hud.alpha(it.color, .08f)))
+                    if (speakingId == "row:$i") {
+                        // The line being read: lit gold, with a marker sweeping along it.
+                        canvas.drawRect(row, Hud.fill(Hud.alpha(Hud.GOLD, .14f)))
+                        canvas.drawRect(row, Hud.glow(Hud.stroke(Hud.alpha(Hud.GOLD, .8f), u), 6 * u, Hud.GOLD))
+                        val mx = row.left + ((now % 1400) / 1400f) * row.width()
+                        canvas.drawRect(mx - 30 * u, row.bottom - 2 * u, mx, row.bottom, Paint().apply {
+                            shader = LinearGradient(mx - 30 * u, 0f, mx, 0f, Color.TRANSPARENT, Hud.GOLD, Shader.TileMode.CLAMP)
+                        })
+                    }
                     hex(canvas, row.left + 16 * u, row.centerY(), 10 * u, Hud.fill(Hud.alpha(it.color, .14f)))
                     hex(canvas, row.left + 16 * u, row.centerY(), 10 * u, Hud.stroke(Hud.alpha(it.color, .8f), u))
                     canvas.drawText(it.glyph, row.left + 16 * u, row.centerY() + 3.5f * u, Hud.fit(it.glyph, Hud.text(9 * u, it.color, Hud.SANS, align = Paint.Align.CENTER), 14 * u))
@@ -980,18 +1210,38 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         tap(row) { act() }
                     }
                 }
-                // Read it out, hand it to Claude, or see it all.
-                val by = r.bottom - 34 * u
-                val bw = (r.width() - 28 * u - 12 * u) / 3
-                button(canvas, RectF(r.left + 14 * u, by, r.left + 14 * u + bw, by + 26 * u), if (speaking) "■ STOP" else "🔊 READ IT") {
-                    if (speaking) stopSpeaking() else speak(headline(intel()) + " " + intel().joinToString(" ") { x -> x.speech })
+                // While reading: a live voice trace.
+                if (speaking) {
+                    val wy = top + rowsTop + shown.size * rowH + 4 * u
+                    canvas.drawText("◉ READING", r.left + 14 * u, wy + 11 * u, Hud.text(7 * u, Hud.GOLD, Hud.MONO_BOLD, .16f))
+                    val wl = r.left + 80 * u
+                    val wr = r.right - 14 * u
+                    val bars = 36
+                    val bwid = (wr - wl) / bars
+                    for (k in 0 until bars) {
+                        val ph = now / 90.0 + k * .7
+                        val amp = (.25 + .75 * kotlin.math.abs(kotlin.math.sin(ph) * kotlin.math.cos(ph * .37 + k * .2))).toFloat()
+                        val bh = 14 * u * amp
+                        canvas.drawRect(wl + k * bwid + bwid * .25f, wy + 8 * u - bh / 2, wl + (k + 1) * bwid - bwid * .25f, wy + 8 * u + bh / 2, Hud.glow(Hud.fill(Hud.alpha(Hud.GOLD, .5f + .5f * amp)), 3 * u, Hud.GOLD))
+                    }
                 }
-                button(canvas, RectF(r.left + 20 * u + bw, by, r.left + 20 * u + 2 * bw, by + 26 * u), "ASK CLAUDE ✳", solid = true) {
+                // Read it out, hand it to Claude, plan shifts, or see it all.
+                val by = r.bottom - 34 * u
+                val bw = (r.width() - 28 * u - 18 * u) / 4
+                fun slot(k: Int) = RectF(r.left + 14 * u + k * (bw + 6 * u), by, r.left + 14 * u + k * (bw + 6 * u) + bw, by + 26 * u)
+                button(canvas, slot(0), if (speaking) "■ STOP" else "🔊 READ", solid = speaking) {
+                    if (speaking) stopSpeaking() else speak(spoken(intel()))
+                }
+                button(canvas, slot(1), "✳ CLAUDE", solid = true) {
                     val text = intel().joinToString("; ") { x -> "${x.label.lowercase()}: ${x.value}" }
                     ClaudeLink.ask(context, "Here's my day so far — $text. Help me plan the rest of it.", remember = false)
                 }
+                button(canvas, slot(2), "⧗ SHIFTS") {
+                    shiftsOpen = true
+                    scrollTo(0f)
+                }
                 val more = list.size - 4
-                button(canvas, RectF(r.left + 26 * u + 2 * bw, by, r.right - 14 * u, by + 26 * u), if (open) "▴ LESS" else if (more > 0) "▾ ALL ${list.size}" else "▾ ALL") {
+                button(canvas, slot(3), if (open) "▴ LESS" else if (more > 0) "▾ ALL ${list.size}" else "▾ ALL") {
                     briefOpen = !briefOpen
                     context.getSharedPreferences("deck", Context.MODE_PRIVATE).edit().putBoolean("brief_open", briefOpen).apply()
                 }
@@ -1026,7 +1276,16 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             }
             // Events as gold blocks along the top half.
             val ep = Hud.text(7 * u, Theme.on(Hud.GOLD), Hud.SANS)
-            agenda.filter { !it.allDay && it.end > start && it.begin < end }.forEach { e ->
+            // Shifts as a band along the bottom of the track.
+            shifts.forEach { (d, sh) ->
+                val b0 = sh.begin(d, zone)
+                val b1 = sh.finish(d, zone)
+                if (b1 < start || b0 > end) return@forEach
+                val band = RectF(x(b0), track.bottom - 7 * u, x(b1), track.bottom - 2 * u)
+                canvas.drawRect(band, Hud.glow(Hud.fill(Hud.alpha(Hud.HOT, .85f)), 4 * u, Hud.HOT))
+                if (band.width() > 34 * u) canvas.drawText("SHIFT", band.left + 2 * u, band.top - 1.5f * u, Hud.text(6 * u, Hud.HOT, Hud.MONO_BOLD, .1f))
+            }
+            agenda.filter { it.id !in shiftEvents && !it.allDay && it.end > start && it.begin < end }.forEach { e ->
                 val b = RectF(x(e.begin), track.top + 2 * u, maxOf(x(e.end), x(e.begin) + 4 * u), track.top + 13 * u)
                 canvas.drawRect(b, Hud.glow(Hud.fill(Hud.alpha(Hud.GOLD, .85f)), 4 * u, Hud.GOLD))
                 if (b.width() > 30 * u) canvas.drawText(Hud.ellipsize(e.title, ep, b.width() - 4 * u), b.left + 2 * u, b.bottom - 3 * u, ep)
@@ -2569,6 +2828,182 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             return hr.bottom
         }
 
+        // --- The shift planner: a week of shifts, saved to the calendar as you go ---
+
+        private fun shiftPage(canvas: Canvas, y: Float, now: Long): Float {
+            canvas.drawText("◆ SHIFTS // WEEK OF " + shiftWeek.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())).uppercase(), 18 * u, y + 10 * u, Hud.text(9 * u, Hud.GOLD, Hud.MONO, .2f))
+            val doneR = RectF(width - 100 * u, y - 10 * u, width - 14 * u, y + 20 * u)
+            canvas.drawText("DONE ✓", width - 18 * u, y + 10 * u, Hud.text(9 * u, Hud.HOT, Hud.MONO, .2f, Paint.Align.RIGHT))
+            tap(doneR) { shiftsOpen = false; invalidate() }
+            val zone = ZoneId.systemDefault()
+            val days = (0 until 7).map { shiftWeek.plusDays(it.toLong()) }
+            val week = days.mapNotNull { d -> shifts[d]?.let { d to it } }
+            val hours = week.sumOf { it.second.minutes } / 60f
+
+            // The summary: how many, how long, what's next, with weeks either side.
+            var top = y + 24 * u
+            val sh = 76 * u
+            card(canvas, now, top, sh) {
+                val r = RectF(14 * u, top, width - 14 * u, top + sh)
+                panel(canvas, r, Hud.GOLD, strong = true)
+                canvas.drawText("${week.size}", r.left + 16 * u, top + 46 * u, Hud.glow(Hud.text(32 * u, Color.WHITE, Hud.LIGHT), 10 * u, Hud.alpha(Hud.GOLD, .5f)))
+                val np = Hud.text(32 * u, Color.WHITE, Hud.LIGHT)
+                val x2 = r.left + 16 * u + np.measureText("${week.size}") + 6 * u
+                canvas.drawText(if (week.size == 1) "SHIFT" else "SHIFTS", x2, top + 30 * u, Hud.text(7.5f * u, Hud.GOLD, Hud.MONO, .16f))
+                canvas.drawText((if (hours % 1f == 0f) "${hours.toInt()}" else "%.1f".format(Locale.ROOT, hours)) + "H THIS WEEK", x2, top + 44 * u, Hud.text(9 * u, Hud.SOFT, Hud.MONO, .12f))
+                val nx = Shifts.next(shifts, System.currentTimeMillis(), zone)
+                val cur = Shifts.current(shifts, System.currentTimeMillis(), zone)
+                val line = when {
+                    cur != null -> "ON SHIFT NOW · ENDS " + Instant.ofEpochMilli(cur.second.finish(cur.first, zone)).atZone(zone).format(DateTimeFormatter.ofPattern("HH:mm"))
+                    nx != null -> "NEXT · " + nx.first.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).uppercase() + " " + nx.second.times()
+                    else -> "NO SHIFTS COMING UP"
+                }
+                canvas.drawText(line, r.left + 16 * u, top + 64 * u, Hud.text(7.5f * u, if (cur != null) Hud.HOT else Hud.DUST, Hud.MONO, .14f))
+                val ar = RectF(r.right - 40 * u, top + 16 * u, r.right - 14 * u, top + 40 * u)
+                val tr = RectF(ar.left - 66 * u, ar.top, ar.left - 4 * u, ar.bottom)
+                val al = RectF(tr.left - 30 * u, ar.top, tr.left - 4 * u, ar.bottom)
+                button(canvas, al, "‹") { shiftWeek = shiftWeek.minusWeeks(1) }
+                button(canvas, tr, "THIS WEEK", solid = shiftWeek != Shifts.monday(LocalDate.now())) { shiftWeek = Shifts.monday(LocalDate.now()) }
+                button(canvas, ar, "›") { shiftWeek = shiftWeek.plusWeeks(1) }
+            }
+            top += sh + 10 * u
+
+            // The week: a row a day, the shift as a bar across the day's 24 hours.
+            val rowH = 50 * u
+            val wh = 34 * u + 7 * rowH + 8 * u
+            card(canvas, now, top, wh) {
+                val r = RectF(14 * u, top, width - 14 * u, top + wh)
+                panel(canvas, r)
+                canvas.drawText("◆ TAP A DAY TO SET ITS SHIFT", r.left + 14 * u, top + 20 * u, Hud.text(8 * u, Hud.CRIMSON, Hud.MONO, .18f))
+                val bl = r.left + 70 * u
+                val br = r.right - 40 * u
+                listOf(0, 6, 12, 18, 24).forEach { hh ->
+                    canvas.drawText("%02d".format(hh % 24), bl + (br - bl) * hh / 24f, top + 32 * u, Hud.text(6 * u, Hud.DUST, Hud.MONO, align = Paint.Align.CENTER))
+                }
+                days.forEachIndexed { i, d ->
+                    val ry = top + 34 * u + i * rowH
+                    val row = RectF(r.left + 8 * u, ry + 3 * u, r.right - 8 * u, ry + rowH - 3 * u)
+                    val s = shifts[d]
+                    val isToday = d == LocalDate.now()
+                    if (isToday) canvas.drawRect(row, Hud.fill(Hud.alpha(Hud.HOT, .07f)))
+                    canvas.drawLine(row.left, row.top - 3 * u, row.right, row.top - 3 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .1f), u))
+                    canvas.drawText(d.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())).uppercase(), row.left + 8 * u, row.centerY() - 1 * u, Hud.text(10 * u, if (isToday) Hud.HOT else Color.WHITE, Hud.MONO_BOLD))
+                    canvas.drawText(d.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())).uppercase(), row.left + 8 * u, row.centerY() + 11 * u, Hud.text(6.5f * u, Hud.DUST, Hud.MONO, .08f))
+                    // The day's track, with night shaded.
+                    val track = RectF(bl, row.centerY() - 7 * u, br, row.centerY() + 7 * u)
+                    canvas.drawRect(track, Hud.fill(Hud.alpha(Hud.tint(0xFF0A0305.toInt()), .7f)))
+                    canvas.drawRect(track.left, track.top, track.left + track.width() * 6 / 24f, track.bottom, Hud.fill(Hud.alpha(0xFF203060.toInt(), .3f)))
+                    canvas.drawRect(track.left + track.width() * 21 / 24f, track.top, track.right, track.bottom, Hud.fill(Hud.alpha(0xFF203060.toInt(), .3f)))
+                    if (s != null) {
+                        fun xAt(t: java.time.LocalTime) = track.left + track.width() * (t.toSecondOfDay() / 86400f)
+                        val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            shader = LinearGradient(track.left, 0f, track.right, 0f, Hud.GOLD, Hud.HOT, Shader.TileMode.CLAMP)
+                            setShadowLayer(5 * u, 0f, 0f, Hud.alpha(Hud.HOT, .7f))
+                        }
+                        if (s.overnight) {
+                            canvas.drawRect(xAt(s.start), track.top + 2 * u, track.right, track.bottom - 2 * u, bar)
+                            if (s.end.toSecondOfDay() > 0) canvas.drawRect(track.left, track.top + 2 * u, xAt(s.end), track.bottom - 2 * u, Paint(bar).apply { alpha = 110 })
+                        } else {
+                            canvas.drawRect(xAt(s.start), track.top + 2 * u, xAt(s.end), track.bottom - 2 * u, bar)
+                        }
+                        val label = "${s.name} · ${s.times()} · ${s.minutes / 60}H" + (if (s.minutes % 60 != 0L) "${s.minutes % 60}M" else "")
+                        canvas.drawText(label, bl, row.centerY() + 18 * u, Hud.fit(label, Hud.text(7 * u, Hud.SOFT, Hud.MONO, .1f), br - bl))
+                    } else {
+                        canvas.drawText("OFF", track.centerX(), track.centerY() + 3 * u, Hud.text(8 * u, Hud.DUST, Hud.MONO, .3f, Paint.Align.CENTER))
+                    }
+                    canvas.drawRect(track, Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f), u))
+                    // Saved to the calendar, or still to go.
+                    val mark = when {
+                        s == null && d !in shiftPending -> ""
+                        d in shiftPending -> "⟳"
+                        else -> "✓"
+                    }
+                    canvas.drawText(mark, row.right - 14 * u, row.centerY() + 4 * u, Hud.text(11 * u, if (mark == "✓") UP else Hud.GOLD, Hud.SANS, align = Paint.Align.CENTER))
+                    tap(row) { pickShift(d) }
+                    hold(row) { if (s != null) setShift(d, null) }
+                }
+            }
+            top += wh + 10 * u
+
+            // Shift types: your usual shifts, offered when you tap a day; hold one to remove it, + to make one.
+            val templates = Shifts.templates(context)
+            val th = 82 * u
+            card(canvas, now, top, th) {
+                val r = RectF(14 * u, top, width - 14 * u, top + th)
+                panel(canvas, r)
+                canvas.drawText("◆ YOUR SHIFT TYPES · HOLD TO REMOVE", r.left + 14 * u, top + 20 * u, Hud.text(8 * u, Hud.CRIMSON, Hud.MONO, .16f))
+                var x = r.left + 14 * u
+                val cp = Hud.text(7.5f * u, Color.WHITE, Hud.MONO_BOLD, .08f)
+                (templates.map { it } + listOf<Shifts.Shift?>(null)).forEach { t ->
+                    val label = t?.name ?: "+ NEW"
+                    val sub = t?.times() ?: "TYPE"
+                    val w = maxOf(cp.measureText(label), Hud.text(6.5f * u, Hud.DUST, Hud.MONO).measureText(sub)) + 18 * u
+                    if (x + w > r.right - 14 * u) return@forEach
+                    val c = RectF(x, top + 32 * u, x + w, top + 66 * u)
+                    canvas.drawPath(Hud.cut(c, 5 * u, path), Hud.fill(Hud.alpha(if (t == null) Hud.BLOOD else Hud.DEEP, .45f)))
+                    canvas.drawPath(Hud.cut(c, 5 * u, path), Hud.stroke(Hud.alpha(if (t == null) Hud.HOT else Hud.GOLD, .7f), u))
+                    canvas.drawText(label, c.left + 9 * u, c.top + 15 * u, cp)
+                    canvas.drawText(sub, c.left + 9 * u, c.top + 27 * u, Hud.text(6.5f * u, Hud.DUST, Hud.MONO))
+                    if (t == null) tap(c) { addTemplate() } else hold(c) {
+                        confirm("Remove the ${t.name} shift type?") { Shifts.setTemplates(context, templates.filter { it !== t }) }
+                    }
+                    x += w + 6 * u
+                }
+            }
+            top += th + 10 * u
+
+            // Copy or clear the week.
+            val bw = (width - 28 * u - 8 * u) / 2
+            button(canvas, RectF(14 * u, top, 14 * u + bw, top + 28 * u), "⧉ COPY LAST WEEK") {
+                days.forEach { d -> Shifts.set(context, d, shifts[d.minusWeeks(1)]) }
+                loadShifts()
+            }
+            button(canvas, RectF(22 * u + bw, top, width - 14 * u, top + 28 * u), "✕ CLEAR WEEK") {
+                confirm("Clear every shift this week?") { days.forEach { d -> Shifts.set(context, d, null) }; loadShifts() }
+            }
+            top += 38 * u
+
+            // The calendar: where they go, what they're called, a reminder, and access.
+            val ch = 128 * u
+            card(canvas, now, top, ch) {
+                val r = RectF(14 * u, top, width - 14 * u, top + ch)
+                panel(canvas, r, if (Shifts.canWrite(context)) UP else Hud.HOT)
+                canvas.drawText("◆ CALENDAR", r.left + 14 * u, top + 20 * u, Hud.text(8 * u, Hud.CRIMSON, Hud.MONO, .18f))
+                if (!Shifts.canWrite(context)) {
+                    canvas.drawText("Allow calendar access and every shift", r.left + 14 * u, top + 46 * u, Hud.text(11.5f * u, Color.WHITE, Hud.SANS))
+                    canvas.drawText("is saved to Google Calendar as you set it.", r.left + 14 * u, top + 62 * u, Hud.text(11.5f * u, Color.WHITE, Hud.SANS))
+                    button(canvas, RectF(r.left + 14 * u, r.bottom - 42 * u, r.right - 14 * u, r.bottom - 14 * u), "ALLOW CALENDAR ACCESS", solid = true) { askCalendarAccess() }
+                    return@card
+                }
+                val status = if (shiftPending.isEmpty()) "✓ ALL SAVED" else "⟳ SAVING ${shiftPending.size}…"
+                canvas.drawText(status, r.right - 14 * u, top + 20 * u, Hud.text(8 * u, if (shiftPending.isEmpty()) UP else Hud.GOLD, Hud.MONO, .14f, Paint.Align.RIGHT))
+                val rows = listOf(
+                    Triple("SAVE TO", shiftCalendar ?: "—", { pickCalendar() }),
+                    Triple("EVENT TITLE", Shifts.title(context), {
+                        val f = field("e.g. Work · Tesco", Shifts.title(context))
+                        dialog("◆ SHIFT EVENT TITLE", f, "SAVE") {
+                            val t = f.text.toString().trim()
+                            if (t.isNotEmpty()) { Shifts.setTitle(context, t); loadShifts() }
+                        }
+                    }),
+                    Triple("REMINDER", if (Shifts.reminder(context)) "30 MIN BEFORE · ON" else "OFF", {
+                        Shifts.setReminder(context, !Shifts.reminder(context))
+                        invalidate()
+                    }),
+                )
+                rows.forEachIndexed { i, (k, v, act) ->
+                    val ry = top + 30 * u + i * 30 * u
+                    val row = RectF(r.left + 8 * u, ry, r.right - 8 * u, ry + 28 * u)
+                    if (i > 0) canvas.drawLine(row.left + 6 * u, ry, row.right - 6 * u, ry, Hud.stroke(Hud.alpha(Hud.CRIMSON, .12f), u))
+                    canvas.drawText(k, row.left + 6 * u, row.centerY() + 3 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .14f))
+                    canvas.drawText(Hud.ellipsize(v, Hud.text(11 * u, Color.WHITE, Hud.SANS), row.width() - 130 * u), row.left + 104 * u, row.centerY() + 4 * u, Hud.text(11 * u, Color.WHITE, Hud.SANS))
+                    canvas.drawText("✎", row.right - 8 * u, row.centerY() + 4 * u, Hud.text(10 * u, Hud.HOT, Hud.SANS, align = Paint.Align.RIGHT))
+                    tap(row) { act() }
+                }
+            }
+            return top + ch
+        }
+
         private fun scrubPrice(): Double? {
             if (scrubX < 0 || chart.size < 2) return null
             val t0 = chart.first().first
@@ -3034,6 +3469,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     companion object {
         /** How long animations keep running after the last touch. */
         private const val LIVE_MS = 20_000L
+        const val CALENDAR_REQUEST = 53
         private const val DONE = "[x] "
         private const val TODO = ""
         private const val UP = 0xFF3DDC84.toInt()

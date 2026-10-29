@@ -80,6 +80,7 @@ class MusicListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         Comms.posted(sbn)
         EdgeLight.onPosted(this, sbn)
+        com.eldablos.crimson.launcher.Mail.record(this, sbn)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {

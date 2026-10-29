@@ -114,4 +114,16 @@ class DeckTest {
         assertEquals("midnight and midday, 2 hours and 10 minutes", DeckView.speakable("00:00 and 12:00, 2h 10m"))
         assertEquals("14 degrees, 80 percent, in 5 minutes", DeckView.speakable("14°, 80%, in 5m"))
     }
+
+    @Test
+    fun readsNewsFeeds() {
+        val xml = """<?xml version="1.0"?><rss><channel><title>BBC</title><item><title><![CDATA[Big story]]></title>
+            <description><![CDATA[What happened.]]></description><link>https://bbc.co.uk/1</link></item>
+            <item><title>Second</title><description>More.</description><link>https://bbc.co.uk/2</link></item></channel></rss>"""
+        val top = News.parse(xml, world = false)
+        assertEquals(listOf("Big story", "Second"), top.map { it.title })
+        assertEquals("What happened.", top[0].summary)
+        val world = listOf(News.Story("Second", "", "", true), News.Story("Abroad", "", "", true))
+        assertEquals(listOf("Big story", "Second", "Abroad"), News.mix(top, world).map { it.title })
+    }
 }

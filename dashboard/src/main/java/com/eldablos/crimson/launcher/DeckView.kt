@@ -141,6 +141,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     private var shiftPending: Set<LocalDate> = emptySet()
     private var shiftCalendar: String? = null
 
+    // Headlines for the briefing.
+    private var news: List<News.Story> = emptyList()
+
     /** One line of the briefing: a glyph, what it is, the detail, its colour and urgency (0 = most), a
      *  headline if it's the most pressing thing, how to say it aloud, and where a tap goes. */
     private class Intel(
@@ -363,6 +366,14 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         steps = DeckStore.stepHistory(context)
         val app = context.applicationContext
         coins = Markets.watch(app, DeckStore.watchlist(app), fetch = false)
+        news = News.stories(app, fetch = false)
+        Thread {
+            val fresh = News.stories(app, fetch = true)
+            main.post {
+                if (fresh.isNotEmpty()) news = fresh
+                board.invalidate()
+            }
+        }.start()
         Thread {
             val a = DeckData.agenda(app, limit = 12, hours = 7 * 24)
             val us = DeckData.usage(app)
@@ -1120,6 +1131,16 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     "$unread unread message${if (unread == 1) "" else "s"}" + (if (who.isNotEmpty()) ", from ${who.joinToString(" and ")}" else "") + ".") { onComms?.invoke() }
             }
 
+            // New email today in your account, from Gmail's notifications.
+            val mailToday = Mail.day(context, today)
+            val mailYesterday = Mail.day(context, today.minusDays(1))
+            if (mailToday.count > 0 || mailYesterday.count > 0) {
+                out += Intel("@", "PERSONAL", "${mailToday.count} new today · ${mailYesterday.count} yesterday" + (mailToday.from?.let { " · latest $it" } ?: ""), Hud.SOFT, if (mailToday.count >= 10) 4 else 6, null,
+                    "${mailToday.count} new emails today in your personal email.") {
+                    AppCatalog.forPackage(Mail.GMAIL)?.let { app -> onLaunch?.invoke(app.component) }
+                }
+            }
+
             // Focus running.
             focus?.let { fs ->
                 val leftMs = (fs.endAt - nowMs).coerceAtLeast(0)
@@ -1165,41 +1186,259 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             return out.sortedBy { it.rank }
         }
 
-        /** The whole briefing to read aloud: hello, the headline, the plan, every line, the week's shifts, sleep. */
+        /** Whether [line] belongs to the part being read aloud, to light it up. */
+        private fun lit(line: Intel): Boolean {
+            val id = speakingId ?: return false
+            val glyphs = when (id) {
+                "x:work" -> setOf("⧗", "▤")
+                "x:plan" -> setOf("◷")
+                "x:sky" -> setOf("☂", "☀")
+                "x:sleep" -> setOf("⏰")
+                "x:wake" -> setOf("⚠")
+                "x:msgs" -> setOf("✉")
+                "x:mail" -> setOf("@")
+                "x:bits" -> setOf("▮", "◇", "◆", "⏳", "◎", "👣")
+                "x:money" -> setOf("◈")
+                else -> return false
+            }
+            return line.glyph in glyphs
+        }
+
+        /** The news ticker: headlines gliding past; the one being read stands still and lights up. */
+        private fun ticker(canvas: Canvas, r: RectF, now: Long) {
+            canvas.drawRect(r, Hud.fill(Hud.alpha(Hud.tint(0xFF0A0305.toInt()), .6f)))
+            canvas.drawLine(r.left, r.top, r.right, r.top, Hud.stroke(Hud.alpha(Hud.GOLD, .25f), u))
+            canvas.drawLine(r.left, r.bottom, r.right, r.bottom, Hud.stroke(Hud.alpha(Hud.GOLD, .25f), u))
+            val tag = "◆ NEWS"
+            val tp = Hud.text(7 * u, Theme.on(Hud.GOLD), Hud.MONO_BOLD, .14f)
+            val tagR = RectF(r.left, r.top, r.left + tp.measureText(tag) + 12 * u, r.bottom)
+            val reading = speakingId?.takeIf { it.startsWith("news:") }?.removePrefix("news:")?.toIntOrNull()?.let { news.getOrNull(it) }
+            canvas.save()
+            canvas.clipRect(tagR.right + 4 * u, r.top, r.right, r.bottom)
+            val p = Hud.text(9 * u, if (reading != null) Hud.GOLD else Hud.SOFT, Hud.SANS)
+            if (reading != null) {
+                canvas.drawText(Hud.ellipsize(reading.title, p, r.right - tagR.right - 10 * u), tagR.right + 8 * u, r.centerY() + 3.5f * u, p)
+            } else {
+                val line = news.joinToString("   ◆   ") { it.title }
+                val w = p.measureText(line + "   ◆   ")
+                val off = ((now - openedAt) / 1000f * 38 * u) % w
+                var x = tagR.right + 8 * u - off
+                while (x < r.right) {
+                    canvas.drawText(line + "   ◆   ", x, r.centerY() + 3.5f * u, p)
+                    x += w
+                }
+            }
+            canvas.restore()
+            canvas.drawRect(tagR, Hud.fill(Hud.alpha(Hud.GOLD, .85f)))
+            canvas.drawText(tag, tagR.left + 6 * u, r.centerY() + 3 * u, tp)
+            tap(r) { showNews() }
+        }
+
+        private fun showNews() {
+            AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("◆ HEADLINES · BBC NEWS")
+                .setItems(news.map { (if (it.world) "🌍 " else "◆ ") + it.title }.toTypedArray()) { _, i -> Markets.open(context, news[i].link) }
+                .show()
+        }
+
+        /** Who the briefing talks to. */
+        private fun userName(): String = context.getSharedPreferences("deck", Context.MODE_PRIVATE).getString("name", null) ?: "Vee"
+
+        private fun editName() {
+            val f = field("Your name", userName())
+            dialog("◆ WHAT SHOULD I CALL YOU?", f, "SAVE") {
+                val n = f.text.toString().trim()
+                if (n.isNotEmpty()) context.getSharedPreferences("deck", Context.MODE_PRIVATE).edit().putString("name", n).apply()
+            }
+        }
+
+        /**
+         * The whole briefing as she'd say it: a proper hello, then the day talked through: the plan and the
+         * shifts, the weather when you'll be out in it, sleep, who's been in touch and what they said, the
+         * little things worth a nudge, money, and the news. Each part is one id, to light up as it's read.
+         */
         private fun spoken(list: List<Intel>): List<Pair<String, String>> {
             val out = ArrayList<Pair<String, String>>()
+            val name = userName()
             val nowT = LocalDateTime.now()
+            val nowMs = System.currentTimeMillis()
             val tf = DateTimeFormatter.ofPattern("HH:mm")
             val zone = ZoneId.systemDefault()
             val evening = eveningMode()
-            val greet = when (nowT.hour) { in 5 until 12 -> "Good morning"; in 12 until 18 -> "Good afternoon"; else -> "Good evening" }
+            val today = LocalDate.now()
+            val focusDay = if (evening) today.plusDays(1) else today
+            fun at(ms: Long) = Instant.ofEpochMilli(ms).atZone(zone)
+            fun weekday(d: LocalDate) = d.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
+            val pick = nowT.dayOfYear + nowT.hour
+
+            // Hello, with how the day looks.
+            val greet = when (nowT.hour) { in 5 until 12 -> "Good morning"; in 12 until 18 -> "Good afternoon"; in 18 until 23 -> "Good evening"; else -> "Hey" }
             val d = nowT.dayOfMonth
             val suffix = if (d in 11..13) "th" else when (d % 10) { 1 -> "st"; 2 -> "nd"; 3 -> "rd"; else -> "th" }
-            out += "x:hello" to "$greet. It's ${nowT.format(tf)} on ${nowT.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())} the $d$suffix. Here's what's coming up."
+            val mood = when {
+                list.any { it.rank == 0 } -> "There's something that needs your attention, so let's start there."
+                evening -> listOf("Let's get you ready for tomorrow.", "Here's how tomorrow's shaping up.", "Let's have a look at tomorrow.")[pick % 3]
+                nowT.hour < 12 -> listOf("Here's your day.", "Let's see what today's got in store.", "Here's what's ahead of you.")[pick % 3]
+                else -> listOf("Here's the rest of your day.", "Let's catch up on the rest of today.", "Here's where things stand.")[pick % 3]
+            }
+            out += "x:hello" to "$greet, $name. It's ${nowT.format(tf)} on ${weekday(today)} the $d$suffix. $mood"
             out += "x:head" to headline(list)
-            // The plan: every event left today, or tomorrow's in the evening.
-            val dayOf = if (evening) LocalDate.now().plusDays(1) else LocalDate.now()
-            val plan = agenda.filter { it.id !in shiftEvents && Instant.ofEpochMilli(it.begin).atZone(zone).toLocalDate() == dayOf && (it.allDay || it.end > System.currentTimeMillis()) }
+
+            // Work: on shift now, or the next shift and what comes after it.
+            val cur = Shifts.current(shifts, nowMs, zone)
+            val nextShift = Shifts.next(shifts, nowMs, zone)
+            if (cur != null) {
+                val ends = cur.second.finish(cur.first, zone)
+                val after = agenda.filter { it.id !in shiftEvents && !it.allDay && it.begin >= ends && at(it.begin).toLocalDate() == at(ends).toLocalDate() }
+                out += "x:work" to "You're at work right now, and you finish at ${at(ends).format(tf)}, so that's ${duration(ends - nowMs)} to go. " +
+                    (if (after.isNotEmpty()) "Once you're done, you've got ${after.first().title} at ${at(after.first().begin).format(tf)}." else "Nothing else planned after that, so the rest of the day's yours.")
+            } else if (nextShift != null && nextShift.first <= focusDay) {
+                val (sd, sh) = nextShift
+                val begins = sh.begin(sd, zone)
+                val whenDay = if (sd == today) "today" else "tomorrow"
+                val early = sh.start.hour < 8
+                out += "x:work" to (if (early) "You're up early $whenDay. " else "") +
+                    "Work starts at ${sh.start.format(tf)} and you're on until ${sh.end.format(tf)}, that's ${duration(sh.minutes * 60_000L)} in all" +
+                    (if (sd == today) ", starting in ${duration(begins - nowMs)}." else ".")
+            } else if (shifts[focusDay] == null && shifts.isNotEmpty()) {
+                out += "x:work" to "No work ${if (evening) "tomorrow" else "today"}, so make the most of it."
+            }
+
+            // The rest of the plan.
+            val plan = agenda.filter { it.id !in shiftEvents && at(it.begin).toLocalDate() == focusDay && (it.allDay || it.end > nowMs) }
             if (plan.isNotEmpty()) {
-                val items = plan.map { e -> if (e.allDay) "${e.title}, all day" else "${e.title} at ${Instant.ofEpochMilli(e.begin).atZone(zone).format(tf)}" }
-                val joined = if (items.size == 1) items[0] else items.dropLast(1).joinToString(", ") + ", and " + items.last()
-                out += "x:plan" to (if (evening) "Tomorrow, you've got " else "Still to come today, you've got ") + joined + "."
+                val items = plan.map { e -> if (e.allDay) "${e.title}, which is all day" else "${e.title} at ${at(e.begin).format(tf)}" }
+                val joined = if (items.size == 1) items[0] else items.dropLast(1).joinToString(", ") + ", and then " + items.last()
+                out += "x:plan" to (if (evening) "In your calendar for tomorrow, there's " else "Still in your calendar today, there's ") + joined + "."
+            } else if (cur == null && nextShift?.first != focusDay) {
+                out += "x:plan" to if (evening) "Your calendar's empty tomorrow." else "Nothing else in your calendar today."
             }
-            list.forEachIndexed { i, it -> if (!(plan.isNotEmpty() && it.glyph == "◷")) out += "row:$i" to it.speech }
-            // The week's shifts, day by day.
-            val monday = Shifts.monday(LocalDate.now())
-            val week = (0 until 7).map { monday.plusDays(it.toLong()) }.filter { !it.isBefore(LocalDate.now()) }.mapNotNull { day -> shifts[day]?.let { day to it } }
-            if (week.size > 1) {
-                out += "x:shifts" to "Your shifts for the rest of the week: " + week.joinToString("; ") { (day, sh) ->
-                    "${if (day == LocalDate.now()) "today" else day.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())}, ${sh.name.lowercase()}, ${sh.start.format(tf)} to ${sh.end.format(tf)}"
-                } + "."
+
+            // The weather, as it'll be when you're out in it, and what to wear.
+            forecast?.let { f ->
+                val outAt = when {
+                    nextShift != null && nextShift.first == focusDay -> nextShift.first.atTime(nextShift.second.start).minusMinutes(30)
+                    evening -> focusDay.atTime(8, 0)
+                    else -> null
+                }
+                val hour = outAt?.let { o -> f.hours.minByOrNull { kotlin.math.abs(Duration.between(it.time, o).toMinutes()) } }
+                val day = f.days.firstOrNull { it.date == focusDay }
+                val sb = StringBuilder()
+                if (!evening) {
+                    sb.append("Outside it's ${f.temp} degrees and ${Weather.describe(f.code, f.isDay).label.lowercase()}")
+                    if (abs(f.feels - f.temp) >= 2) sb.append(", though it feels more like ${f.feels}")
+                    sb.append(". ")
+                }
+                if (hour != null && outAt != null) sb.append("When you head out at ${outAt.toLocalTime().format(tf)}, expect ${hour.temp} degrees" +
+                    (if (hour.rain >= 40) " and a ${hour.rain} percent chance of rain" else ", and it should be dry") + ". ")
+                day?.let { dd ->
+                    sb.append(if (evening) "Tomorrow tops out at ${dd.high}, dropping to ${dd.low} overnight. " else "Today's high is ${dd.high}, with a low of ${dd.low}. ")
+                }
+                val next12 = f.hours.filter { !it.time.isBefore(nowT.withMinute(0).withSecond(0).withNano(0)) }.take(if (evening) 20 else 12)
+                val wet = next12.firstOrNull { it.rain >= 50 }
+                val windy = (day?.windMax ?: 0) >= 40
+                val cold = (hour?.temp ?: f.temp) <= 5
+                val advice = when {
+                    wet != null -> "Rain's likely from around ${wet.time.format(tf)}, so take a coat or an umbrella."
+                    cold && windy -> "It'll be cold and windy, so wrap up warm."
+                    cold -> "It'll be chilly, so grab a warm layer."
+                    windy -> "It's going to be windy, up to ${day?.windMax} kilometres an hour."
+                    else -> "No rain on the way, which makes a nice change."
+                }
+                sb.append(advice)
+                out += "x:sky" to sb.toString()
             }
-            // Sleep, late in the evening.
+
+            // Sleep, in the evening.
             telemetry?.alarm?.let { a ->
-                if (evening && a - System.currentTimeMillis() < 14 * 3600_000L) out += "x:sleep" to "If you sleep now, you'll get ${duration(a - System.currentTimeMillis())} before your alarm."
+                if (evening && a - nowMs < 14 * 3600_000L) {
+                    val sleep = a - nowMs
+                    val hrs = sleep / 3600_000.0
+                    val advice = when {
+                        hrs < 6 -> "That's not a lot, so try to get to bed soon."
+                        hrs < 7.5 -> "Not bad, but don't stay up too late."
+                        else -> "Plenty of time to get a good night's sleep."
+                    }
+                    out += "x:sleep" to "Your alarm's set for ${at(a).format(tf)}. If you went to sleep now, you'd get ${duration(sleep)}. $advice"
+                }
             }
-            forecast?.let { f -> if (!evening) out += "x:feel" to "Outside, it's ${f.temp} degrees" + (if (f.feels != f.temp) ", but it feels more like ${f.feels}" else "") + "." }
-            out += "x:end" to if (evening) "That's it for tonight. Sleep well." else listOf("That's everything. Have a good one.", "That's all for now. Have a good day.", "And that's your briefing.")[nowT.dayOfYear % 3]
+            // An early shift with nothing to wake you.
+            list.firstOrNull { it.label == "WAKE UP" }?.let { out += "x:wake" to it.speech + " Just tap the warning on the deck and I'll set it up for you." }
+
+            // Who's been in touch, and what the latest one said.
+            val msgs = Comms.active().filter { !Comms.isCall(it) && Comms.text(it).isNotBlank() }
+            if (msgs.isNotEmpty()) {
+                val unread = groups.sumOf { it.count }
+                val who = msgs.map { Comms.title(it) }.filter { it.isNotBlank() }.distinct().take(3)
+                val latest = msgs.first()
+                val said = Comms.text(latest).replace('\n', ' ').let { if (it.length > 140) it.take(137).substringBeforeLast(' ') + "…" else it }
+                val from = Comms.title(latest).ifBlank { "Someone" }
+                out += "x:msgs" to "You've got $unread unread message${if (unread == 1) "" else "s"}" +
+                    (if (who.size > 1) ", from ${who.dropLast(1).joinToString(", ")} and ${who.last()}" else if (who.size == 1) " from ${who[0]}" else "") +
+                    ". The latest is from $from, saying: $said"
+            } else {
+                out += "x:msgs" to "No new messages. All quiet."
+            }
+
+            // Email: today's and yesterday's count, and the latest.
+            run {
+                val t = Mail.day(context, today)
+                val y = Mail.day(context, today.minusDays(1))
+                fun n(c: Int) = when (c) { 0 -> "no new emails"; 1 -> "one new email"; else -> "$c new emails" }
+                val line = StringBuilder("In your personal email, you've had ${n(t.count)} today")
+                line.append(if (y.count > 0) ", and ${y.count} yesterday." else ".")
+                if (t.from != null) line.append(" The latest is from ${t.from}" + (t.subject?.takeIf { it.isNotBlank() }?.let { ", about ${it.take(90)}" } ?: "") + ".")
+                if (t.count > 0 || y.count > 0) out += "x:mail" to line.toString()
+            }
+
+            // The little things: battery, habits, countdowns, focus, steps.
+            val bits = ArrayList<String>()
+            telemetry?.let { t ->
+                when {
+                    t.charging -> bits += "You're charging, at ${t.battery} percent."
+                    t.battery <= 20 -> bits += "Your battery's down to ${t.battery} percent, so plug in when you can."
+                    evening && t.battery < 60 -> bits += "You're on ${t.battery} percent, so it's worth charging before bed."
+                }
+                if (!evening && nowT.hour >= 15 && t.steps != null && t.steps < t.goal) bits += "You're ${t.goal - t.steps} steps off your goal today."
+            }
+            if (habits.isNotEmpty()) {
+                val left = habits.filter { today !in it.done }.map { it.name }
+                if (left.isEmpty()) bits += "You've ticked off every habit today. Nice work."
+                else if (nowT.hour >= 17) bits += "Still to do today: ${left.joinToString(" and ")}."
+            }
+            countdowns.filter { java.time.temporal.ChronoUnit.DAYS.between(today, it.date) in 0..10 }.take(2).forEach { c ->
+                val days = java.time.temporal.ChronoUnit.DAYS.between(today, c.date)
+                bits += when (days) {
+                    0L -> "Don't forget, it's ${c.name} today."
+                    1L -> "${c.name} is tomorrow."
+                    else -> "${c.name} is in $days days."
+                }
+            }
+            focus?.let { bits += "You're in a focus session, with ${duration((it.endAt - nowMs).coerceAtLeast(0))} to go." }
+            if (bits.isNotEmpty()) out += "x:bits" to bits.joinToString(" ")
+
+            // Money.
+            val held = coins.filter { holdings.containsKey(it.id) }
+            if (held.isNotEmpty()) {
+                val value = held.sumOf { holdings.getValue(it.id).amount * it.price }
+                val move = held.sumOf { holdings.getValue(it.id).amount * it.change }
+                out += "x:money" to "Your crypto's worth ${Markets.money(value)}, ${if (move >= 0) "up" else "down"} ${Markets.money(abs(move))} on the day."
+            } else coins.maxByOrNull { abs(it.changePct) }?.let { c ->
+                out += "x:money" to "In the markets, ${c.name}'s ${if (c.changePct >= 0) "up" else "down"} %.1f percent, at ${Markets.money(c.price)}.".format(Locale.ROOT, abs(c.changePct))
+            }
+
+            // The news.
+            if (news.isNotEmpty()) {
+                out += "x:newsintro" to listOf("Now, the news.", "Here's what's happening in the world.", "And in the news today.")[pick % 3]
+                news.take(4).forEachIndexed { i, s ->
+                    val lead = when (i) { 0 -> ""; 1 -> "Also, "; 2 -> if (s.world) "Around the world, " else "Meanwhile, "; else -> "And finally, " }
+                    val summary = s.summary.takeIf { it.isNotBlank() && !it.equals(s.title, true) }?.let { " $it" }.orEmpty()
+                    out += "news:$i" to lead + s.title.trimEnd('.') + "." + summary
+                }
+            }
+
+            out += "x:end" to if (evening) listOf("That's everything for tonight, $name. Sleep well.", "That's it from me, $name. Get some rest.", "All done, $name. Have a good night.")[pick % 3]
+            else listOf("That's everything, $name. Have a good one.", "That's your briefing, $name. Go get it.", "All caught up, $name. Have a great day.")[pick % 3]
             return out
         }
 
@@ -1230,7 +1469,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val headH = headLines.size * 20 * u
             val tlTop = 40 * u + headH + 8 * u
             val tlH = 50 * u
-            val rowsTop = tlTop + tlH + 8 * u
+            val tickerH = if (news.isNotEmpty()) 26 * u else 0f
+            val rowsTop = tlTop + tlH + tickerH + 8 * u
             val rowH = 30 * u
             val waveH = if (speaking) 22 * u else 0f
             val h = rowsTop + shown.size * rowH + waveH + 42 * u
@@ -1269,12 +1509,15 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     }
                 }
                 timeline(canvas, RectF(r.left + 14 * u, top + tlTop, r.right - 14 * u, top + tlTop + tlH))
+                if (news.isNotEmpty()) ticker(canvas, RectF(r.left + 14 * u, top + tlTop + tlH, r.right - 14 * u, top + tlTop + tlH + 20 * u), now)
+                // Hold the title to say what she should call you.
+                hold(RectF(r.left, top, r.centerX(), top + 30 * u)) { editName() }
                 // The intel, most urgent first.
                 shown.forEachIndexed { i, it ->
                     val ry = top + rowsTop + i * rowH
                     val row = RectF(r.left + 8 * u, ry, r.right - 8 * u, ry + rowH - 3 * u)
                     if (it.rank <= 1) canvas.drawRect(row, Hud.fill(Hud.alpha(it.color, .08f)))
-                    if (speakingId == "row:$i") {
+                    if (lit(it)) {
                         // The line being read: lit gold, with a marker sweeping along it.
                         canvas.drawRect(row, Hud.fill(Hud.alpha(Hud.GOLD, .14f)))
                         canvas.drawRect(row, Hud.glow(Hud.stroke(Hud.alpha(Hud.GOLD, .8f), u), 6 * u, Hud.GOLD))
@@ -3009,8 +3252,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     canvas.drawRect(track, Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f), u))
                     // Saved to the calendar, or still to go.
                     val mark = when {
-                        s == null && d !in shiftPending -> ""
                         d in shiftPending -> "⟳"
+                        s == null || d.isBefore(Shifts.syncFrom()) || !Shifts.canWrite(context) -> ""
                         else -> "✓"
                     }
                     canvas.drawText(mark, row.right - 14 * u, row.centerY() + 4 * u, Hud.text(11 * u, if (mark == "✓") UP else Hud.GOLD, Hud.SANS, align = Paint.Align.CENTER))

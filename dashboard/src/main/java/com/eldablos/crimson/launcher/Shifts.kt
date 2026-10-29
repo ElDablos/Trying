@@ -154,16 +154,20 @@ object Shifts {
     }.toMap()
 
     /** Days whose shift isn't in the calendar as it stands. */
+    /** The first day kept in the calendar: last week's Monday, so this week's earlier days go in too. */
+    fun syncFrom(today: LocalDate = LocalDate.now()): LocalDate = monday(today).minusWeeks(1)
+
     fun pending(context: Context): Set<LocalDate> {
         val title = title(context)
-        val shifts = all(context).filterKeys { !it.isBefore(LocalDate.now().minusDays(1)) }
+        val from = syncFrom()
+        val shifts = all(context).filterKeys { !it.isBefore(from) }
         val done = synced(context)
         val ids = eventIds(context)
-        return shifts.filter { (d, s) -> done[d] != s.signature(title) }.keys + ids.keys.filter { it !in shifts && !it.isBefore(LocalDate.now().minusDays(1)) }
+        return shifts.filter { (d, s) -> done[d] != s.signature(title) }.keys + ids.keys.filter { it !in shifts && !it.isBefore(from) }
     }
 
     /**
-     * Brings the calendar in line with the shifts from yesterday on: adds new ones, updates changed ones
+     * Brings the calendar in line with the shifts from [syncFrom] on: adds new ones, updates changed ones
      * in place, removes days now off. Returns how many it changed, or -1 without calendar access.
      */
     fun sync(context: Context): Int {

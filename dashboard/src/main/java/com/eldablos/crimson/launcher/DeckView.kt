@@ -169,20 +169,97 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             return
         }
         speaking = true
-        tts = android.speech.tts.TextToSpeech(context.applicationContext) { status ->
-            if (status == android.speech.tts.TextToSpeech.SUCCESS) tts?.let { say(it, parts) }
-            else main.post {
-                speaking = false
-                Toast.makeText(context, "Text to speech isn't available", Toast.LENGTH_SHORT).show()
+        withTts { t -> say(t, parts) }
+    }
+
+    /** Starts the speech engine if needed (Google's, for its natural voices, when it's there), then runs [then]. */
+    private fun withTts(then: (android.speech.tts.TextToSpeech) -> Unit) {
+        tts?.let { return then(it) }
+        val google = try {
+            context.packageManager.getPackageInfo(GOOGLE_TTS, 0)
+            GOOGLE_TTS
+        } catch (e: Exception) {
+            null
+        }
+        val listener = android.speech.tts.TextToSpeech.OnInitListener { status ->
+            main.post {
+                val t = tts
+                if (status == android.speech.tts.TextToSpeech.SUCCESS && t != null) {
+                    pickVoice(t)
+                    then(t)
+                } else {
+                    speaking = false
+                    board.invalidate()
+                    Toast.makeText(context, "Text to speech isn't available", Toast.LENGTH_SHORT).show()
+                }
             }
+        }
+        tts = if (google != null) android.speech.tts.TextToSpeech(context.applicationContext, listener, google)
+        else android.speech.tts.TextToSpeech(context.applicationContext, listener)
+    }
+
+    /** English voices worth offering, the most natural first: your country's, then by quality. */
+    private fun voices(t: android.speech.tts.TextToSpeech): List<android.speech.tts.Voice> {
+        val country = Locale.getDefault().country
+        return try {
+            t.voices.orEmpty()
+                .filter { it.locale.language == "en" && !it.features.orEmpty().contains(android.speech.tts.TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) }
+                .sortedWith(
+                    compareByDescending<android.speech.tts.Voice> { it.locale.country == country }
+                        .thenByDescending { it.quality }
+                        .thenByDescending { it.isNetworkConnectionRequired }
+                        .thenBy { it.name },
+                )
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** The voice you chose, or the best one there is. */
+    private fun pickVoice(t: android.speech.tts.TextToSpeech) {
+        val saved = context.getSharedPreferences("deck", Context.MODE_PRIVATE).getString("voice", null)
+        val list = voices(t)
+        val v = list.firstOrNull { it.name == saved } ?: list.firstOrNull()
+        if (v != null) t.voice = v else t.language = Locale.getDefault()
+    }
+
+    /** "UK · Voice B · natural, online". */
+    private fun voiceLabel(v: android.speech.tts.Voice): String {
+        val country = when (v.locale.country) { "GB" -> "UK"; "US" -> "US"; "AU" -> "Australia"; "IN" -> "India"; "IE" -> "Ireland"; "ZA" -> "South Africa"; else -> v.locale.displayCountry }
+        val id = v.name.substringAfter("-x-", "").substringBefore('-')
+        val who = if (id.length >= 3) "Voice ${id.last().uppercaseChar()}" else v.name
+        val kind = when {
+            v.isNetworkConnectionRequired -> "natural, online"
+            v.quality >= android.speech.tts.Voice.QUALITY_VERY_HIGH -> "natural, on the phone"
+            else -> "on the phone"
+        }
+        return "$country · $who · $kind"
+    }
+
+    /** Pick the briefing's voice, hearing each as you choose. */
+    private fun chooseVoice() {
+        withTts { t ->
+            val list = voices(t).take(16)
+            if (list.isEmpty()) {
+                Toast.makeText(context, "No English voices installed", Toast.LENGTH_SHORT).show()
+                return@withTts
+            }
+            AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("◆ BRIEFING VOICE")
+                .setItems(list.map { voiceLabel(it) }.toTypedArray()) { _, i ->
+                    context.getSharedPreferences("deck", Context.MODE_PRIVATE).edit().putString("voice", list[i].name).apply()
+                    t.voice = list[i]
+                    say(t, listOf("x:sample" to "Hi, this is your briefing voice. Good evening, it's 7:30 p.m. and your next shift is tomorrow at 6 a.m."))
+                }
+                .show()
         }
     }
 
     private fun say(t: android.speech.tts.TextToSpeech, parts: List<Pair<String, String>>) {
         if (parts.isEmpty()) return
-        t.language = Locale.getDefault()
-        t.setSpeechRate(1.02f)
-        t.setPitch(.96f)
+        // Natural pace and pitch: the voices sound most human left close to their own.
+        t.setSpeechRate(.97f)
+        t.setPitch(1f)
         val last = parts.last().first
         t.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
             override fun onStart(id: String?) { main.post { speaking = true; speakingId = id; board.invalidate() } }
@@ -193,17 +270,12 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         parts.forEachIndexed { i, (id, text) ->
             t.speak(speakable(text), if (i == 0) android.speech.tts.TextToSpeech.QUEUE_FLUSH else android.speech.tts.TextToSpeech.QUEUE_ADD, null, id)
             // A short breath between parts.
-            if (i < parts.lastIndex) t.playSilentUtterance(220, android.speech.tts.TextToSpeech.QUEUE_ADD, "pause:$i")
+            if (i < parts.lastIndex) t.playSilentUtterance(if (i < 2) 450 else 320, android.speech.tts.TextToSpeech.QUEUE_ADD, "pause:$i")
         }
     }
 
-    /** Short forms said out loud: "7h 11m" as hours and minutes, "14°" as degrees, and so on. */
-    private fun speakable(text: String): String = text
-        .replace(Regex("(\\d+)d (\\d+)h"), "$1 days $2 hours")
-        .replace(Regex("(\\d+)h (\\d+)m"), "$1 hours $2 minutes")
-        .replace(Regex("\\b(\\d+)h\\b"), "$1 hours")
-        .replace(Regex("\\b(\\d+)m\\b"), "$1 minutes")
-        .replace("°", " degrees").replace("%", " percent").replace("·", ",").replace("▲", "up").replace("▼", "down").replace("→", "to")
+    /** Text as a person would say it: "6 a.m." not "06:00", "about 7 hours" not "7h 11m", degrees, percent. */
+    private fun speakable(text: String): String = Companion.speakable(text)
 
     private fun stopSpeaking() {
         tts?.stop()
@@ -946,6 +1018,19 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             } else {
                 out += Intel("▤", "SHIFTS", "None entered this week · tap to add", Hud.DUST, 8, null, "No shifts entered for this week.") { shiftsOpen = true; board.scrollTo(0f) }
             }
+            // From Friday, next week: its hours, or a nudge to put the shifts in.
+            if (today.dayOfWeek.value >= 5) {
+                val nextMonday = monday.plusWeeks(1)
+                val nextWeek = (0 until 7).mapNotNull { k -> shifts[nextMonday.plusDays(k.toLong())] }
+                if (nextWeek.isEmpty()) {
+                    out += Intel("▤", "NEXT WEEK", "No shifts in yet · tap to add them", Hud.GOLD, 5, null,
+                        "You haven't put next week's shifts in yet.") { shiftsOpen = true; shiftWeek = nextMonday; board.scrollTo(0f) }
+                } else {
+                    val hours = nextWeek.sumOf { it.minutes } / 60
+                    out += Intel("▤", "NEXT WEEK", "${nextWeek.size} shift${if (nextWeek.size == 1) "" else "s"} · ${hours}h", Hud.SOFT, 8, null,
+                        "Next week you've got ${nextWeek.size} shift${if (nextWeek.size == 1) "" else "s"}, $hours hours in all.") { shiftsOpen = true; shiftWeek = nextMonday; board.scrollTo(0f) }
+                }
+            }
 
             // Agenda: what's on now, what's next, or how tomorrow starts.
             val live = agenda.firstOrNull { !it.allDay && it.begin <= nowMs && nowMs < it.end }
@@ -1090,7 +1175,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val greet = when (nowT.hour) { in 5 until 12 -> "Good morning"; in 12 until 18 -> "Good afternoon"; else -> "Good evening" }
             val d = nowT.dayOfMonth
             val suffix = if (d in 11..13) "th" else when (d % 10) { 1 -> "st"; 2 -> "nd"; 3 -> "rd"; else -> "th" }
-            out += "x:hello" to "$greet. It's ${nowT.format(tf)} on ${nowT.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())} the $d$suffix of ${nowT.month.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())}. Here's your briefing."
+            out += "x:hello" to "$greet. It's ${nowT.format(tf)} on ${nowT.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())} the $d$suffix. Here's what's coming up."
             out += "x:head" to headline(list)
             // The plan: every event left today, or tomorrow's in the evening.
             val dayOf = if (evening) LocalDate.now().plusDays(1) else LocalDate.now()
@@ -1098,7 +1183,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             if (plan.isNotEmpty()) {
                 val items = plan.map { e -> if (e.allDay) "${e.title}, all day" else "${e.title} at ${Instant.ofEpochMilli(e.begin).atZone(zone).format(tf)}" }
                 val joined = if (items.size == 1) items[0] else items.dropLast(1).joinToString(", ") + ", and " + items.last()
-                out += "x:plan" to (if (evening) "Tomorrow you have " else "Still to come today: ") + joined + "."
+                out += "x:plan" to (if (evening) "Tomorrow, you've got " else "Still to come today, you've got ") + joined + "."
             }
             list.forEachIndexed { i, it -> if (!(plan.isNotEmpty() && it.glyph == "◷")) out += "row:$i" to it.speech }
             // The week's shifts, day by day.
@@ -1113,8 +1198,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             telemetry?.alarm?.let { a ->
                 if (evening && a - System.currentTimeMillis() < 14 * 3600_000L) out += "x:sleep" to "If you sleep now, you'll get ${duration(a - System.currentTimeMillis())} before your alarm."
             }
-            forecast?.let { f -> if (!evening) out += "x:feel" to "Right now it's ${f.temp} degrees, feeling like ${f.feels}, wind ${f.wind} kilometres an hour." }
-            out += "x:end" to if (evening) "That's everything. Sleep well." else "That's everything. Have a good one."
+            forecast?.let { f -> if (!evening) out += "x:feel" to "Outside, it's ${f.temp} degrees" + (if (f.feels != f.temp) ", but it feels more like ${f.feels}" else "") + "." }
+            out += "x:end" to if (evening) "That's it for tonight. Sleep well." else listOf("That's everything. Have a good one.", "That's all for now. Have a good day.", "And that's your briefing.")[nowT.dayOfYear % 3]
             return out
         }
 
@@ -1232,6 +1317,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 button(canvas, slot(0), if (speaking) "■ STOP" else "🔊 READ", solid = speaking) {
                     if (speaking) stopSpeaking() else speak(spoken(intel()))
                 }
+                // Hold to choose the voice.
+                hold(slot(0)) { chooseVoice() }
                 button(canvas, slot(1), "✳ CLAUDE", solid = true) {
                     val text = intel().joinToString("; ") { x -> "${x.label.lowercase()}: ${x.value}" }
                     ClaudeLink.ask(context, "Here's my day so far — $text. Help me plan the rest of it.", remember = false)
@@ -2860,13 +2947,21 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 }
                 canvas.drawText(line, r.left + 16 * u, top + 64 * u, Hud.text(7.5f * u, if (cur != null) Hud.HOT else Hud.DUST, Hud.MONO, .14f))
                 val ar = RectF(r.right - 40 * u, top + 16 * u, r.right - 14 * u, top + 40 * u)
-                val tr = RectF(ar.left - 66 * u, ar.top, ar.left - 4 * u, ar.bottom)
-                val al = RectF(tr.left - 30 * u, ar.top, tr.left - 4 * u, ar.bottom)
+                val al = RectF(ar.left - 30 * u, ar.top, ar.left - 4 * u, ar.bottom)
                 button(canvas, al, "‹") { shiftWeek = shiftWeek.minusWeeks(1) }
-                button(canvas, tr, "THIS WEEK", solid = shiftWeek != Shifts.monday(LocalDate.now())) { shiftWeek = Shifts.monday(LocalDate.now()) }
                 button(canvas, ar, "›") { shiftWeek = shiftWeek.plusWeeks(1) }
             }
-            top += sh + 10 * u
+            top += sh + 8 * u
+            // This week or next, one tap each; ‹ › go further.
+            val thisMonday = Shifts.monday(LocalDate.now())
+            val tw = (width - 28 * u - 6 * u) / 2
+            listOf("THIS WEEK" to thisMonday, "NEXT WEEK" to thisMonday.plusWeeks(1)).forEachIndexed { i, (label, monday) ->
+                val c = RectF(14 * u + i * (tw + 6 * u), top, 14 * u + i * (tw + 6 * u) + tw, top + 30 * u)
+                val on = shiftWeek == monday
+                val count = (0 until 7).count { shifts[monday.plusDays(it.toLong())] != null }
+                button(canvas, c, "$label · " + (if (count == 0) "EMPTY" else "$count SHIFT${if (count == 1) "" else "S"}"), solid = on) { shiftWeek = monday }
+            }
+            top += 40 * u
 
             // The week: a row a day, the shift as a bar across the day's 24 hours.
             val rowH = 50 * u
@@ -3469,6 +3564,39 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     companion object {
         /** How long animations keep running after the last touch. */
         private const val LIVE_MS = 20_000L
+        private const val GOOGLE_TTS = "com.google.android.tts"
+
+        /** Times, durations and symbols as they're said: "06:00" → "6 a.m.", "7h 11m" → "about 7 hours". */
+        fun speakable(text: String): String {
+            var t = text
+            t = Regex("\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b").replace(t) { m ->
+                val h = m.groupValues[1].toInt()
+                val min = m.groupValues[2].toInt()
+                when {
+                    h == 0 && min == 0 -> "midnight"
+                    h == 12 && min == 0 -> "midday"
+                    else -> {
+                        val h12 = if (h % 12 == 0) 12 else h % 12
+                        (if (min == 0) "$h12" else "$h12:%02d".format(min)) + if (h < 12) " a.m." else " p.m."
+                    }
+                }
+            }
+            t = Regex("\\b(\\d+)d (\\d+)h\\b").replace(t) { m -> spokenHours(m.groupValues[1].toInt() * 24 + m.groupValues[2].toInt(), 0) }
+            t = Regex("\\b(\\d+)h (\\d+)m\\b").replace(t) { m -> spokenHours(m.groupValues[1].toInt(), m.groupValues[2].toInt()) }
+            t = Regex("\\b(\\d+)h\\b").replace(t) { m -> spokenHours(m.groupValues[1].toInt(), 0) }
+            t = Regex("\\b(\\d+)m\\b").replace(t) { m -> m.groupValues[1].toInt().let { if (it == 1) "a minute" else "$it minutes" } }
+            return t.replace("°", " degrees").replace("%", " percent").replace(" · ", ", ").replace("·", ",")
+                .replace("▲", "up").replace("▼", "down").replace("→", "to").replace("–", " to ")
+        }
+
+        /** "an hour and 20 minutes", "2 and a half hours", "about 7 hours". */
+        private fun spokenHours(h: Int, m: Int): String = when {
+            h == 0 -> if (m == 1) "a minute" else "$m minutes"
+            h >= 3 -> "about ${if (m >= 30) h + 1 else h} hours"
+            m == 0 -> if (h == 1) "an hour" else "$h hours"
+            m in 25..35 -> if (h == 1) "an hour and a half" else "$h and a half hours"
+            else -> (if (h == 1) "an hour" else "$h hours") + " and $m minutes"
+        }
         const val CALENDAR_REQUEST = 53
         private const val DONE = "[x] "
         private const val TODO = ""

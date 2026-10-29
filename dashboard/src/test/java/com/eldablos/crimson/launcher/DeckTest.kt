@@ -106,4 +106,12 @@ class DeckTest {
         assertEquals(java.time.LocalDate.of(2026, 10, 30), Shifts.next(m, at3am, zone)?.first)
         assertEquals(java.time.LocalDate.of(2026, 10, 26), Shifts.monday(java.time.LocalDate.of(2026, 11, 1)))
     }
+
+    @Test
+    fun speaksTimesAndDurationsLikeAPerson() {
+        assertEquals("Shift 6 a.m. to 2 p.m., in about 7 hours.", DeckView.speakable("Shift 06:00–14:00 · in 6h 41m."))
+        assertEquals("At 9:30 a.m., in an hour and a half", DeckView.speakable("At 09:30, in 1h 30m"))
+        assertEquals("midnight and midday, 2 hours and 10 minutes", DeckView.speakable("00:00 and 12:00, 2h 10m"))
+        assertEquals("14 degrees, 80 percent, in 5 minutes", DeckView.speakable("14°, 80%, in 5m"))
+    }
 }

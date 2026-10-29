@@ -12,8 +12,8 @@ android {
         // Health Connect is built into Android 14+, so no extra library is needed.
         minSdk = 34
         targetSdk = 34
-        versionCode = 29
-        versionName = "1.28"
+        versionCode = 30
+        versionName = "1.29"
     }
 
     signingConfigs {

@@ -105,7 +105,9 @@ back to One UI Home the same way at any time.
   place; from 19:00 it briefs on tomorrow; **⧗ Shifts** opens a weekly shift planner (your usual shift
   types, custom times, copy last week) that saves each shift to your calendar (Google by default, updated in
   place, with a reminder) and briefs you on them, including a one-tap alarm when none is set before an early
-  shift; **🔊 Read** reads the whole briefing aloud, lighting up each line as it goes; or hand it to Claude, then Ask Claude (type or speak;
+  shift; **⇪ Add all shifts** writes them all in at once; new email in the **Even Us Mailbox** and your
+  personal email (counted from Gmail's notifications); BBC headlines on a ticker; **🔊 Read** talks the whole
+  day through to you by name (Vee), with the news, lighting up each line as it goes; or hand it to Claude, then Ask Claude (type or speak;
   it starts a new chat in the Claude app, and your recent questions are a tap away), then the agenda; a
   full-month **calendar** of your Google (or any synced) calendars, with a dot per event in its colour:
   use ‹ TODAY › to change month, tap a day for its events and *+ Add* there; **notes**; **comms** (the apps with messages waiting, then each message with the sender's photo,

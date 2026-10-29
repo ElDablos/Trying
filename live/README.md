@@ -21,8 +21,8 @@ all stop whenever the wallpaper is hidden (apps open, screen off), so it only us
 
 ## Crimson Reactor
 
-The app has a second wallpaper, drawn live on the GPU: a 3D arc reactor (dark metal housing, bolts, copper
-coils, a counter-spinning ring and a swirling white-hot core) floating in front of an endless hex tunnel
+The app has a second wallpaper, drawn live on the GPU: a 3D arc reactor (brushed metal housing, bolts, rounded
+copper coils with windings, a counter-spinning ring and a swirling white-hot core) floating in front of an endless hex tunnel
 that rushes towards you, with data pulses, warp streaks and drifting embers. Tap **Set Crimson Reactor
 (3D)** in the app.
 
@@ -35,8 +35,10 @@ that rushes towards you, with data pulses, warp streaks and drifting embers. Tap
 - With **Crimson Launcher** as your home screen it matches the launcher's theme and reacts: a shockwave in
   the app's colour for each message, the reactor spinning up with orbiting comets for an incoming call, a
   pulse when you open a node, a ripple where you tap, and calmer or livelier with the time-of-day mode.
-- Battery: it's drawn at under half the screen's resolution and scaled up, runs at a steady 30 fps (20
-  in power saving) with slow, calm motion, and stops completely while hidden.
+- Battery: it's drawn at 60% of the screen's resolution (45% in power saving) with smoothed edges and
+  scaled up, runs at a steady 30 fps (20 in power saving) with slow, calm motion, and stops completely
+  while hidden. Its clock only runs while it's showing, so coming back from an app it carries on where it
+  was, at the same pace.
 
 The shader is `src/main/res/raw/reactor.frag`.
 

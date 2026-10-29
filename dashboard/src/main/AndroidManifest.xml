@@ -224,6 +224,11 @@
             android:exported="false"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
 
+        <!-- Ends a Command Deck focus session on time: Do Not Disturb back off, minutes counted. -->
+        <receiver
+            android:name=".launcher.FocusTimer$Receiver"
+            android:exported="false" />
+
         <receiver
             android:name=".ArcadeWidgetProvider"
             android:exported="true"

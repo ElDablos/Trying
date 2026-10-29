@@ -9,18 +9,23 @@ object DeckStore {
     enum class Section(val title: String, val expandable: Boolean) {
         CLAUDE("ASK CLAUDE", false),
         AGENDA("AGENDA", true),
+        CALENDAR("CALENDAR", true),
         COMMS("COMMS", true),
         VITALS("VITALS", true),
         AUDIO("AUDIO", true),
         ACTIONS("QUICK ACTIONS", false),
+        FOCUS("FOCUS", false),
         SKY("SKY", true),
         NOTES("NOTES", true),
+        HABITS("HABITS", false),
+        COUNTDOWNS("COUNTDOWNS", false),
+        CLOCKS("CLOCKS", false),
         LINKS("LINKS", false),
         MARKETS("MARKETS", true),
         MOST_USED("MOST USED TODAY", false),
         BUDS("BUDS", false),
         POWER("POWER · 24H", true),
-        DATA("DATA", false),
+        DATA("NETWORK", false),
         TIME("TIME", false),
         SYSTEMS("SYSTEMS", true),
     }
@@ -44,10 +49,18 @@ object DeckStore {
 
     private fun prefs(context: Context) = context.getSharedPreferences("deck", Context.MODE_PRIVATE)
 
-    fun order(context: Context): List<Section> {
-        val saved = prefs(context).getString("order", null)?.split(',')?.mapNotNull { n -> Section.entries.firstOrNull { it.name == n } }.orEmpty()
-        // New sections (from updates) join at their usual place in the list.
-        return saved + Section.entries.filter { it !in saved }
+    fun order(context: Context): List<Section> = mergeOrder(prefs(context).getString("order", null))
+
+    /** The saved order, with sections new since it was saved slotted in after the one they follow by default. */
+    fun mergeOrder(raw: String?): List<Section> {
+        val list = raw?.split(',')?.mapNotNull { n -> Section.entries.firstOrNull { it.name == n } }?.distinct().orEmpty().toMutableList()
+        if (list.isEmpty()) return Section.entries
+        for (s in Section.entries) {
+            if (s in list) continue
+            val before = Section.entries.subList(0, s.ordinal).lastOrNull { it in list }
+            list.add(if (before == null) 0 else list.indexOf(before) + 1, s)
+        }
+        return list
     }
 
     fun setOrder(context: Context, order: List<Section>) = prefs(context).edit().putString("order", order.joinToString(",") { it.name }).apply()
@@ -124,4 +137,124 @@ object DeckStore {
             null
         }
     }.toMap()
+
+    // --- Clocks: other cities (time zone ids); home is always first ---
+
+    fun clocks(context: Context): List<String> =
+        prefs(context).getString("clocks", null)?.split(',')?.filter { it.isNotBlank() } ?: listOf("America/New_York", "Asia/Tokyo")
+
+    fun setClocks(context: Context, zones: List<String>) = prefs(context).edit().putString("clocks", zones.joinToString(",")).apply()
+
+    /** Cities to pick from, by zone. */
+    val CITIES = listOf(
+        "London" to "Europe/London", "Dublin" to "Europe/Dublin", "Lisbon" to "Europe/Lisbon", "Paris" to "Europe/Paris",
+        "Madrid" to "Europe/Madrid", "Berlin" to "Europe/Berlin", "Rome" to "Europe/Rome", "Vilnius" to "Europe/Vilnius",
+        "Athens" to "Europe/Athens", "Istanbul" to "Europe/Istanbul", "Moscow" to "Europe/Moscow", "Dubai" to "Asia/Dubai",
+        "Delhi" to "Asia/Kolkata", "Bangkok" to "Asia/Bangkok", "Singapore" to "Asia/Singapore", "Hong Kong" to "Asia/Hong_Kong",
+        "Tokyo" to "Asia/Tokyo", "Seoul" to "Asia/Seoul", "Sydney" to "Australia/Sydney", "Auckland" to "Pacific/Auckland",
+        "Honolulu" to "Pacific/Honolulu", "Los Angeles" to "America/Los_Angeles", "Denver" to "America/Denver",
+        "Chicago" to "America/Chicago", "New York" to "America/New_York", "Toronto" to "America/Toronto",
+        "Mexico City" to "America/Mexico_City", "São Paulo" to "America/Sao_Paulo", "Buenos Aires" to "America/Argentina/Buenos_Aires",
+        "Cape Town" to "Africa/Johannesburg", "Lagos" to "Africa/Lagos", "Cairo" to "Africa/Cairo",
+    )
+
+    fun cityName(zone: String): String = CITIES.firstOrNull { it.second == zone }?.first ?: zone.substringAfterLast('/').replace('_', ' ')
+
+    // --- Countdowns: name and date, and when it was added (for the progress bar) ---
+
+    class Countdown(val name: String, val date: LocalDate, val added: LocalDate)
+
+    fun countdowns(context: Context): List<Countdown> = parseCountdowns(prefs(context).getString("countdowns", null))
+
+    fun setCountdowns(context: Context, list: List<Countdown>) =
+        prefs(context).edit().putString("countdowns", list.joinToString("\n") { "${it.name}\t${it.date}\t${it.added}" }).apply()
+
+    fun parseCountdowns(raw: String?): List<Countdown> {
+        if (raw == null) return listOf(Countdown("Christmas", LocalDate.of(LocalDate.now().year, 12, 25).let { if (it.isBefore(LocalDate.now())) it.plusYears(1) else it }, LocalDate.now().minusDays(30)))
+        return raw.split('\n').mapNotNull { line ->
+            val p = line.split('\t')
+            if (p.size < 2) return@mapNotNull null
+            try {
+                Countdown(p[0], LocalDate.parse(p[1]), p.getOrNull(2)?.let { LocalDate.parse(it) } ?: LocalDate.now())
+            } catch (e: Exception) {
+                null
+            }
+        }.sortedBy { it.date }
+    }
+
+    // --- Habits: a name and the days it was done ---
+
+    class Habit(val name: String, val done: Set<LocalDate>)
+
+    fun habits(context: Context): List<Habit> = parseHabits(prefs(context).getString("habits", null))
+
+    fun setHabits(context: Context, list: List<Habit>, today: LocalDate = LocalDate.now()) =
+        prefs(context).edit().putString("habits", list.joinToString("\n") { h ->
+            h.name + "\t" + h.done.filter { !it.isBefore(today.minusDays(400)) }.sorted().joinToString(",")
+        }).apply()
+
+    fun parseHabits(raw: String?): List<Habit> {
+        if (raw == null) return listOf(Habit("Gym", emptySet()), Habit("Read 20m", emptySet()), Habit("Water 2L", emptySet()))
+        return raw.split('\n').filter { it.isNotBlank() }.map { line ->
+            val name = line.substringBefore('\t')
+            val days = line.substringAfter('\t', "").split(',').mapNotNull { d -> try { LocalDate.parse(d) } catch (e: Exception) { null } }.toSet()
+            Habit(name, days)
+        }
+    }
+
+    /** Days in a row it was done, counting back from today, or from yesterday while today's still open. */
+    fun streak(done: Set<LocalDate>, today: LocalDate = LocalDate.now()): Int {
+        var d = if (today in done) today else today.minusDays(1)
+        var n = 0
+        while (d in done) { n++; d = d.minusDays(1) }
+        return n
+    }
+
+    // --- Holdings: how much of each coin, and optionally what it cost in all ---
+
+    class Holding(val amount: Double, val cost: Double?)
+
+    fun holdings(context: Context): Map<String, Holding> = parseHoldings(prefs(context).getString("holdings", null))
+
+    fun setHolding(context: Context, id: String, h: Holding?) {
+        val all = holdings(context).toMutableMap()
+        if (h == null || h.amount <= 0) all.remove(id) else all[id] = h
+        prefs(context).edit().putString("holdings", all.entries.joinToString(";") { (k, v) -> "$k=${v.amount}" + (v.cost?.let { "@$it" } ?: "") }).apply()
+    }
+
+    fun parseHoldings(raw: String?): Map<String, Holding> = raw.orEmpty().split(';').mapNotNull { part ->
+        val id = part.substringBefore('=', "").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val rest = part.substringAfter('=')
+        val amount = rest.substringBefore('@').toDoubleOrNull() ?: return@mapNotNull null
+        val cost = if ('@' in rest) rest.substringAfter('@').toDoubleOrNull() else null
+        id to Holding(amount, cost)
+    }.toMap()
+
+    // --- Focus sessions ---
+
+    class Focus(val endAt: Long, val minutes: Int, val dnd: Boolean)
+
+    fun focus(context: Context): Focus? {
+        val p = prefs(context)
+        val end = p.getLong("focus_end", 0L)
+        return if (end == 0L) null else Focus(end, p.getInt("focus_min", 25), p.getBoolean("focus_dnd", false))
+    }
+
+    fun setFocus(context: Context, f: Focus?) {
+        val e = prefs(context).edit()
+        if (f == null) e.remove("focus_end") else e.putLong("focus_end", f.endAt).putInt("focus_min", f.minutes).putBoolean("focus_dnd", f.dnd)
+        e.apply()
+    }
+
+    /** Minutes focused today and how many sessions. */
+    fun focusToday(context: Context, today: LocalDate = LocalDate.now()): Pair<Int, Int> {
+        val p = prefs(context)
+        if (p.getString("focus_day", null) != today.toString()) return 0 to 0
+        return p.getInt("focus_total", 0) to p.getInt("focus_count", 0)
+    }
+
+    fun addFocus(context: Context, minutes: Int, today: LocalDate = LocalDate.now()) {
+        val (total, count) = focusToday(context, today)
+        prefs(context).edit().putString("focus_day", today.toString()).putInt("focus_total", total + minutes).putInt("focus_count", count + 1).apply()
+    }
 }

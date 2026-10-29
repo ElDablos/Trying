@@ -70,6 +70,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             if (fresh) {
                 DeckData.recordBattery(this@LauncherActivity, t.battery, t.charging)
                 t.steps?.let { DeckStore.recordSteps(this@LauncherActivity, it) }
+                // A focus session that ran out while the alarm was held back: wrap it up.
+                FocusTimer.check(this@LauncherActivity)
             }
             home.setTelemetry(t)
             if (deck.visibility == View.VISIBLE) deck.setTelemetry(t)

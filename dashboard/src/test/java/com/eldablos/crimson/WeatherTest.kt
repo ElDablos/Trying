@@ -28,14 +28,17 @@ class WeatherTest {
 
     @Test
     fun parsesTheFullForecast() {
+        // Dated today, as "today" in the forecast is the phone's today.
+        val d0 = java.time.LocalDate.now()
+        val d1 = d0.plusDays(1)
         val json = """
             {"current":{"temperature_2m":13.6,"apparent_temperature":11.8,"weather_code":0,"is_day":0,
               "relative_humidity_2m":71,"wind_speed_10m":12.4,"wind_direction_10m":226},
-             "hourly":{"time":["2026-10-27T18:00","2026-10-27T19:00"],"temperature_2m":[14.2,13.1],
+             "hourly":{"time":["${d0}T18:00","${d0}T19:00"],"temperature_2m":[14.2,13.1],
               "weather_code":[0,3],"precipitation_probability":[0,20],"is_day":[0,0]},
-             "daily":{"time":["2026-10-27","2026-10-28"],"weather_code":[1,61],"temperature_2m_max":[17.4,14.0],
+             "daily":{"time":["${d0}","${d1}"],"weather_code":[1,61],"temperature_2m_max":[17.4,14.0],
               "temperature_2m_min":[10.6,9.2],"precipitation_probability_max":[5,80],"uv_index_max":[1.6,0.8],
-              "sunrise":["2026-10-27T07:01","2026-10-28T07:03"],"sunset":["2026-10-27T16:42","2026-10-28T16:40"]}}
+              "sunrise":["${d0}T07:01","${d1}T07:03"],"sunset":["${d0}T16:42","${d1}T16:40"]}}
         """
         val f = Forecast.parse(json, 0L)
         assertEquals(14, f.temp)

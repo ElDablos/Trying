@@ -33,7 +33,76 @@ object DeckData {
 
     // --- Agenda ---
 
-    class Event(val id: Long, val title: String, val begin: Long, val end: Long, val allDay: Boolean, val location: String)
+    class Event(val id: Long, val title: String, val begin: Long, val end: Long, val allDay: Boolean, val location: String, val color: Int = 0, val calendar: String = "")
+
+    /** Every event in [month], by day (one that runs over several days is on each), soonest first. */
+    fun month(context: Context, month: java.time.YearMonth, zone: ZoneId = ZoneId.systemDefault()): Map<LocalDate, List<Event>> {
+        if (!CalendarMonth.hasPermission(context)) return emptyMap()
+        val start = month.atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val end = month.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val uri = Instances.CONTENT_URI.buildUpon().also {
+            // A day either side, for all-day events stored in UTC.
+            ContentUris.appendId(it, start - 86_400_000L)
+            ContentUris.appendId(it, end + 86_400_000L)
+        }.build()
+        val projection = arrayOf(
+            Instances.EVENT_ID, Instances.TITLE, Instances.BEGIN, Instances.END, Instances.ALL_DAY, Instances.EVENT_LOCATION,
+            Instances.DISPLAY_COLOR, Instances.CALENDAR_DISPLAY_NAME,
+        )
+        val selection = "${Instances.VISIBLE} = 1 AND ${Instances.SELF_ATTENDEE_STATUS} != ${CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED}"
+        val days = HashMap<LocalDate, MutableList<Event>>()
+        try {
+            context.contentResolver.query(uri, projection, selection, null, "${Instances.BEGIN} ASC")?.use { c ->
+                while (c.moveToNext()) {
+                    val e = Event(
+                        c.getLong(0), c.getString(1).orEmpty().ifBlank { "Busy" }, c.getLong(2), c.getLong(3), c.getInt(4) == 1,
+                        c.getString(5).orEmpty(), c.getInt(6), c.getString(7).orEmpty(),
+                    )
+                    CalendarMonth.daysCovered(e.begin, e.end, e.allDay, zone)
+                        .filter { java.time.YearMonth.from(it) == month }
+                        .forEach { days.getOrPut(it) { ArrayList() } += e }
+                }
+            }
+        } catch (e: Exception) {
+            return emptyMap()
+        }
+        // All-day events first, then by start.
+        return days.mapValues { (_, list) -> list.sortedWith(compareBy({ !it.allDay }, { it.begin })) }
+    }
+
+    // --- Network ---
+
+    /** The connection: [kind] "WI-FI", "MOBILE", "ETHERNET" or "OFFLINE"; [name] the Wi-Fi network when Android shares it. */
+    class Net(val kind: String, val name: String?, val detail: String, val bars: Int, val vpn: Boolean, val metered: Boolean)
+
+    fun network(context: Context): Net {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return Net("OFFLINE", null, "", 0, false, false)
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return Net("OFFLINE", null, "NO CONNECTION", 0, false, false)
+        val vpn = caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+        val metered = !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        return when {
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> {
+                @Suppress("DEPRECATION")
+                val info = (caps.transportInfo as? android.net.wifi.WifiInfo)
+                    ?: context.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)?.connectionInfo
+                val ssid = info?.ssid?.trim('"')?.takeIf { it.isNotBlank() && it != "<unknown ssid>" && it != android.net.wifi.WifiManager.UNKNOWN_SSID }
+                val bars = info?.let { android.net.wifi.WifiManager.calculateSignalLevel(it.rssi, 5) } ?: 0
+                val band = info?.frequency?.let { f -> when { f >= 5925 -> "6 GHZ"; f >= 4900 -> "5 GHZ"; f > 0 -> "2.4 GHZ"; else -> null } }
+                val speed = info?.linkSpeed?.takeIf { it > 0 }?.let { "$it MBPS LINK" }
+                Net("WI-FI", ssid, listOfNotNull(band, speed).joinToString(" · "), bars, vpn, metered)
+            }
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> {
+                val tm = context.getSystemService(android.telephony.TelephonyManager::class.java)
+                val bars = try { tm?.signalStrength?.level?.plus(1) ?: 0 } catch (e: Exception) { 0 }
+                Net("MOBILE", tm?.networkOperatorName?.takeIf { it.isNotBlank() }, "MOBILE DATA", bars.coerceIn(0, 4), vpn, metered)
+            }
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> Net("ETHERNET", null, "WIRED", 4, vpn, metered)
+            else -> Net("ONLINE", null, "", 2, vpn, metered)
+        }
+    }
+
+    /** Bytes in and out since boot, for live speeds. */
+    fun traffic(): Pair<Long, Long> = android.net.TrafficStats.getTotalRxBytes() to android.net.TrafficStats.getTotalTxBytes()
 
     /** The next events over the coming two days, soonest first, without declined ones. */
     fun agenda(context: Context, limit: Int = 4, hours: Int = 48): List<Event> {

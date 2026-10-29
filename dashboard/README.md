@@ -99,16 +99,19 @@ back to One UI Home the same way at any time.
   queue button.
 - **Swipes**: down for the Comms Centre, up for the Hive Map, right for the Game Hub, left for the
   Command Deck.
-- **Command Deck**: Ask Claude at the top (type or speak; it starts a new chat in the Claude app, and your
-  recent questions are a tap away), then what's next and down to reference readouts: agenda, comms,
-  vitals (battery, steps, screen time), audio, quick actions, sky, notes, links, markets, most used today,
-  the Buds, power over 24 hours, data, time in progress and systems. Tap a card's title row to expand it
-  (the full agenda, each message, battery cells and a week of steps, the queue, hourly and daily
-  weather, battery stats, device details). **Notes** is a checklist; **Links** are your own web
-  shortcuts (hold one to remove it). **Markets** is a crypto watchlist with week-long sparklines: tap a
-  coin for its page, with 1H/24H/7D/30D/1Y charts you can scrub, its stats, CoinGecko and TradingView,
-  and *Trade in …* for the first exchange app you have. **✎** rearranges the deck: drag sections, turn
-  them on or off and pick the six quick actions. ⚙ opens Launcher settings. Screen time, data and
+- **Command Deck**: a live **briefing** under the clock (what's next, rain, how long the battery lasts,
+  your alarm, unread messages, countdowns and the biggest crypto mover), then Ask Claude (type or speak;
+  it starts a new chat in the Claude app, and your recent questions are a tap away), then the agenda; a
+  full-month **calendar** of your Google (or any synced) calendars, with a dot per event in its colour:
+  swipe up or down on the month or use ‹ TODAY ›, tap a day for its events and *+ Add* there; comms;
+  vitals; audio; quick actions; a **focus** timer (15/25/50 minutes or a 5-minute break; it rings at the
+  end and can silence the phone); sky (with the sun's path and the next 12 hours' rain chance when
+  expanded); notes; **habits** (tap a day to tick it, with streaks); **countdowns** to your dates;
+  **clocks** for other cities and your next alarm; links; markets, with your **holdings** for a portfolio
+  total and today's move (set them on a coin's page); most used apps; Buds; power, with how long the
+  battery will last or how long to full; **network** with live download and upload speeds and today's
+  data; time; and systems. Tap a card's title row to expand it; **✎** rearranges the deck, turns
+  sections on or off and picks the six quick actions. ⚙ opens Launcher settings. Screen time, data and
   most-used need Usage access (tap a card to allow it).
 - **Hive Map**: every app in a honeycomb that repeats for ever in every direction (no edge), in patches round tags for the dock and each node, big in the
   middle and shrinking outwards. The middle bulges big with the apps spread apart and named; a sight marks the centre and it settles onto a cell after a fling. Drag to fly round it, tap a tag in the jump bar to glide there, or

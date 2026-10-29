@@ -29,6 +29,7 @@ import java.time.LocalDateTime
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -613,14 +614,35 @@ class HomeView(context: Context) : View(context) {
         val x = width / 2f + (x0 - width / 2f) * pull
         val y = ringY + (y0 - ringY) * pull
         val r = 31 * u
-        val dim = if (rn.node.name.uppercase() in this.dim) .4f else 1f
-        val a = alpha * dim
+        // Standby (Work mode resting the games node): fully drawn, but quieter, marked and greyed.
+        val standby = rn.node.name.uppercase() in this.dim
+        val a = alpha * (if (standby) .7f else 1f)
+        val edge = if (standby) Hud.DUST else Hud.CRIMSON
+        // A glass bead: lit from the top left, deepest at the bottom right.
         canvas.drawCircle(x, y, r, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = RadialGradient(x, y, r, Hud.tint(0xFF3A0A12.toInt()), Hud.tint(0xFF120608.toInt()), Shader.TileMode.CLAMP)
+            shader = RadialGradient(x - r * .35f, y - r * .4f, r * 1.5f, Hud.tint(0xFF4A0E18.toInt()), Hud.tint(0xFF0E0406.toInt()), Shader.TileMode.CLAMP)
             this.alpha = (255 * a).toInt()
         })
-        canvas.drawCircle(x, y, r, Hud.glow(Hud.stroke(Hud.alpha(Hud.CRIMSON, .8f * a), 1.5f * u), 8 * u, Hud.alpha(Hud.CRIMSON, .45f * a)))
-        canvas.drawCircle(x, y, r - 4 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .2f * a), u))
+        canvas.drawCircle(x, y, r, Hud.glow(Hud.stroke(Hud.alpha(edge, .85f * a), 1.5f * u), 8 * u, Hud.alpha(edge, .45f * a)))
+        // Scale ticks round the rim, and a highlight catching the light.
+        val tick = Hud.stroke(Hud.alpha(edge, .35f * a), u)
+        for (k in 0 until 24) {
+            val ang = k * PI.toFloat() / 12
+            val ca = cos(ang)
+            val sa = sin(ang)
+            val inner = r - (if (k % 6 == 0) 6f else 4f) * u
+            canvas.drawLine(x + ca * inner, y + sa * inner, x + ca * (r - 1.5f * u), y + sa * (r - 1.5f * u), tick)
+        }
+        canvas.drawArc(RectF(x - r + 3 * u, y - r + 3 * u, x + r - 3 * u, y + r - 3 * u), 200f, 70f, false, Hud.stroke(Hud.alpha(Color.WHITE, .22f * a), 1.4f * u).apply { strokeCap = Paint.Cap.ROUND })
+        if (standby) {
+            canvas.drawCircle(x, y, r + 5 * u, Hud.stroke(Hud.alpha(Hud.DUST, .5f * alpha), u, floatArrayOf(3 * u, 3 * u)))
+            val sp = Hud.text(6 * u, Hud.DUST, Hud.MONO_BOLD, .14f, Paint.Align.CENTER)
+            val tw = sp.measureText("STANDBY") + 8 * u
+            val tr = RectF(x - tw / 2, y - r - 8 * u, x + tw / 2, y - r + 3 * u)
+            canvas.drawRect(tr, Hud.fill(Hud.alpha(Hud.tint(0xFF0A0506.toInt()), .95f * alpha)))
+            canvas.drawRect(tr, Hud.stroke(Hud.alpha(Hud.DUST, .7f * alpha), u))
+            canvas.drawText("STANDBY", x, tr.bottom - 3 * u, sp.apply { this.alpha = (255 * alpha).toInt() })
+        }
         rn.apps.take(4).forEachIndexed { j, c ->
             val ix = x - 19 * u + (j % 2) * 20 * u
             val iy = y - 19 * u + (j / 2) * 20 * u

@@ -48,6 +48,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
@@ -55,10 +56,11 @@ import java.util.Locale
 import kotlin.math.abs
 
 /**
- * The Command Deck, a swipe left from home. Ask Claude at the top (a new chat in the Claude app), then
- * the day: agenda, messages, vitals, audio, quick actions, sky, notes, links, markets, the most used
- * apps, Buds, power, data, time and systems. Every section can be moved or hidden (✎), most open up
- * for more when their title is tapped, and markets go down to a page per coin with a live chart and
+ * The Command Deck, a swipe left from home. A live briefing under the clock, Ask Claude (a new chat in the
+ * Claude app), then the day: agenda, a month calendar, messages, vitals, audio, quick actions, a focus
+ * timer, sky, notes, habits, countdowns, world clocks, links, markets with your holdings, the most used
+ * apps, Buds, power, the network, time and systems. Every section can be moved or hidden (✎), most open
+ * up for more when their title is tapped, and markets go down to a page per coin with a live chart and
  * links out to CoinGecko, TradingView and your exchange app. Drawn as one HUD in the launcher's theme.
  */
 class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
@@ -108,6 +110,26 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     private var chart: List<Pair<Long, Double>> = emptyList()
     private var chartLoading = false
 
+    // Calendar: the month on show, the picked day and that month's events.
+    private var calMonth: YearMonth = YearMonth.now()
+    private var calDay: LocalDate = LocalDate.now()
+    private var monthEvents: Map<LocalDate, List<DeckData.Event>> = emptyMap()
+    private var monthShown: YearMonth? = null
+    private var calSlide = 0f
+
+    // Network: the connection and live speeds, sampled about once a second while the deck is open.
+    private var net: DeckData.Net? = null
+    private var lastTraffic: Triple<Long, Long, Long>? = null
+    private val downRates = ArrayDeque<Float>()
+    private val upRates = ArrayDeque<Float>()
+
+    private var clockZones: List<String> = emptyList()
+    private var countdowns: List<DeckStore.Countdown> = emptyList()
+    private var habits: List<DeckStore.Habit> = emptyList()
+    private var holdings: Map<String, DeckStore.Holding> = emptyMap()
+    private var focus: DeckStore.Focus? = null
+    private var focusLength = 25
+
     init {
         addView(board, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         input.apply {
@@ -153,6 +175,19 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         actionList = DeckStore.actions(context)
         links = DeckStore.links(context)
         recent = ClaudeLink.recent(context)
+        clockZones = DeckStore.clocks(context)
+        countdowns = DeckStore.countdowns(context)
+        habits = DeckStore.habits(context)
+        holdings = DeckStore.holdings(context)
+        FocusTimer.check(context)
+        focus = DeckStore.focus(context)
+        calMonth = YearMonth.now()
+        calDay = LocalDate.now()
+        loadMonth()
+        net = DeckData.network(context)
+        downRates.clear()
+        upRates.clear()
+        lastTraffic = null
         note = DeckData.note(context)
         forecast = Forecast.cached(context)
         log = DeckData.batteryLog(context)
@@ -260,6 +295,57 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         board.invalidate()
     }
 
+    private fun loadMonth() {
+        val m = calMonth
+        val app = context.applicationContext
+        Thread {
+            val events = DeckData.month(app, m)
+            main.post {
+                if (calMonth == m) {
+                    monthEvents = events
+                    monthShown = m
+                    board.invalidate()
+                }
+            }
+        }.start()
+    }
+
+    /** Moves the calendar by [by] months, sliding the grid in from that side. */
+    private fun shiftMonth(by: Int) {
+        calMonth = calMonth.plusMonths(by.toLong())
+        calDay = if (calMonth == YearMonth.now()) LocalDate.now() else calMonth.atDay(1)
+        monthEvents = emptyMap()
+        loadMonth()
+        android.animation.ValueAnimator.ofFloat(by.toFloat(), 0f).apply {
+            duration = 280
+            interpolator = android.view.animation.DecelerateInterpolator(1.6f)
+            addUpdateListener {
+                calSlide = it.animatedValue as Float
+                board.invalidate()
+            }
+            start()
+        }
+        board.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+    }
+
+    /** Samples bytes in and out, at most once a second, for the network card's live speeds. */
+    private fun sampleTraffic() {
+        val t = SystemClock.elapsedRealtime()
+        val last = lastTraffic
+        if (last != null && t - last.third < 900) return
+        val (rx, tx) = DeckData.traffic()
+        if (rx < 0 || tx < 0) return
+        if (last != null) {
+            val secs = (t - last.third) / 1000f
+            downRates.addLast(((rx - last.first) / secs).coerceAtLeast(0f))
+            upRates.addLast(((tx - last.second) / secs).coerceAtLeast(0f))
+            while (downRates.size > 40) downRates.removeFirst()
+            while (upRates.size > 40) upRates.removeFirst()
+        }
+        lastTraffic = Triple(rx, tx, t)
+        if (downRates.size % 5 == 0) net = DeckData.network(context)
+    }
+
     private fun openCoin(id: String) {
         coinId = id
         range = Markets.Range.DAY
@@ -340,6 +426,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             number = 0
             var y = 44 * u
             fieldTop = -1000 * u
+            calGrid.setEmpty()
             when {
                 coinId != null -> y = coinPage(canvas, y, now)
                 customizing -> y = customize(canvas, y, now)
@@ -390,6 +477,11 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private fun section(canvas: Canvas, s: Section, top: Float, now: Long): Float = when (s) {
             Section.CLAUDE -> claude(canvas, top, now)
             Section.AGENDA -> agendaCard(canvas, top, now)
+            Section.CALENDAR -> calendarCard(canvas, top, now)
+            Section.FOCUS -> focusCard(canvas, top, now)
+            Section.HABITS -> habitsCard(canvas, top, now)
+            Section.COUNTDOWNS -> countdownsCard(canvas, top, now)
+            Section.CLOCKS -> clocksCard(canvas, top, now)
             Section.COMMS -> messages(canvas, top, now)
             Section.VITALS -> vitals(canvas, top, now)
             Section.AUDIO -> music(canvas, top, now)
@@ -569,12 +661,6 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 scrollTo(0f)
                 invalidate()
             }
-            val greeting = when (time.hour) {
-                in 5 until 12 -> "GOOD MORNING"
-                in 12 until 18 -> "GOOD AFTERNOON"
-                else -> "GOOD EVENING"
-            }
-            canvas.drawText(greeting, width - 18 * u, y + 52 * u, Hud.text(9 * u, Hud.SOFT, Hud.MONO, .2f, Paint.Align.RIGHT))
             val tel = telemetry
             val chips = listOfNotNull(
                 tel?.let { (if (it.charging) "⚡ " else "") + "${it.battery}%" },
@@ -602,7 +688,90 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 strokeWidth = 2 * u
                 shader = LinearGradient(lx - 30 * u, 0f, lx, 0f, Color.TRANSPARENT, Hud.HOT, Shader.TileMode.CLAMP)
             })
-            return y + 100 * u
+            return briefingCard(canvas, y + 108 * u, now)
+        }
+
+        /** The briefing: one short read of what matters now, key parts brighter. */
+        private fun briefing(): List<Pair<String, Boolean>> {
+            val out = ArrayList<Pair<String, Boolean>>()
+            fun say(text: String, strong: Boolean = false) { out += text to strong }
+            val time = LocalDateTime.now()
+            say(when (time.hour) { in 5 until 12 -> "Good morning."; in 12 until 18 -> "Good afternoon."; else -> "Good evening." })
+            val nowMs = System.currentTimeMillis()
+            val tf = DateTimeFormatter.ofPattern("HH:mm")
+            fun at(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault())
+            val live = agenda.firstOrNull { !it.allDay && it.begin <= nowMs && nowMs < it.end }
+            val todayLeft = agenda.filter { !it.allDay && it.begin > nowMs && at(it.begin).toLocalDate() == LocalDate.now() }
+            val tomorrow = agenda.firstOrNull { at(it.begin).toLocalDate() == LocalDate.now().plusDays(1) }
+            when {
+                live != null -> { say("Now:"); say(live.title + ".", true) }
+                todayLeft.isNotEmpty() -> {
+                    val e = todayLeft.first()
+                    say("Next"); say("${at(e.begin).format(tf)} ${e.title}", true)
+                    say("(in ${duration(e.begin - nowMs)})" + if (todayLeft.size > 1) ", ${todayLeft.size - 1} more today." else ".")
+                }
+                tomorrow != null -> { say("Nothing else today; tomorrow starts"); say(if (tomorrow.allDay) tomorrow.title + "." else "${at(tomorrow.begin).format(tf)} ${tomorrow.title}.", true) }
+                else -> say("Nothing on the calendar.")
+            }
+            forecast?.let { f ->
+                val nowH = time.withMinute(0).withSecond(0).withNano(0)
+                val next = f.hours.filter { !it.time.isBefore(nowH) }.take(12)
+                val wet = next.firstOrNull { it.rain >= 50 }
+                if (wet != null) say(if (wet.time == nowH) "Rain now," else "Rain from ${wet.time.format(tf)},", true) else say("Dry for now,")
+                say("${f.temp}°" + (f.today?.let { " → ${it.high}°." } ?: "."))
+            }
+            telemetry?.let { t ->
+                say("Battery"); say("${t.battery}%" + (batteryEstimate()?.let { ", ${it.lowercase()}" } ?: "") + ".", t.battery <= 20)
+                t.alarm?.let { a -> say("Alarm"); say(at(a).format(tf), true); say("(in ${duration(a - nowMs)}).") }
+            }
+            groups.sumOf { it.count }.takeIf { it > 0 }?.let { say("$it unread.", true) }
+            focus?.let { say("Focusing, ${duration((it.endAt - nowMs).coerceAtLeast(0))} left.", true) }
+            countdowns.firstOrNull { val d = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), it.date); d in 0..7 }?.let { c ->
+                val d = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), c.date)
+                say(c.name + if (d == 0L) " is today." else " in $d day${if (d == 1L) "" else "s"}.", true)
+            }
+            coins.maxByOrNull { abs(it.changePct) }?.let { c -> say("${c.symbol} " + (if (c.changePct >= 0) "▲" else "▼") + " %.1f%%.".format(Locale.ROOT, abs(c.changePct)), true) }
+            return out
+        }
+
+        private fun briefingCard(canvas: Canvas, top: Float, now: Long): Float {
+            val r0 = RectF(14 * u, top, width - 14 * u, top)
+            val plain = Hud.text(11.5f * u, Hud.SOFT, Hud.SANS)
+            val strong = Hud.text(11.5f * u, Color.WHITE, Hud.MEDIUM)
+            // Lay the words out first to know the card's height.
+            val maxW = r0.width() - 28 * u
+            val words = briefing().flatMap { (t, b) -> t.split(' ').filter { it.isNotEmpty() }.map { it to b } }
+            val lines = ArrayList<MutableList<Pair<String, Boolean>>>()
+            var lineW = 0f
+            val space = plain.measureText(" ")
+            for (w in words) {
+                val ww = (if (w.second) strong else plain).measureText(w.first)
+                if (lines.isEmpty() || lineW + space + ww > maxW) {
+                    lines += mutableListOf(w)
+                    lineW = ww
+                } else {
+                    lines.last() += w
+                    lineW += space + ww
+                }
+            }
+            val lineH = 17 * u
+            val h = 34 * u + lines.size * lineH + 8 * u
+            card(canvas, now, top, h) {
+                val r = RectF(14 * u, top, width - 14 * u, top + h)
+                panel(canvas, r, Hud.GOLD)
+                canvas.drawText("◆ BRIEFING", r.left + 14 * u, top + 20 * u, Hud.text(8.5f * u, Hud.GOLD, Hud.MONO, .2f))
+                canvas.drawText("LIVE", r.right - 14 * u, top + 20 * u, Hud.text(8 * u, Hud.DUST, Hud.MONO, .16f, Paint.Align.RIGHT))
+                lines.forEachIndexed { i, line ->
+                    var x = r.left + 14 * u
+                    val yy = top + 40 * u + i * lineH
+                    for ((w, b) in line) {
+                        val p = if (b) strong else plain
+                        canvas.drawText(w, x, yy, p)
+                        x += p.measureText(w) + space
+                    }
+                }
+            }
+            return top + h
         }
 
         // --- Ask Claude ---
@@ -903,6 +1072,19 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             return (last.level - first.level) / hours
         }
 
+        /** "FULL IN 42M" while charging, "~6H 10M LEFT" on battery, when it can tell. */
+        private fun batteryEstimate(): String? {
+            val tel = telemetry ?: return null
+            if (tel.charging) {
+                if (tel.battery >= 100) return "FULL"
+                val ms = context.getSystemService(android.os.BatteryManager::class.java)?.computeChargeTimeRemaining() ?: -1L
+                return if (ms > 0) "FULL IN " + duration(ms).uppercase() else null
+            }
+            val rate = drainRate()?.takeIf { it < -.2 } ?: return null
+            val left = (tel.battery / -rate * 3600_000).toLong()
+            return "~" + duration(left).uppercase() + " LEFT"
+        }
+
         // --- Audio ---
 
         private fun music(canvas: Canvas, top: Float, now: Long): Float {
@@ -993,7 +1175,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
         private fun sky(canvas: Canvas, top: Float, now: Long): Float {
             val open = Section.SKY in expanded
-            val h = 132 * u + (if (open) 126 * u else 0f)
+            val h = 132 * u + (if (open) 226 * u else 0f)
             card(canvas, now, top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r, strong = open)
@@ -1040,8 +1222,56 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     }
                 }
                 if (open) {
+                    // The sun's path today, then the chance of rain over the next twelve hours.
+                    val sy = top + 134 * u
+                    val rise = today?.sunrise
+                    val set = today?.sunset
+                    val al = r.left + 30 * u
+                    val ar = r.right - 30 * u
+                    val base = sy + 52 * u
+                    canvas.drawLine(r.left + 14 * u, base, r.right - 14 * u, base, Hud.stroke(Hud.alpha(Hud.CRIMSON, .3f), u))
+                    val arc = Path().apply { moveTo(al, base); quadTo((al + ar) / 2, sy - 30 * u, ar, base) }
+                    canvas.drawPath(arc, Hud.stroke(Hud.alpha(Hud.CRIMSON, .45f), u, floatArrayOf(3 * u, 4 * u)))
+                    if (rise != null && set != null) {
+                        val nowT = LocalDateTime.now()
+                        val dayLen = Duration.between(rise, set).toMinutes().coerceAtLeast(1)
+                        val f2 = (Duration.between(rise, nowT).toMinutes().toFloat() / dayLen).coerceIn(0f, 1f)
+                        // A point along the quadratic arc.
+                        val q = 1 - f2
+                        val px = q * q * al + 2 * q * f2 * (al + ar) / 2 + f2 * f2 * ar
+                        val py = q * q * base + 2 * q * f2 * (sy - 30 * u) + f2 * f2 * base
+                        val up = nowT.isAfter(rise) && nowT.isBefore(set)
+                        canvas.drawCircle(px, py, 5 * u, Hud.glow(Hud.fill(if (up) Hud.GOLD else Hud.alpha(Hud.DUST, .6f)), 8 * u, if (up) Hud.GOLD else Hud.DUST))
+                        val tf = DateTimeFormatter.ofPattern("HH:mm")
+                        val lp = Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .08f)
+                        canvas.drawText("↑ " + rise.format(tf), r.left + 14 * u, base - 5 * u, lp)
+                        canvas.drawText("↓ " + set.format(tf), r.right - 14 * u, base - 5 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .08f, Paint.Align.RIGHT))
+                        val daylight = "DAYLIGHT ${dayLen / 60}H ${dayLen % 60}M" + " · UV ${today.uv}"
+                        canvas.drawText(daylight, r.centerX(), base - 14 * u, Hud.text(7.5f * u, Hud.SOFT, Hud.MONO, .12f, Paint.Align.CENTER))
+                    }
+                    val ry0 = base + 14 * u
+                    canvas.drawText("RAIN CHANCE · NEXT 12H", r.left + 14 * u, ry0 + 6 * u, Hud.text(7 * u, Hud.DUST, Hud.MONO, .12f))
+                    val rain = hrs.take(12)
+                    if (rain.isNotEmpty()) {
+                        val rw = (r.width() - 28 * u) / rain.size
+                        val rb = ry0 + 40 * u
+                        val blue = Hud.alpha(0xFF6FA8FF.toInt(), 1f)
+                        rain.forEachIndexed { i, hr ->
+                            val bh = (26 * u * hr.rain / 100f).coerceAtLeast(1.5f * u)
+                            canvas.drawRect(r.left + 14 * u + i * rw + 1.5f * u, rb - bh, r.left + 14 * u + (i + 1) * rw - 1.5f * u, rb, Hud.fill(Hud.alpha(blue, .3f + .6f * hr.rain / 100f)))
+                        }
+                        val peak = rain.maxByOrNull { it.rain }
+                        val pl = Hud.text(6.5f * u, Hud.DUST, Hud.MONO, align = Paint.Align.CENTER)
+                        canvas.drawText("NOW", r.left + 14 * u + rw / 2, rb + 10 * u, pl)
+                        if (peak != null && peak.rain >= 20) {
+                            val pi = rain.indexOf(peak)
+                            canvas.drawText("☂ ${peak.time.format(DateTimeFormatter.ofPattern("HH"))}:00 · ${peak.rain}%", (r.left + 14 * u + pi * rw + rw / 2).coerceIn(r.left + 50 * u, r.right - 50 * u), rb + 10 * u, Hud.text(6.5f * u, 0xFF6FA8FF.toInt(), Hud.MONO, align = Paint.Align.CENTER))
+                        } else {
+                            canvas.drawText("DRY FOR 12 HOURS", r.centerX(), rb + 10 * u, pl)
+                        }
+                    }
                     // Hour by hour, then the coming days.
-                    val hy = top + 136 * u
+                    val hy = top + 236 * u
                     val step = (r.width() - 28 * u) / 7
                     hrs.drop(1).take(7).forEachIndexed { i, hr ->
                         val cx = r.left + 14 * u + step * i + step / 2
@@ -1065,6 +1295,361 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 }
             }
             return top + h
+        }
+
+        // --- Calendar: the whole month, with each day's events underneath ---
+
+        /** The month grid on the page, for swiping between months. */
+        private val calGrid = RectF()
+
+        private fun calendarCard(canvas: Canvas, top: Float, now: Long): Float {
+            val open = Section.CALENDAR in expanded
+            val firstDay = java.time.temporal.WeekFields.of(Locale.getDefault()).firstDayOfWeek
+            val gridStart = calMonth.atDay(1).with(TemporalAdjusters.previousOrSame(firstDay))
+            val weeks = (java.time.temporal.ChronoUnit.DAYS.between(gridStart, calMonth.atEndOfMonth()) / 7 + 1).toInt()
+            val cellH = 38 * u
+            val gap = 3 * u
+            val dayEvents = monthEvents[calDay].orEmpty()
+            val shown = if (open) dayEvents.take(10) else dayEvents.take(2)
+            val gridTop = 96 * u
+            val gridH = weeks * (cellH + gap)
+            val listTop = gridTop + gridH + 12 * u
+            val listH = 18 * u + shown.size.coerceAtLeast(1) * 38 * u + (if (!open && dayEvents.size > 2) 16 * u else 0f)
+            val h = listTop + listH + 42 * u
+            card(canvas, now, top, h) {
+                val r = RectF(14 * u, top, width - 14 * u, top + h)
+                panel(canvas, r, strong = open)
+                val total = monthEvents.values.flatten().distinctBy { it.id to it.begin }.size
+                title(canvas, r, Section.CALENDAR, if (monthShown == calMonth) "$total EVENTS" else "LOADING…")
+                // Month and year, with ‹ TODAY › on the right.
+                val mp = Hud.text(17 * u, Color.WHITE, Hud.MONO, .12f)
+                val monthName = calMonth.month.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault()).uppercase()
+                canvas.drawText(monthName, r.left + 14 * u, top + 56 * u, mp)
+                canvas.drawText("${calMonth.year}", r.left + 14 * u + mp.measureText("$monthName "), top + 56 * u, Hud.text(17 * u, Hud.HOT, Hud.MONO, .12f))
+                canvas.drawText("SWIPE ↑↓ FOR MONTHS · TAP A DAY", r.left + 14 * u, top + 72 * u, Hud.text(7 * u, Hud.DUST, Hud.MONO, .14f))
+                val ar = RectF(r.right - 40 * u, top + 38 * u, r.right - 14 * u, top + 62 * u)
+                val tr = RectF(ar.left - 58 * u, ar.top, ar.left - 4 * u, ar.bottom)
+                val al = RectF(tr.left - 30 * u, ar.top, tr.left - 4 * u, ar.bottom)
+                button(canvas, al, "‹") { shiftMonth(-1) }
+                button(canvas, tr, "TODAY", solid = calMonth != YearMonth.now()) {
+                    if (calMonth != YearMonth.now()) shiftMonth((YearMonth.now().year - calMonth.year) * 12 + YearMonth.now().monthValue - calMonth.monthValue)
+                    calDay = LocalDate.now()
+                }
+                button(canvas, ar, "›") { shiftMonth(1) }
+                // Weekday letters.
+                val cw = (r.width() - 28 * u - gap * 6) / 7
+                val wp = Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .1f, Paint.Align.CENTER)
+                for (k in 0 until 7) {
+                    val d = firstDay.plus(k.toLong())
+                    canvas.drawText(d.getDisplayName(java.time.format.TextStyle.NARROW, Locale.getDefault()), r.left + 14 * u + k * (cw + gap) + cw / 2, top + 88 * u, wp)
+                }
+                // The grid, sliding in when the month changes.
+                calGrid.set(r.left + 10 * u, top + gridTop - 4 * u, r.right - 10 * u, top + gridTop + gridH)
+                canvas.save()
+                canvas.clipRect(calGrid)
+                canvas.translate(0f, calSlide * 44 * u)
+                val today = LocalDate.now()
+                val numP = Hud.text(12 * u, Color.WHITE, Hud.MONO, align = Paint.Align.CENTER)
+                for (i in 0 until weeks * 7) {
+                    val date = gridStart.plusDays(i.toLong())
+                    val col = i % 7
+                    val row = i / 7
+                    val c = RectF(r.left + 14 * u + col * (cw + gap), top + gridTop + row * (cellH + gap), r.left + 14 * u + col * (cw + gap) + cw, top + gridTop + row * (cellH + gap) + cellH)
+                    val inMonth = YearMonth.from(date) == calMonth
+                    val picked = date == calDay
+                    when {
+                        picked -> canvas.drawRect(c, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            shader = LinearGradient(0f, c.top, 0f, c.bottom, Hud.RED, Hud.DEEP, Shader.TileMode.CLAMP)
+                        })
+                        inMonth -> canvas.drawRect(c, Hud.fill(Hud.alpha(Hud.tint(0xFF0A0305.toInt()), .5f)))
+                    }
+                    if (inMonth) canvas.drawRect(c, Hud.stroke(Hud.alpha(Hud.CRIMSON, if (picked) .9f else .14f), u))
+                    if (date == today) canvas.drawRect(RectF(c).apply { inset(.75f * u, .75f * u) }, Hud.glow(Hud.stroke(Hud.HOT, 1.5f * u), 6 * u))
+                    numP.color = when {
+                        picked -> Theme.on(Hud.RED)
+                        !inMonth -> Hud.alpha(Theme.readable(Hud.SOFT), .3f)
+                        date.dayOfWeek.value >= 6 -> Theme.readable(Hud.SOFT)
+                        else -> Color.WHITE
+                    }
+                    canvas.drawText("${date.dayOfMonth}", c.centerX(), c.top + 17 * u, numP)
+                    // A dot per event, in its calendar's colour (up to three).
+                    if (inMonth) {
+                        val evs = monthEvents[date].orEmpty().take(3)
+                        evs.forEachIndexed { k, e ->
+                            val dx = (k - (evs.size - 1) / 2f) * 6 * u
+                            val col2 = if (e.color == 0) Hud.HOT else e.color or 0xFF000000.toInt()
+                            canvas.drawCircle(c.centerX() + dx, c.bottom - 8 * u, 2.2f * u, Hud.glow(Hud.fill(col2), 3 * u))
+                        }
+                    }
+                    tap(RectF(c.left, c.top + calSlide * 44 * u, c.right, c.bottom + calSlide * 44 * u)) {
+                        if (!inMonth) shiftMonth(if (date.isBefore(calMonth.atDay(1))) -1 else 1)
+                        calDay = date
+                        invalidate()
+                    }
+                }
+                canvas.restore()
+                // The picked day's events.
+                val ly = top + listTop
+                val dayLabel = calDay.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())).uppercase()
+                val count = when (dayEvents.size) {
+                    0 -> "NOTHING ON"
+                    1 -> "1 EVENT"
+                    else -> "${dayEvents.size} EVENTS"
+                }
+                canvas.drawText("▸ $dayLabel · $count", r.left + 14 * u, ly + 8 * u, Hud.text(8.5f * u, Hud.CRIMSON, Hud.MONO, .14f))
+                if (shown.isEmpty()) {
+                    val msg = if (com.eldablos.crimson.CalendarMonth.hasPermission(context)) "A free day." else "Calendar access is off: allow it in the Crimson Widget app."
+                    canvas.drawText(msg, r.left + 14 * u, ly + 36 * u, Hud.text(11 * u, Hud.DUST, Hud.SANS))
+                }
+                val tf = DateTimeFormatter.ofPattern("HH:mm")
+                shown.forEachIndexed { i, e ->
+                    val ry = ly + 18 * u + i * 38 * u
+                    val row = RectF(r.left + 10 * u, ry, r.right - 10 * u, ry + 36 * u)
+                    if (i > 0) canvas.drawLine(row.left, ry, row.right, ry, Hud.stroke(Hud.alpha(Hud.CRIMSON, .12f), u))
+                    val start = Instant.ofEpochMilli(e.begin).atZone(ZoneId.systemDefault())
+                    canvas.drawText(if (e.allDay) "ALL DAY" else start.format(tf), row.left + 4 * u, row.centerY() + 4 * u, Hud.fit(if (e.allDay) "ALL DAY" else "00:00", Hud.text(11 * u, Color.WHITE, Hud.MONO), 46 * u))
+                    val col = if (e.color == 0) Hud.HOT else e.color or 0xFF000000.toInt()
+                    canvas.drawRoundRect(RectF(row.left + 56 * u, row.top + 6 * u, row.left + 59 * u, row.bottom - 6 * u), 2 * u, 2 * u, Hud.glow(Hud.fill(col), 5 * u))
+                    val tx = row.left + 68 * u
+                    canvas.drawText(Hud.ellipsize(e.title, Hud.text(12.5f * u, Color.WHITE, Hud.SANS), row.right - tx - 4 * u), tx, row.centerY() - 1 * u, Hud.text(12.5f * u, Color.WHITE, Hud.SANS))
+                    val length = if (e.allDay) null else duration(e.end - e.begin).uppercase()
+                    val sub = listOfNotNull(e.calendar.uppercase().takeIf { it.isNotBlank() }, length, e.location.uppercase().takeIf { it.isNotBlank() }).joinToString(" · ")
+                    canvas.drawText(Hud.ellipsize(sub, Hud.text(7 * u, Hud.DUST, Hud.MONO, .1f), row.right - tx - 4 * u), tx, row.centerY() + 12 * u, Hud.text(7 * u, Hud.DUST, Hud.MONO, .1f))
+                    tap(row) { DeckData.openEvent(context, e) }
+                }
+                if (!open && dayEvents.size > 2) {
+                    canvas.drawText("+ ${dayEvents.size - 2} MORE · TAP THE TITLE", r.left + 78 * u, ly + 18 * u + 2 * 38 * u + 10 * u, Hud.text(7.5f * u, Hud.HOT, Hud.MONO, .12f))
+                }
+                // Add on the picked day, or open the calendar there.
+                val by = r.bottom - 36 * u
+                val short = calDay.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).uppercase()
+                button(canvas, RectF(r.left + 14 * u, by, r.centerX() - 4 * u, by + 26 * u), "+ ADD ON $short", solid = true) { addEvent(calDay) }
+                button(canvas, RectF(r.centerX() + 4 * u, by, r.right - 14 * u, by + 26 * u), "OPEN CALENDAR ↗") {
+                    val at = calDay.atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    val uri = CalendarContract.CONTENT_URI.buildUpon().appendPath("time").also { ContentUris.appendId(it, at) }.build()
+                    start(Intent(Intent.ACTION_VIEW, uri).setPackage(com.eldablos.crimson.CrimsonWidgetProvider.GOOGLE_CALENDAR), Intent(Intent.ACTION_VIEW, uri))
+                }
+            }
+            return top + h
+        }
+
+        // --- Focus: a session timer that silences the phone ---
+
+        private fun focusCard(canvas: Canvas, top: Float, now: Long): Float {
+            val h = 156 * u
+            card(canvas, now, top, h) {
+                val r = RectF(14 * u, top, width - 14 * u, top + h)
+                val f = focus
+                val nowMs = System.currentTimeMillis()
+                if (f != null && nowMs >= f.endAt) {
+                    FocusTimer.check(context)
+                    focus = null
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                }
+                val running = focus
+                panel(canvas, r, strong = running != null)
+                title(canvas, r, Section.FOCUS, if (running != null) "${running.minutes} MIN · RUNNING" else "READY")
+                val cx = r.left + 72 * u
+                val cy = top + 88 * u
+                val left = running?.let { (it.endAt - nowMs).coerceAtLeast(0) } ?: focusLength * 60_000L
+                val value = running?.let { left / (it.minutes * 60_000f) } ?: 0f
+                ring(canvas, cx, cy, 44 * u, value, if (focusLength == 5 && running == null) Hud.GOLD else Hud.HOT, "%d:%02d".format(left / 60_000, left / 1000 % 60))
+                canvas.drawText(if (running != null) "FOCUSING" else if (focusLength == 5) "BREAK" else "FOCUS", cx, cy + 20 * u, Hud.text(6.5f * u, Hud.DUST, Hud.MONO, .16f, Paint.Align.CENTER))
+                val x0 = r.left + 140 * u
+                val cw = (r.right - 14 * u - x0 - 3 * 5 * u) / 4
+                listOf(15, 25, 50, 5).forEachIndexed { i, m ->
+                    val c = RectF(x0 + i * (cw + 5 * u), top + 40 * u, x0 + i * (cw + 5 * u) + cw, top + 62 * u)
+                    val on = (running?.minutes ?: focusLength) == m
+                    canvas.drawRect(c, if (on) Hud.fill(Hud.alpha(Hud.RED, .6f)) else Hud.fill(Hud.alpha(Hud.BLOOD, .25f)))
+                    canvas.drawRect(c, Hud.stroke(Hud.alpha(if (on) Hud.HOT else Hud.CRIMSON, if (on) 1f else .4f), u))
+                    val label = if (m == 5) "5 BREAK" else "$m"
+                    canvas.drawText(label, c.centerX(), c.centerY() + 3 * u, Hud.fit(label, Hud.text(8.5f * u, if (on) Theme.on(Hud.RED) else Hud.SOFT, Hud.MONO, align = Paint.Align.CENTER), cw - 4 * u))
+                    if (running == null) tap(c) { focusLength = m; invalidate() }
+                }
+                val silence = context.getSharedPreferences("deck", Context.MODE_PRIVATE).getBoolean("focus_silence", true)
+                val go = RectF(x0, top + 70 * u, r.right - 14 * u, top + 96 * u)
+                if (running == null) {
+                    button(canvas, go, "▶ START ${if (focusLength == 5) "BREAK" else "FOCUS"}", solid = true) {
+                        FocusTimer.start(context, focusLength, silence && focusLength != 5)
+                        focus = DeckStore.focus(context)
+                        dnd = Comms.doNotDisturb
+                    }
+                } else {
+                    button(canvas, go, "■ END SESSION") {
+                        FocusTimer.stop(context)
+                        focus = null
+                        dnd = Comms.doNotDisturb
+                    }
+                }
+                val sr = RectF(x0, top + 102 * u, r.right - 14 * u, top + 120 * u)
+                canvas.drawText((if (silence) "☾ SILENCES THE PHONE · ON" else "☾ SILENCES THE PHONE · OFF"), sr.left, sr.centerY() + 3 * u, Hud.text(7.5f * u, if (silence) Hud.HOT else Hud.DUST, Hud.MONO, .12f))
+                tap(sr) { context.getSharedPreferences("deck", Context.MODE_PRIVATE).edit().putBoolean("focus_silence", !silence).apply(); invalidate() }
+                val (mins, sessions) = DeckStore.focusToday(context)
+                canvas.drawText("TODAY ${duration(mins * 60_000L).uppercase()} FOCUSED · $sessions SESSION${if (sessions == 1) "" else "S"} · RINGS AT THE END", r.left + 14 * u, r.bottom - 12 * u, Hud.fit("TODAY 0M FOCUSED · 0 SESSIONS · RINGS AT THE END", Hud.text(7 * u, Hud.DUST, Hud.MONO, .1f), r.width() - 28 * u))
+            }
+            return top + h
+        }
+
+        // --- Clocks: home and other cities, and the next alarm ---
+
+        private fun clocksCard(canvas: Canvas, top: Float, now: Long): Float {
+            val local = ZoneId.systemDefault()
+            val zones = listOf(local.id) + clockZones.filter { it != local.id }.take(5)
+            val rows = (zones.size + 2) / 3
+            val h = 40 * u + rows * 64 * u + 30 * u
+            card(canvas, now, top, h) {
+                val r = RectF(14 * u, top, width - 14 * u, top + h)
+                panel(canvas, r)
+                title(canvas, r, Section.CLOCKS, "✎ CITIES", Hud.HOT) { pickCities() }
+                val cw = (r.width() - 28 * u - 12 * u) / 3
+                val here = java.time.ZonedDateTime.now(local)
+                zones.forEachIndexed { i, z ->
+                    val zone = try { ZoneId.of(z) } catch (e: Exception) { return@forEachIndexed }
+                    val t = java.time.ZonedDateTime.now(zone)
+                    val c = RectF(r.left + 14 * u + (i % 3) * (cw + 6 * u), top + 36 * u + (i / 3) * 64 * u, r.left + 14 * u + (i % 3) * (cw + 6 * u) + cw, top + 36 * u + (i / 3) * 64 * u + 58 * u)
+                    canvas.drawRect(c, Hud.fill(Hud.alpha(Hud.tint(0xFF0A0305.toInt()), .5f)))
+                    canvas.drawRect(c, Hud.stroke(Hud.alpha(Hud.CRIMSON, if (i == 0) .5f else .25f), u))
+                    val day = t.hour in 7 until 19
+                    val name = (if (day) "☀ " else "☾ ") + DeckStore.cityName(z).uppercase()
+                    canvas.drawText(name, c.left + 7 * u, c.top + 13 * u, Hud.fit(name, Hud.text(7 * u, if (day) Hud.GOLD else Hud.SOFT, Hud.MONO, .12f), cw - 12 * u))
+                    canvas.drawText(t.format(DateTimeFormatter.ofPattern("HH:mm")), c.left + 7 * u, c.top + 36 * u, Hud.text(19 * u, Color.WHITE, Hud.LIGHT))
+                    val diffH = (t.offset.totalSeconds - here.offset.totalSeconds) / 3600f
+                    val sub = if (i == 0) "HOME" else {
+                        val off = if (diffH == 0f) "SAME TIME" else (if (diffH > 0) "+" else "−") + (if (diffH % 1f == 0f) "${abs(diffH).toInt()}H" else "%.1fH".format(Locale.ROOT, abs(diffH)))
+                        val d = t.toLocalDate()
+                        when {
+                            d.isAfter(here.toLocalDate()) -> "$off · TOMORROW"
+                            d.isBefore(here.toLocalDate()) -> "$off · YESTERDAY"
+                            else -> off
+                        }
+                    }
+                    canvas.drawText(sub, c.left + 7 * u, c.top + 50 * u, Hud.fit(sub, Hud.text(6.5f * u, Hud.DUST, Hud.MONO, .1f), cw - 12 * u))
+                }
+                val ay = r.bottom - 14 * u
+                val alarm = telemetry?.alarm
+                if (alarm != null) {
+                    val at = Instant.ofEpochMilli(alarm).atZone(local)
+                    canvas.drawText("⏰ NEXT ALARM · " + at.format(DateTimeFormatter.ofPattern("EEE HH:mm", Locale.getDefault())).uppercase(), r.left + 14 * u, ay, Hud.text(8.5f * u, Hud.SOFT, Hud.MONO, .12f))
+                    canvas.drawText("IN " + duration(alarm - System.currentTimeMillis()).uppercase(), r.right - 14 * u, ay, Hud.text(8.5f * u, Hud.GOLD, Hud.MONO, .12f, Paint.Align.RIGHT))
+                } else {
+                    canvas.drawText("⏰ NO ALARM SET · TAP TO SET ONE", r.left + 14 * u, ay, Hud.text(8.5f * u, Hud.DUST, Hud.MONO, .12f))
+                }
+                tap(RectF(r.left, ay - 16 * u, r.right, r.bottom)) { start(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
+            }
+            return top + h
+        }
+
+        // --- Countdowns ---
+
+        private fun countdownsCard(canvas: Canvas, top: Float, now: Long): Float {
+            val today = LocalDate.now()
+            val list = countdowns.filter { !it.date.isBefore(today) }
+            val h = 40 * u + list.size.coerceAtLeast(1) * 48 * u + 8 * u
+            card(canvas, now, top, h) {
+                val r = RectF(14 * u, top, width - 14 * u, top + h)
+                panel(canvas, r)
+                title(canvas, r, Section.COUNTDOWNS, "+ ADD", Hud.HOT) { addCountdown() }
+                if (list.isEmpty()) canvas.drawText("Add a date to count down to.", r.left + 14 * u, top + 62 * u, Hud.text(11 * u, Hud.DUST, Hud.SANS))
+                list.forEachIndexed { i, c ->
+                    val ry = top + 34 * u + i * 48 * u
+                    val row = RectF(r.left + 10 * u, ry, r.right - 10 * u, ry + 46 * u)
+                    val days = java.time.temporal.ChronoUnit.DAYS.between(today, c.date)
+                    canvas.drawText(Hud.ellipsize(c.name, Hud.text(12.5f * u, Color.WHITE, Hud.SANS), row.width() - 110 * u), row.left + 4 * u, ry + 18 * u, Hud.text(12.5f * u, Color.WHITE, Hud.SANS))
+                    canvas.drawText(c.date.format(DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.getDefault())).uppercase(), row.left + 4 * u, ry + 31 * u, Hud.text(7 * u, Hud.DUST, Hud.MONO, .12f))
+                    val big = when (days) {
+                        0L -> "TODAY"
+                        1L -> "1"
+                        else -> "$days"
+                    }
+                    val unit = when (days) {
+                        0L -> ""
+                        1L -> " DAY"
+                        else -> " DAYS"
+                    }
+                    val up = Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .12f, Paint.Align.RIGHT)
+                    canvas.drawText(unit, row.right - 4 * u, ry + 20 * u, up)
+                    canvas.drawText(big, row.right - 4 * u - up.measureText(unit), ry + 21 * u, Hud.glow(Hud.text(17 * u, if (days <= 7) Hud.GOLD else Color.WHITE, Hud.MONO, align = Paint.Align.RIGHT), 6 * u, Hud.alpha(Hud.CRIMSON, .6f)))
+                    val span = java.time.temporal.ChronoUnit.DAYS.between(c.added, c.date).coerceAtLeast(1)
+                    val gone = java.time.temporal.ChronoUnit.DAYS.between(c.added, today).coerceIn(0, span)
+                    val track = RectF(row.left + 4 * u, ry + 37 * u, row.right - 4 * u, ry + 40 * u)
+                    canvas.drawRect(track, Hud.fill(Hud.alpha(Hud.CRIMSON, .12f)))
+                    canvas.drawRect(RectF(track.left, track.top, track.left + track.width() * gone / span, track.bottom), Hud.glow(Hud.fill(if (days <= 7) Hud.GOLD else Hud.HOT), 4 * u))
+                    hold(row) { confirm("Remove \"${c.name}\"?") { countdowns = countdowns - c; DeckStore.setCountdowns(context, countdowns) } }
+                }
+            }
+            return top + h
+        }
+
+        // --- Habits: the last week at a glance, tap a day to tick it ---
+
+        private fun habitsCard(canvas: Canvas, top: Float, now: Long): Float {
+            val today = LocalDate.now()
+            val days = (6 downTo 0).map { today.minusDays(it.toLong()) }
+            val h = 40 * u + 16 * u + habits.size.coerceAtLeast(1) * 32 * u + 24 * u
+            card(canvas, now, top, h) {
+                val r = RectF(14 * u, top, width - 14 * u, top + h)
+                panel(canvas, r)
+                title(canvas, r, Section.HABITS, "+ ADD", Hud.HOT) { addHabit() }
+                val nameW = 84 * u
+                val streakW = 40 * u
+                val dw = (r.width() - 28 * u - nameW - streakW) / 7
+                val x0 = r.left + 14 * u + nameW
+                val hp = Hud.text(6.5f * u, Hud.DUST, Hud.MONO, .08f, Paint.Align.CENTER)
+                days.forEachIndexed { k, d ->
+                    canvas.drawText(if (d == today) "TODAY" else d.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault()).uppercase().take(2), x0 + k * dw + dw / 2, top + 44 * u, hp.apply { color = if (d == today) Theme.readable(Hud.GOLD) else Theme.readable(Hud.DUST) })
+                }
+                canvas.drawText("STREAK", r.right - 14 * u, top + 44 * u, Hud.text(6.5f * u, Hud.DUST, Hud.MONO, .08f, Paint.Align.RIGHT))
+                if (habits.isEmpty()) canvas.drawText("Add a habit to track.", r.left + 14 * u, top + 74 * u, Hud.text(11 * u, Hud.DUST, Hud.SANS))
+                habits.forEachIndexed { i, hb ->
+                    val ry = top + 52 * u + i * 32 * u
+                    val cy = ry + 15 * u
+                    canvas.drawText(Hud.ellipsize(hb.name, Hud.text(11.5f * u, Color.WHITE, Hud.SANS), nameW - 6 * u), r.left + 14 * u, cy + 4 * u, Hud.text(11.5f * u, Color.WHITE, Hud.SANS))
+                    hold(RectF(r.left, ry, x0, ry + 30 * u)) { confirm("Remove \"${hb.name}\"?") { habits = habits - hb; DeckStore.setHabits(context, habits) } }
+                    days.forEachIndexed { k, d ->
+                        val x = x0 + k * dw + dw / 2
+                        val done = d in hb.done
+                        val s = 7.5f * u
+                        path.reset()
+                        path.moveTo(x, cy - s); path.lineTo(x + s, cy); path.lineTo(x, cy + s); path.lineTo(x - s, cy); path.close()
+                        if (done) {
+                            canvas.drawPath(path, Hud.glow(Hud.fill(Hud.RED), 6 * u, Hud.HOT))
+                            canvas.drawPath(path, Hud.stroke(Hud.HOT, u))
+                        } else {
+                            canvas.drawPath(path, if (d == today) Hud.stroke(Hud.GOLD, 1.2f * u, floatArrayOf(2 * u, 2 * u)) else Hud.stroke(Hud.alpha(Hud.CRIMSON, .45f), u))
+                        }
+                        tap(RectF(x - dw / 2, ry, x + dw / 2, ry + 30 * u)) {
+                            val updated = DeckStore.Habit(hb.name, if (done) hb.done - d else hb.done + d)
+                            habits = habits.map { if (it === hb) updated else it }
+                            DeckStore.setHabits(context, habits)
+                        }
+                    }
+                    val streak = DeckStore.streak(hb.done, today)
+                    canvas.drawText(if (streak > 0) "🔥$streak" else "—", r.right - 14 * u, cy + 4 * u, Hud.text(10 * u, if (streak > 0) Hud.GOLD else Hud.DUST, Hud.MONO, align = Paint.Align.RIGHT))
+                }
+                canvas.drawText("TAP A ◇ TO TICK IT · HOLD A HABIT TO REMOVE", r.left + 14 * u, r.bottom - 10 * u, Hud.text(6.5f * u, Hud.DUST, Hud.MONO, .12f))
+            }
+            return top + h
+        }
+
+        /** "12.4 MB/s", "820 KB/s". */
+        private fun rate(bytesPerSec: Float): String = when {
+            bytesPerSec >= 1_000_000f -> "%.1f MB/s".format(Locale.ROOT, bytesPerSec / 1_000_000f)
+            bytesPerSec >= 1_000f -> "%.0f KB/s".format(Locale.ROOT, bytesPerSec / 1_000f)
+            else -> "%.0f B/s".format(Locale.ROOT, bytesPerSec)
+        }
+
+        private fun rateLine(canvas: Canvas, values: List<Float>, r: RectF, color: Int) {
+            if (values.size < 2) return
+            val hi = values.max().coerceAtLeast(1f)
+            val p = Path()
+            values.forEachIndexed { i, v ->
+                val x = r.left + r.width() * i / (values.size - 1)
+                val yy = r.bottom - r.height() * (v / hi)
+                if (i == 0) p.moveTo(x, yy) else p.lineTo(x, yy)
+            }
+            val area = Path(p).apply { lineTo(r.right, r.bottom); lineTo(r.left, r.bottom); close() }
+            canvas.drawPath(area, Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = LinearGradient(0f, r.top, 0f, r.bottom, Hud.alpha(color, .3f), Color.TRANSPARENT, Shader.TileMode.CLAMP) })
+            canvas.drawPath(p, Hud.glow(Hud.stroke(color, 1.4f * u), 3 * u))
         }
 
         // --- Notes: a checklist ---
@@ -1139,21 +1724,38 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private fun markets(canvas: Canvas, top: Float, now: Long): Float {
             val open = Section.MARKETS in expanded
             val shown = if (open) coins else coins.take(3)
-            val h = 40 * u + shown.size.coerceAtLeast(1) * 34 * u + (if (open) 34 * u else 0f)
+            val held = coins.filter { holdings.containsKey(it.id) }
+            val pf = if (held.isNotEmpty()) 58 * u else 0f
+            val h = 40 * u + pf + shown.size.coerceAtLeast(1) * 34 * u + (if (open) 34 * u else 0f)
             card(canvas, now, top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r, strong = open)
-                title(canvas, r, Section.MARKETS, "GBP · 24H")
+                title(canvas, r, Section.MARKETS, if (held.isEmpty()) "GBP · 24H" else "PORTFOLIO · GBP")
                 if (shown.isEmpty()) canvas.drawText("Fetching prices…", r.left + 14 * u, top + 60 * u, Hud.text(10.5f * u, Hud.DUST, Hud.SANS))
+                if (held.isNotEmpty()) {
+                    // What it's all worth, how it moved today and, where the cost is known, since buying.
+                    val value = held.sumOf { holdings.getValue(it.id).amount * it.price }
+                    val today = held.sumOf { holdings.getValue(it.id).amount * it.change }
+                    val costed = held.filter { holdings.getValue(it.id).cost != null }
+                    val gain = if (costed.isEmpty()) null else costed.sumOf { holdings.getValue(it.id).amount * it.price - holdings.getValue(it.id).cost!! }
+                    canvas.drawText("PORTFOLIO · ${held.size} COIN${if (held.size == 1) "" else "S"}", r.left + 14 * u, top + 42 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .14f))
+                    canvas.drawText(Markets.money(value), r.left + 14 * u, top + 70 * u, Hud.glow(Hud.text(24 * u, Color.WHITE, Hud.LIGHT), 10 * u, Hud.alpha(Hud.CRIMSON, .6f)))
+                    val pct = if (value - today > 0) today / (value - today) * 100 else 0.0
+                    canvas.drawText((if (today >= 0) "▲ " else "▼ ") + Markets.money(abs(today)) + " · %.1f%% TODAY".format(Locale.ROOT, abs(pct)), r.right - 14 * u, top + 56 * u, Hud.text(9 * u, if (today >= 0) UP else DOWN, Hud.MONO, align = Paint.Align.RIGHT))
+                    if (gain != null) canvas.drawText((if (gain >= 0) "+" else "−") + Markets.money(abs(gain)) + " SINCE BOUGHT", r.right - 14 * u, top + 70 * u, Hud.text(7.5f * u, Hud.SOFT, Hud.MONO, .1f, Paint.Align.RIGHT))
+                    canvas.drawLine(r.left + 14 * u, top + 80 * u, r.right - 14 * u, top + 80 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .2f), u))
+                }
                 shown.forEachIndexed { i, c ->
-                    val ry = top + 34 * u + i * 34 * u
+                    val ry = top + 34 * u + pf + i * 34 * u
                     val row = RectF(r.left + 8 * u, ry, r.right - 8 * u, ry + 32 * u)
                     if (i > 0) canvas.drawLine(row.left + 6 * u, ry, row.right - 6 * u, ry, Hud.stroke(Hud.alpha(Hud.CRIMSON, .12f), u))
                     val up = c.changePct >= 0
                     canvas.drawText(c.symbol, r.left + 14 * u, ry + 15 * u, Hud.text(9.5f * u, Hud.SOFT, Hud.MONO_BOLD, .1f))
-                    canvas.drawText(Hud.ellipsize(c.name.uppercase(), Hud.text(6.5f * u, Hud.DUST, Hud.MONO), 56 * u), r.left + 14 * u, ry + 26 * u, Hud.text(6.5f * u, Hud.DUST, Hud.MONO))
-                    sparkline(canvas, c.spark.takeLast(48), RectF(r.left + 78 * u, ry + 6 * u, r.left + 178 * u, ry + 26 * u), up)
-                    canvas.drawText(Markets.money(c.price), r.right - 74 * u, ry + 20 * u, Hud.text(11 * u, Color.WHITE, Hud.MONO, align = Paint.Align.RIGHT))
+                    val hold = holdings[c.id]
+                    val sub = hold?.let { java.math.BigDecimal(it.amount).round(java.math.MathContext(6)).stripTrailingZeros().toPlainString() + " " + c.symbol } ?: c.name.uppercase()
+                    canvas.drawText(Hud.ellipsize(sub, Hud.text(6.5f * u, if (hold != null) Hud.GOLD else Hud.DUST, Hud.MONO), 60 * u), r.left + 14 * u, ry + 26 * u, Hud.text(6.5f * u, if (hold != null) Hud.GOLD else Hud.DUST, Hud.MONO))
+                    sparkline(canvas, c.spark.takeLast(48), RectF(r.left + 80 * u, ry + 6 * u, r.left + 176 * u, ry + 26 * u), up)
+                    canvas.drawText(Markets.money(hold?.let { it.amount * c.price } ?: c.price), r.right - 74 * u, ry + 20 * u, Hud.text(11 * u, Color.WHITE, Hud.MONO, align = Paint.Align.RIGHT))
                     canvas.drawText((if (up) "▲ " else "▼ ") + "%.1f%%".format(abs(c.changePct)), r.right - 14 * u, ry + 20 * u, Hud.text(9 * u, if (up) UP else DOWN, Hud.MONO, align = Paint.Align.RIGHT))
                     tap(row) { openCoin(c.id) }
                 }
@@ -1218,7 +1820,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r, strong = open)
                 val p = power
-                title(canvas, r, Section.POWER, p?.let { "%.1f°C · %s".format(Locale.ROOT, it.tempC, it.health) })
+                val est = batteryEstimate()
+                title(canvas, r, Section.POWER, listOfNotNull(est, p?.let { "%.0f°C".format(Locale.ROOT, it.tempC) }, if (est == null) p?.health else null).joinToString(" · "), if (est != null) Hud.GOLD else Hud.DUST)
                 val tel = telemetry
                 val samples = log + listOfNotNull(tel?.let { DeckData.Sample(System.currentTimeMillis(), it.battery, it.charging) })
                 val gl = r.left + 14 * u
@@ -1277,28 +1880,48 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             return top + h
         }
 
+        /** The connection, live speeds and today's data. */
         private fun dataCard(canvas: Canvas, top: Float, now: Long): Float {
-            val h = 104 * u
+            val h = 170 * u
             card(canvas, now, top, h) {
+                sampleTraffic()
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
                 panel(canvas, r)
-                title(canvas, r, Section.DATA, "TODAY")
-                val d = data
-                if (d == null) {
-                    canvas.drawText("Needs usage access", r.left + 14 * u, top + 56 * u, Hud.text(10.5f * u, Hud.DUST, Hud.SANS))
-                    canvas.drawText("TAP TO ALLOW ›", r.left + 14 * u, top + 74 * u, Hud.text(8 * u, Hud.HOT, Hud.MONO, .14f))
-                    tap(r) { start(DeckData.usageAccessIntent(context)) }
-                } else {
-                    val max = maxOf(d.first, d.second, 1L).toFloat()
-                    listOf("WI-FI" to d.first, "MOBILE" to d.second).forEachIndexed { i, (label, bytes) ->
-                        val by = top + 46 * u + i * 30 * u
-                        canvas.drawText(label, r.left + 14 * u, by, Hud.text(7.5f * u, Hud.SOFT, Hud.MONO, .14f))
-                        canvas.drawText(bytesText(bytes), r.right - 14 * u, by, Hud.text(10 * u, Color.WHITE, Hud.MONO, align = Paint.Align.RIGHT))
-                        val track = RectF(r.left + 14 * u, by + 6 * u, r.right - 14 * u, by + 10 * u)
-                        canvas.drawRect(track, Hud.fill(Hud.alpha(Hud.CRIMSON, .12f)))
-                        canvas.drawRect(RectF(track.left, track.top, track.left + track.width() * bytes / max, track.bottom), Hud.glow(Hud.fill(if (i == 0) Hud.HOT else Hud.GOLD), 4 * u))
-                    }
+                title(canvas, r, Section.DATA, "↯ LIVE")
+                val n = net
+                val name = n?.name ?: n?.kind ?: "—"
+                canvas.drawText(Hud.ellipsize(name, Hud.text(14 * u, Color.WHITE, Hud.SANS), r.width() - 90 * u), r.left + 14 * u, top + 52 * u, Hud.text(14 * u, Color.WHITE, Hud.SANS))
+                // Signal bars, then the details.
+                val bars = n?.bars ?: 0
+                for (k in 0 until 4) {
+                    val bx = r.left + 14 * u + k * 5 * u
+                    val bh = (3 + k * 2.5f) * u
+                    canvas.drawRect(bx, top + 66 * u - bh, bx + 3.5f * u, top + 66 * u, Hud.fill(if (k < bars) Hud.HOT else Hud.alpha(Hud.CRIMSON, .25f)))
                 }
+                val detail = listOfNotNull(n?.kind, n?.detail?.takeIf { it.isNotBlank() }, if (n?.metered == true && n.kind == "WI-FI") "METERED" else null).distinct().joinToString(" · ")
+                canvas.drawText(detail, r.left + 38 * u, top + 66 * u, Hud.fit(detail, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .12f), r.width() - 110 * u))
+                if (n?.vpn == true) {
+                    val vp = Hud.text(7.5f * u, Hud.GOLD, Hud.MONO, .12f, Paint.Align.CENTER)
+                    val vr = RectF(r.right - 14 * u - vp.measureText("VPN ON") - 12 * u, top + 40 * u, r.right - 14 * u, top + 56 * u)
+                    canvas.drawRect(vr, Hud.stroke(Hud.alpha(Hud.GOLD, .7f), u))
+                    canvas.drawText("VPN ON", vr.centerX(), vr.centerY() + 3 * u, vp)
+                }
+                tap(RectF(r.left, top + 30 * u, r.right, top + 72 * u)) { start(Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)) }
+                // Live speeds.
+                val bw = (r.width() - 28 * u - 8 * u) / 2
+                listOf(Triple("↓ DOWN · LIVE", downRates.toList(), UP), Triple("↑ UP · LIVE", upRates.toList(), Hud.HOT)).forEachIndexed { i, (label, values, color) ->
+                    val c = RectF(r.left + 14 * u + i * (bw + 8 * u), top + 80 * u, r.left + 14 * u + i * (bw + 8 * u) + bw, top + 140 * u)
+                    canvas.drawRect(c, Hud.fill(Hud.alpha(Hud.tint(0xFF0A0305.toInt()), .55f)))
+                    canvas.drawRect(c, Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f), u))
+                    canvas.drawText(label, c.left + 7 * u, c.top + 12 * u, Hud.text(6.5f * u, Hud.DUST, Hud.MONO, .12f))
+                    val v = values.lastOrNull()?.let { rate(it) } ?: "…"
+                    canvas.drawText(v, c.left + 7 * u, c.top + 30 * u, Hud.fit(v, Hud.text(15 * u, color, Hud.MONO), c.width() - 14 * u))
+                    rateLine(canvas, values, RectF(c.left + 6 * u, c.top + 36 * u, c.right - 6 * u, c.bottom - 5 * u), color)
+                }
+                val d = data
+                val todayLine = if (d == null) "TODAY'S DATA NEEDS USAGE ACCESS · TAP TO ALLOW ›" else "TODAY · WI-FI ${bytesText(d.first)} · MOBILE ${bytesText(d.second)}"
+                canvas.drawText(todayLine, r.left + 14 * u, r.bottom - 12 * u, Hud.fit(todayLine, Hud.text(7.5f * u, if (d == null) Hud.HOT else Hud.SOFT, Hud.MONO, .12f), r.width() - 28 * u))
+                if (d == null) tap(RectF(r.left, r.bottom - 26 * u, r.right, r.bottom)) { start(DeckData.usageAccessIntent(context)) }
             }
             return top + h
         }
@@ -1485,12 +2108,29 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     button(canvas, trade, "REMOVE ${c.symbol} FROM WATCHLIST") { removeCoin(c.id) }
                 }
             }
+            // Your holding: amount, value and gain, or a prompt to add it.
+            val hr = RectF(14 * u, top + h + 8 * u, width - 14 * u, top + h + 64 * u)
+            panel(canvas, hr, Hud.GOLD)
+            val held = holdings[c.id]
+            canvas.drawText("◆ YOUR ${c.symbol}", hr.left + 14 * u, hr.top + 18 * u, Hud.text(8 * u, Hud.GOLD, Hud.MONO, .16f))
+            if (held == null) {
+                canvas.drawText("Add how much you hold to see your portfolio.", hr.left + 14 * u, hr.top + 40 * u, Hud.text(11 * u, Hud.SOFT, Hud.SANS))
+            } else {
+                val worth = held.amount * c.price
+                canvas.drawText(java.math.BigDecimal(held.amount).round(java.math.MathContext(8)).stripTrailingZeros().toPlainString() + " ${c.symbol} = " + Markets.money(worth), hr.left + 14 * u, hr.top + 40 * u, Hud.text(13 * u, Color.WHITE, Hud.MONO))
+                held.cost?.let { cost ->
+                    val g = worth - cost
+                    canvas.drawText((if (g >= 0) "+" else "−") + Markets.money(abs(g)) + " · %.1f%%".format(Locale.ROOT, if (cost > 0) g / cost * 100 else 0.0), hr.right - 14 * u, hr.top + 18 * u, Hud.text(8 * u, if (g >= 0) UP else DOWN, Hud.MONO, align = Paint.Align.RIGHT))
+                }
+            }
+            canvas.drawText("✎ EDIT", hr.right - 14 * u, hr.top + 40 * u, Hud.text(8.5f * u, Hud.HOT, Hud.MONO, .14f, Paint.Align.RIGHT))
+            tap(hr) { editHolding(c) }
             if (Markets.exchange(context) != null) {
-                val rr = RectF(14 * u, top + h + 8 * u, width - 14 * u, top + h + 32 * u)
+                val rr = RectF(14 * u, hr.bottom + 8 * u, width - 14 * u, hr.bottom + 32 * u)
                 button(canvas, rr, "REMOVE ${c.symbol} FROM WATCHLIST") { removeCoin(c.id) }
                 return rr.bottom
             }
-            return top + h
+            return hr.bottom
         }
 
         private fun scrubPrice(): Double? {
@@ -1653,7 +2293,51 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             if (customizing && dragTouch(event)) return true
             // A coin's chart: a finger on it scrubs the price instead of scrolling.
             if (coinId != null && scrubTouch(event)) return true
+            // The calendar: a swipe up or down on the month turns it.
+            if (calTouch(event)) return true
             return gestures.onTouchEvent(event)
+        }
+
+        private var calDownX = 0f
+        private var calDownY = Float.NaN
+        private var calSwiping = false
+
+        private fun calTouch(e: MotionEvent): Boolean {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    calSwiping = false
+                    calDownY = if (!calGrid.isEmpty && calGrid.contains(e.x, e.y - oy)) e.y else Float.NaN
+                    calDownX = e.x
+                    return false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (calDownY.isNaN()) return false
+                    val dy = e.y - calDownY
+                    val dx = e.x - calDownX
+                    if (!calSwiping && abs(dy) > 18 * u && abs(dy) > abs(dx)) {
+                        calSwiping = true
+                        // The page stays put while the month turns.
+                        val cancel = MotionEvent.obtain(e).apply { action = MotionEvent.ACTION_CANCEL }
+                        gestures.onTouchEvent(cancel)
+                        cancel.recycle()
+                    } else if (!calSwiping && abs(dx) > 18 * u) {
+                        calDownY = Float.NaN
+                        return false
+                    }
+                    return calSwiping
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val swiped = calSwiping
+                    if (swiped && e.actionMasked == MotionEvent.ACTION_UP) {
+                        val dy = e.y - calDownY
+                        if (abs(dy) > 40 * u) shiftMonth(if (dy < 0) 1 else -1)
+                    }
+                    calSwiping = false
+                    calDownY = Float.NaN
+                    return swiped
+                }
+            }
+            return false
         }
 
         private fun dragTouch(e: MotionEvent): Boolean {
@@ -1874,6 +2558,85 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         coins = coins.filter { it.id != id }
         coinId = null
         board.invalidate()
+    }
+
+    private fun confirm(question: String, onYes: () -> Unit) {
+        AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(question)
+            .setPositiveButton("REMOVE") { _, _ -> onYes(); board.invalidate() }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    /** A new event on [day] in Google Calendar (or whichever calendar app), at 9:00, or the next hour today. */
+    private fun addEvent(day: LocalDate) {
+        val nowTime = LocalDateTime.now()
+        val begin = if (day == LocalDate.now()) nowTime.plusHours(1).withMinute(0).withSecond(0).withNano(0) else day.atTime(9, 0)
+        val ms = begin.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val intent = Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI)
+            .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, ms)
+            .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, ms + 3600_000L)
+        start(Intent(intent).setPackage(com.eldablos.crimson.CrimsonWidgetProvider.GOOGLE_CALENDAR), intent)
+    }
+
+    private fun pickCities() {
+        val cities = DeckStore.CITIES.filter { it.second != ZoneId.systemDefault().id }
+        val checked = BooleanArray(cities.size) { cities[it].second in clockZones }
+        AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("◆ CITIES (UP TO 5)")
+            .setMultiChoiceItems(cities.map { it.first }.toTypedArray(), checked) { _, i, on -> checked[i] = on }
+            .setPositiveButton("SAVE") { _, _ ->
+                clockZones = cities.filterIndexed { i, _ -> checked[i] }.map { it.second }.take(5)
+                DeckStore.setClocks(context, clockZones)
+                board.invalidate()
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
+    }
+
+    private fun addCountdown() {
+        val name = field("What's happening, e.g. Holiday")
+        dialog("◆ NEW COUNTDOWN", name, "PICK DATE") {
+            val n = name.text.toString().trim()
+            if (n.isEmpty()) return@dialog
+            val d = LocalDate.now().plusDays(7)
+            android.app.DatePickerDialog(context, { _, y, m, day ->
+                countdowns = (countdowns + DeckStore.Countdown(n, LocalDate.of(y, m + 1, day), LocalDate.now())).sortedBy { it.date }
+                DeckStore.setCountdowns(context, countdowns)
+                board.invalidate()
+            }, d.year, d.monthValue - 1, d.dayOfMonth).apply { datePicker.minDate = System.currentTimeMillis() }.show()
+        }
+    }
+
+    private fun addHabit() {
+        val f = field("A daily habit, e.g. Stretch")
+        dialog("◆ NEW HABIT", f, "ADD") {
+            val n = f.text.toString().trim()
+            if (n.isNotEmpty() && habits.none { it.name.equals(n, true) }) {
+                habits = habits + DeckStore.Habit(n, emptySet())
+                DeckStore.setHabits(context, habits)
+            }
+        }
+    }
+
+    /** How much of a coin you hold, and optionally what it all cost, for the portfolio total. */
+    private fun editHolding(c: Markets.Coin) {
+        val old = holdings[c.id]
+        val amount = field("How many ${c.symbol}, e.g. 0.05", old?.amount?.let { java.math.BigDecimal(it).stripTrailingZeros().toPlainString() } ?: "")
+        val cost = field("What it cost in all, in £ (optional)", old?.cost?.let { "%.2f".format(Locale.ROOT, it) } ?: "")
+        amount.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+        cost.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+        val box = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(amount)
+            addView(cost)
+        }
+        dialog("◆ YOUR ${c.symbol}", box, "SAVE") {
+            val a = amount.text.toString().replace(',', '.').toDoubleOrNull()
+            val k = cost.text.toString().replace(',', '.').replace("£", "").toDoubleOrNull()
+            DeckStore.setHolding(context, c.id, a?.let { DeckStore.Holding(it, k) })
+            holdings = DeckStore.holdings(context)
+        }
     }
 
     companion object {

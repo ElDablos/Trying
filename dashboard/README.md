@@ -99,8 +99,10 @@ back to One UI Home the same way at any time.
   queue button.
 - **Swipes**: down for the Comms Centre, up for the Hive Map, right for the Game Hub, left for the
   Command Deck.
-- **Command Deck**: a live **briefing** under the clock (what's next, rain, how long the battery lasts,
-  your alarm, unread messages, countdowns and the biggest crypto mover), then Ask Claude (type or speak;
+- **Command Deck**: a live **briefing** under the clock: a CLEAR / BUSY / ALERT lamp, a headline of the
+  most pressing thing, the next 12 hours as a strip (night, rain, events, alarm), and lines most urgent
+  first (what's next, rain, battery, alarm, unread, focus, habits, countdowns, markets), each opening its
+  place; from 19:00 it briefs on tomorrow; read it aloud or hand it to Claude to plan the day, then Ask Claude (type or speak;
   it starts a new chat in the Claude app, and your recent questions are a tap away), then the agenda; a
   full-month **calendar** of your Google (or any synced) calendars, with a dot per event in its colour:
   use ‹ TODAY › to change month, tap a day for its events and *+ Add* there; **notes**; **comms** (the apps with messages waiting, then each message with the sender's photo,

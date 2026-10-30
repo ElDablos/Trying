@@ -1825,7 +1825,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (!handsOnClock()) return needHands("deleting alarms")
         val what = when {
             time != null -> "your ${time.format(tf)} alarm"
-            hour != null -> "all your ${hourName(hour)} alarms, ${"%02d".format(hour)}:00 to ${"%02d".format(hour)}:59"
+            hour != null -> "all your ${hourName(hour)} alarms (${"%02d".format(hour)}:00 to ${"%02d".format(hour)}:59)"
             else -> "all your alarms"
         }
         val kept = JarvisRules.keptAlarms(context)

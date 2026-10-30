@@ -130,15 +130,27 @@ back to One UI Home the same way at any time.
   letter rail). **Player stats** shows your level and rank, the week's playtime by day, top games and
   achievements. Tapping a game only selects it. The GAMES node opens it too. **⋮** next to Launch, or
   holding a game tile, offers Launch, Remove from Arcade, App info and **Uninstall**.
-- **Jarvis**: your assistant, on the **JARVIS** button under the music bar, ◉ JARVIS on the briefing, or
-  his own **Jarvis** icon (set the side key's double press to open it). Talk or type: "brief me",
-  "continue from the news", "go back a bit", "stop"; "am I working tomorrow?", "what's on Friday?",
-  "will it rain tomorrow?"; "add Dentist on Monday at 3pm to my calendar", "remind me to call the bank",
-  "read my notes"; "any emails from Even Us?", "any messages?"; "set a timer for 10 minutes", "wake me up
-  at 6:30", torch, volume, do not disturb, music; "call Mum", "WhatsApp Tom saying I'm on my way" (opens
-  the chat with it typed, you tap send), "text…", "open Spotify", "turn the lights on" (opens Tapo);
-  bitcoin, news, countdowns, habits and focus. Speech is recognised on the phone where it can be, and he
-  learns what you ask at each time of day, which apps and people you mean, all kept on the phone.
+- **Jarvis**: your assistant, on the **JARVIS** button under the music bar (hold it to type), ◉ JARVIS on
+  the briefing, or his own **Jarvis** icon (set the side key's double press to open it). Talk or type,
+  and he answers out loud, typed out, with a HUD card and buttons:
+  - **Your day**: "brief me", "continue from the news", "am I working tomorrow?" *and Friday?*, "what's on
+    Monday?", "will it rain tomorrow?", "any emails from Even Us?", "any messages?".
+  - **Doing things**: calendar events and notes, alarms ("set an alarm for my next shift"), timers,
+    torch, volume, do not disturb, music, focus, habits; "call Mum" (he checks first), "WhatsApp Tom
+    saying I'm on my way" (opens the chat with it typed), "text her instead", "open Spotify".
+  - **Follow-ups and undo**: he keeps the thread ("make it 6:30", "move it to Friday", "call her"),
+    and **↺ Undo** (or "undo that") takes back what he just did.
+  - **Hands**: switch on *Jarvis Hands* in Accessibility and he works other apps: "turn on the bedroom
+    light" opens Tapo, taps its switch and comes back. "Learn the fan in SmartThings" and he watches you
+    do it once, then does it himself. Idle (watching no app) until asked.
+  - **Routines**: "good night" (do not disturb, an alarm for your next shift, tomorrow's plan),
+    "good morning" (the briefing), "leaving work", "focus mode", and your own in ⚙ → Routines.
+  - **Memory**: "remember my locker code is 4412" / "what's my locker code?"; "remember Tom's
+    birthday is 3 March" adds a countdown; "my boss" works once he knows who that is.
+  - **Speaking up**: no alarm before an early shift, rain on the way in, birthdays, the evening
+    wind-down and a flat battery at bedtime, as notifications with a button and on his home button.
+  - **Personality**: Butler, Witty or Brief; voice, chimes, wind-down time and more in ⚙.
+  Speech is recognised on the phone where it can be; everything he learns stays on the phone.
   Anything he can't do he offers to hand to Claude.
 - **Messages on the home screen** slide up into the space under the music bar: tap to open, REPLY to
   answer in the Comms Centre, or swipe it down to dismiss it (it stays in the Comms Centre).

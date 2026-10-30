@@ -208,6 +208,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         registerReceiver(unlocked, IntentFilter(Intent.ACTION_USER_PRESENT), RECEIVER_NOT_EXPORTED)
         home.boot()
         if (fromJarvisShortcut(intent)) handler.postDelayed({ openJarvis(listen = true) }, 400)
+        else if (jarvisExtras(intent)) handler.postDelayed({ handleJarvis(intent) }, 400)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -252,6 +253,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         effects.running = effectsOn() && !overlayOpen()
         onComms()
         showNodes()
+        refreshJarvisAlerts()
         handler.removeCallbacks(tick)
         tick.run()
         refreshIfStale()
@@ -266,6 +268,11 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // Back from Jarvis's hands, or a heads-up's button.
+        if (jarvisExtras(intent)) {
+            handleJarvis(intent)
+            return
+        }
         // The Jarvis shortcut (side key, or its icon): straight to him, listening.
         if (fromJarvisShortcut(intent)) {
             if (jarvis.visibility != View.VISIBLE) openJarvis(listen = true) else jarvis.listen()
@@ -286,7 +293,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
-            jarvis.visibility == View.VISIBLE -> closeJarvis()
+            jarvis.visibility == View.VISIBLE -> if (!jarvis.back()) closeJarvis()
             deck.visibility == View.VISIBLE -> if (!deck.back()) closeDeck()
             weather.visibility == View.VISIBLE -> if (!weather.back()) closeWeather()
             hub.visibility == View.VISIBLE -> if (!hub.back()) closeGames()
@@ -479,6 +486,41 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     private fun fromJarvisShortcut(intent: Intent?) = intent?.component?.className?.endsWith(".JarvisShortcut") == true
 
+    private fun jarvisExtras(intent: Intent?) = intent != null &&
+        (intent.hasExtra(JarvisHands.EXTRA_NOTE) || intent.hasExtra(JarvisProactive.EXTRA_SAY) || intent.hasExtra(JarvisProactive.EXTRA_INSIGHT))
+
+    /** Jarvis reporting back from another app, or a notification's button: open him and carry on. */
+    private fun handleJarvis(intent: Intent) {
+        val note = intent.getStringExtra(JarvisHands.EXTRA_NOTE)
+        val say = intent.getStringExtra(JarvisProactive.EXTRA_SAY)
+        val insight = intent.getStringExtra(JarvisProactive.EXTRA_INSIGHT)
+        intent.removeExtra(JarvisHands.EXTRA_NOTE)
+        intent.removeExtra(JarvisProactive.EXTRA_SAY)
+        intent.removeExtra(JarvisProactive.EXTRA_INSIGHT)
+        if (say != null && insight != null) JarvisProactive.dismiss(this, insight)
+        val open = jarvis.visibility == View.VISIBLE
+        if (!open) {
+            for (v in listOf(weather, hub, apps, comms)) if (v.visibility == View.VISIBLE) { v.animate().cancel(); v.visibility = View.GONE }
+            backdrop(true)
+        }
+        when {
+            note != null -> jarvis.note(note)
+            say != null -> {
+                if (!open) jarvis.show(listen = false, greet = false)
+                jarvis.submit(say)
+            }
+            !open -> jarvis.show(listen = false)
+        }
+    }
+
+    /** The number on the home screen's Jarvis button. */
+    private fun refreshJarvisAlerts() {
+        Thread {
+            val n = try { JarvisProactive.unseen(this) } catch (e: Exception) { 0 }
+            runOnUiThread { home.jarvisAlerts = n }
+        }.start()
+    }
+
     /** Jarvis comes up over whatever's showing; over a briefing being read, he pauses it and listens. */
     override fun openJarvis(listen: Boolean) {
         if (jarvis.visibility == View.VISIBLE) return
@@ -486,10 +528,13 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         if (midBriefing) deck.stopBriefing()
         backdrop(true)
         jarvis.show(listen, greet = !midBriefing)
+        if (!listen && !midBriefing) handler.postDelayed({ jarvis.type() }, 300)
+        home.jarvisAlerts = 0
     }
 
     private fun closeJarvis() {
         jarvis.hide()
+        refreshJarvisAlerts()
         handler.postDelayed({ backdrop(false) }, 200)
     }
 

@@ -35,6 +35,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- Jarvis's heads-ups: no alarm before a shift, rain on the way in, the evening wind-down. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
@@ -122,6 +124,21 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Jarvis Hands: taps buttons in other apps for him (Tapo lights, anything you teach him). Idle and
+             listening to no app at all until he has a job. -->
+        <service
+            android:name=".launcher.JarvisHands"
+            android:exported="true"
+            android:label="Jarvis Hands"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/jarvis_hands" />
+        </service>
 
         <!-- Jarvis on his own icon: set the side key's double press to open it and he's straight up, listening. -->
         <activity-alias

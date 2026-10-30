@@ -67,6 +67,66 @@ object JarvisMemory {
     fun rememberPerson(context: Context, key: String, name: String, number: String) =
         prefs(context).edit().putString("person:$key", "$name\t$number").apply()
 
-    /** Forgets everything learnt. */
-    fun forget(context: Context) = prefs(context).edit().clear().apply()
+    /** Forgets everything learnt (settings stay as they are). */
+    fun forget(context: Context) {
+        val p = prefs(context)
+        val e = p.edit()
+        p.all.keys.filter { !it.startsWith("set:") }.forEach { e.remove(it) }
+        e.apply()
+    }
+
+    // --- Facts you've asked him to remember ---
+
+    class Fact(val key: String, val value: String, val at: Long)
+
+    fun facts(context: Context): List<Fact> = prefs(context).all.entries.filter { it.key.startsWith("fact:") }.mapNotNull { (k, v) ->
+        (v as? String)?.split('\t')?.takeIf { it.size == 2 }?.let { Fact(k.removePrefix("fact:"), it[1], it[0].toLongOrNull() ?: 0L) }
+    }.sortedByDescending { it.at }
+
+    fun remember(context: Context, key: String, value: String) =
+        prefs(context).edit().putString("fact:$key", "${System.currentTimeMillis()}\t$value").apply()
+
+    fun forgetFact(context: Context, key: String) = prefs(context).edit().remove("fact:$key").apply()
+
+    /** The fact closest to [key]: exact, then one containing it ("code" finds "locker code"). */
+    fun recall(context: Context, key: String): Fact? {
+        val all = facts(context)
+        return all.firstOrNull { it.key == key } ?: all.firstOrNull { it.key.contains(key) || key.contains(it.key) }
+            ?: all.firstOrNull { f -> key.split(' ').filter { it.length > 2 }.any { w -> f.key.split(' ').contains(w) } }
+    }
+
+    // --- How he behaves ---
+
+    enum class Persona(val label: String, val blurb: String) {
+        BUTLER("BUTLER", "Formal, warm, the odd \"sir\""),
+        WITTY("WITTY", "Dry humour, still gets it done"),
+        BRIEF("BRIEF", "Straight to the point"),
+    }
+
+    fun persona(context: Context): Persona = try {
+        Persona.valueOf(prefs(context).getString("set:persona", null) ?: "BUTLER")
+    } catch (e: Exception) {
+        Persona.BUTLER
+    }
+
+    fun setPersona(context: Context, p: Persona) = prefs(context).edit().putString("set:persona", p.name).apply()
+
+    fun sounds(context: Context) = prefs(context).getBoolean("set:sounds", true)
+    fun setSounds(context: Context, on: Boolean) = prefs(context).edit().putBoolean("set:sounds", on).apply()
+
+    /** Whether he speaks up on his own: insights on the home screen and as notifications. */
+    fun proactive(context: Context) = prefs(context).getBoolean("set:proactive", true)
+    fun setProactive(context: Context, on: Boolean) = prefs(context).edit().putBoolean("set:proactive", on).apply()
+
+    /** Minutes after midnight for the evening wind-down, or -1 for none. */
+    fun windDown(context: Context) = prefs(context).getInt("set:winddown", 21 * 60 + 30)
+    fun setWindDown(context: Context, minutes: Int) = prefs(context).edit().putInt("set:winddown", minutes).apply()
+
+    /** How long before a shift's start he sets the alarm for it. */
+    fun alarmLead(context: Context) = prefs(context).getInt("set:lead", 75)
+    fun setAlarmLead(context: Context, minutes: Int) = prefs(context).edit().putInt("set:lead", minutes).apply()
+
+    /** Ask before calling or messaging someone. */
+    fun confirmCalls(context: Context) = prefs(context).getBoolean("set:confirm", true)
+    fun setConfirmCalls(context: Context, on: Boolean) = prefs(context).edit().putBoolean("set:confirm", on).apply()
 }

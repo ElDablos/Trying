@@ -69,4 +69,65 @@ class JarvisTest {
         assertEquals(Command.Focus(25), p("Start a focus session"))
         assertTrue(p("Sing me a song about llamas") is Command.Unknown)
     }
+
+    @Test
+    fun conversation() {
+        assertEquals(Command.Yes, p("Yes please"))
+        assertEquals(Command.Yes, p("Go ahead"))
+        assertEquals(Command.No, p("No thanks"))
+        assertEquals(Command.Undo, p("Undo that"))
+        assertEquals(Command.Repeat, p("Say that again"))
+        assertEquals(Command.FollowUp(LocalDate.of(2026, 11, 6)), p("And Friday?"))
+        assertEquals(Command.FollowUp(today.plusDays(1)), p("What about tomorrow?"))
+        assertEquals(Command.FollowUp(null, nextWeek = true), p("And next week?"))
+        assertEquals(Command.Amend(null, LocalTime.of(6, 30)), p("Make it 6:30"))
+        assertEquals(Command.Amend(LocalDate.of(2026, 11, 2), null), p("Move it to Monday"))
+        assertEquals(Command.Text("her", null), p("Actually, text her instead"))
+        assertEquals(Command.Persona("WITTY"), p("Be more witty"))
+        assertEquals(Command.Settings, p("Open your settings"))
+        assertEquals(Command.OpenApp("settings"), p("Open settings"))
+    }
+
+    @Test
+    fun memoryAndDays() {
+        assertEquals(Command.Remember("locker code", "4412"), p("Remember my locker code is 4412"))
+        assertEquals(Command.Remember("tom's birthday", "3 March"), p("Remember Tom's birthday is 3 March"))
+        assertEquals(Command.Recall("locker code"), p("What's my locker code?"))
+        assertEquals(Command.Recall("tom's birthday"), p("When is Tom's birthday?"))
+        assertEquals(Command.Forget("locker code"), p("Forget my locker code"))
+        assertEquals(Command.Forget("*"), p("Forget everything"))
+        assertEquals(Command.AddNote("buy bread"), p("Remember to buy bread"))
+        assertEquals(LocalDate.of(2027, 3, 3), JarvisParser.dateIn("3 March", today))
+        assertEquals(LocalDate.of(2026, 12, 25), JarvisParser.dateIn("december 25th", today))
+        assertEquals(Command.Agenda(7), p("What's on next Friday"))
+        assertEquals(Command.Weather(1), p("What's the weather tomorrow"))
+        assertEquals(Command.Shift(3), p("Am I working on Monday?"))
+    }
+
+    @Test
+    fun handsAndRoutines() {
+        assertEquals(Command.Lights(true, "bedroom light"), p("Turn on the bedroom light"))
+        assertEquals(Command.Lights(false, "bedroom light"), p("Turn the bedroom light off"))
+        assertEquals(Command.Switch("fan", true), p("Turn on the fan"))
+        assertEquals(Command.Teach("bedroom light", null), p("Learn the bedroom light"))
+        assertEquals(Command.Teach("fan", "smartthings"), p("Learn how to turn on the fan in SmartThings"))
+        assertEquals(Command.Press("Start", "tapo"), p("Press Start in Tapo"))
+        assertEquals(Command.ShiftAlarm, p("Set an alarm for my next shift"))
+        assertEquals(Command.NewRoutine, p("Create a routine"))
+    }
+
+    @Test
+    fun routinesAndSounds() {
+        val all = JarvisRoutines.DEFAULTS
+        assertEquals("night", JarvisRoutines.match(all, "Good night, Jarvis")?.id)
+        assertEquals("night", JarvisRoutines.match(all, "I'm going to bed")?.id)
+        assertEquals("focus", JarvisRoutines.match(all, "Run focus mode")?.id)
+        assertEquals("leaving", JarvisRoutines.match(all, "Jarvis, I'm leaving work please")?.id)
+        assertEquals(null, JarvisRoutines.match(all, "Good night sweet prince of Denmark"))
+        // Every step of the ready-made routines is something he understands.
+        for (r in all) for (step in r.steps) assertTrue("$step", p(step) !is Command.Unknown)
+        val chime = JarvisSound.synth(JarvisSound.Cue.LISTEN)
+        assertEquals(44_100 * 180 / 1000, chime.size)
+        assertTrue(chime.maxOf { it.toInt() } < Short.MAX_VALUE * .3)
+    }
 }

@@ -71,6 +71,12 @@ class RefreshJob : JobService() {
             CrimsonWidgetProvider.refreshAll(context)
             // Picks up newly installed games and fresh playtime.
             ArcadeWidgetProvider.refresh(context)
+            // Jarvis speaking up: no alarm before a shift, rain on the way in, the wind-down.
+            if (background) try {
+                com.eldablos.crimson.launcher.JarvisProactive.notify(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "Jarvis heads-ups failed", e)
+            }
         }
     }
 }

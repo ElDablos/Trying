@@ -926,9 +926,28 @@ class HomeView(context: Context) : View(context) {
         for (k in 0..2) canvas.drawArc(box, k * 120f + 20f, 80f, false, arc)
         canvas.drawCircle(ox, cy, (3 + breath) * u, Hud.glow(Hud.fill(Color.WHITE), 8 * u, Hud.HOT))
         canvas.drawText("JARVIS", r.left + 42 * u, cy + 4.5f * u, Hud.text(12 * u, Color.WHITE, Hud.MONO_BOLD, .3f))
-        canvas.drawText("TAP · TALK", r.right - 14 * u, cy + 3 * u, Hud.text(6.5f * u, Hud.alpha(Hud.DUST, .9f), Hud.MONO, .12f, Paint.Align.RIGHT))
-        hits.add(0, RectF(r.left - 6 * u, r.top - 6 * u, r.right + 6 * u, r.bottom + 6 * u) to { host?.openJarvis(listen = true) })
+        if (jarvisAlerts > 0) {
+            // He's got something to tell you: a hot dot and the count.
+            val label = "$jarvisAlerts HEADS-UP"
+            canvas.drawCircle(r.right - 16 * u - Hud.text(6.5f * u, Hud.HOT, Hud.MONO_BOLD, .12f).measureText(label) - 7 * u, cy, (2.5f + breath) * u, Hud.glow(Hud.fill(Hud.HOT), 6 * u))
+            canvas.drawText(label, r.right - 14 * u, cy + 3 * u, Hud.text(6.5f * u, Hud.HOT, Hud.MONO_BOLD, .12f, Paint.Align.RIGHT))
+        } else {
+            canvas.drawText("TAP · TALK", r.right - 14 * u, cy + 3 * u, Hud.text(6.5f * u, Hud.alpha(Hud.DUST, .9f), Hud.MONO, .12f, Paint.Align.RIGHT))
+        }
+        jarvisRect.set(r.left - 6 * u, r.top - 6 * u, r.right + 6 * u, r.bottom + 6 * u)
+        hits.add(0, RectF(jarvisRect) to { host?.openJarvis(listen = true) })
     }
+
+    private val jarvisRect = RectF()
+
+    /** Things Jarvis wants to tell you, shown on his button. */
+    var jarvisAlerts = 0
+        set(v) {
+            if (field != v) {
+                field = v
+                invalidate()
+            }
+        }
 
     // --- Call bar ---
 
@@ -1333,6 +1352,11 @@ class HomeView(context: Context) : View(context) {
 
     private fun longPress(x: Float, y: Float) {
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        // Hold Jarvis to type to him instead.
+        if (!jarvisRect.isEmpty && jarvisRect.contains(x, y) && incoming == null && calls.isEmpty()) {
+            host?.openJarvis(listen = false)
+            return
+        }
         val cx = width / 2f
         if (open >= 0) {
             orbitAt(x, y)?.let { (c, _) ->

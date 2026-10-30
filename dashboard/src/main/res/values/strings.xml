@@ -17,4 +17,5 @@
     <string name="buds_bluetooth_off">Bluetooth is off</string>
     <string name="buds_connect_failed">Couldn\'t reach your Buds. Make sure they\'re out of the case and connected.</string>
     <string name="buds_disconnect">Disconnect</string>
+    <string name="hands_description">Lets Jarvis work your other apps for you, the way you would: switching your Tapo lights on and off, and pressing buttons he has watched you press once. It stays idle, watching no app at all, until you ask him to do something, and nothing leaves your phone.</string>
 </resources>

@@ -2268,8 +2268,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (app == null) {
             missed = "app" to name
             val near = nearApps(name)
-            return Reply("I couldn't find an app called $name${sir()}." + if (near.isNotEmpty()) " Did you mean ${near.joinToString(" or ") { it.label }}?" else " What's it called on the phone?",
-                listen = true, actions = near.map { Action(it.label.uppercase(), "open ${it.label}") }, failed = true)
+            val play = Action("GET IT ON GOOGLE PLAY", primary = near.isEmpty(), run = {
+                val e = android.net.Uri.encode(name)
+                start(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://search?q=$e&c=apps")).setPackage("com.android.vending"),
+                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/search?q=$e&c=apps")))
+            })
+            return Reply("I couldn't find an app called $name${sir()}." + if (near.isNotEmpty()) " Did you mean ${near.joinToString(" or ") { it.label }}?" else " It isn't on the phone; shall I look for it on Google Play?",
+                listen = true, actions = near.map { Action(it.label.uppercase(), "open ${it.label}") } + play, failed = true)
         }
         missed = null
         JarvisMemory.rememberApp(context, name, app.component.flattenToString())

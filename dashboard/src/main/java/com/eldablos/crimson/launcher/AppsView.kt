@@ -39,6 +39,9 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
     private val search = EditText(context)
     private val list = ListView(context)
     private val count = TextView(context)
+
+    /** Where to get an app you don't have: Google Play, Galaxy Store, the web. */
+    private val store = LinearLayout(context)
     private var all: List<AppEntry> = emptyList()
     private var shown: List<AppEntry> = emptyList()
     private var homes: Map<ComponentName, String> = emptyMap()
@@ -87,7 +90,9 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
             })
             setOnEditorActionListener { _, id, event ->
                 if (id == EditorInfo.IME_ACTION_GO || event?.keyCode == KeyEvent.KEYCODE_ENTER) {
+                    // Go with nothing on the phone: straight to Google Play to find it.
                     ((if (hiveMode) hive.bestMatch() else null) ?: shown.firstOrNull()?.component)?.let { onLaunch?.invoke(it) }
+                        ?: query.takeIf { it.isNotEmpty() }?.let { playStore(it) }
                     true
                 } else {
                     false
@@ -138,6 +143,13 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
         val content = FrameLayout(context)
         content.addView(list)
         content.addView(hive)
+        // Nothing on the phone by that name: where to get it.
+        store.orientation = LinearLayout.VERTICAL
+        store.visibility = View.GONE
+        store.isClickable = true
+        store.background = android.graphics.drawable.ColorDrawable(Hud.alpha(Hud.tint(0xFF050203.toInt()), .94f))
+        store.setPadding((4 * u).toInt(), (8 * u).toInt(), (4 * u).toInt(), 0)
+        content.addView(store, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         column.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         hive.onLaunch = { onLaunch?.invoke(it) }
         hive.onList = { setHive(false) }
@@ -196,6 +208,89 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
         }.start()
     }
 
+    /** Opens [intents] in turn until one takes (the store app, then its website). */
+    private fun open(vararg intents: android.content.Intent) {
+        for (i in intents) {
+            try {
+                context.startActivity(i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (e: Exception) {
+                // Try the next.
+            }
+        }
+    }
+
+    private fun playStore(q: String) {
+        val e = android.net.Uri.encode(q)
+        open(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("market://search?q=$e&c=apps")).setPackage("com.android.vending"),
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/search?q=$e&c=apps")))
+    }
+
+    private fun galaxyStore(q: String) {
+        val e = android.net.Uri.encode(q)
+        open(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("samsungapps://SearchResult/?searchKeyword=$e")),
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://galaxystore.samsung.com/search?q=$e")))
+    }
+
+    private fun webSearch(q: String) = open(
+        android.content.Intent(android.content.Intent.ACTION_WEB_SEARCH).putExtra(android.app.SearchManager.QUERY, "$q app"),
+        android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/search?q=" + android.net.Uri.encode("$q app"))),
+    )
+
+    /** "Not on your phone": a line saying so, then Google Play, Galaxy Store and the web, one tap each. */
+    private fun showStore(q: String) {
+        store.removeAllViews()
+        store.addView(TextView(context).apply {
+            text = "“$q” isn't on your phone. Get it:"
+            setTextColor(Theme.readable(Hud.BONE))
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(12.5f) * u)
+            typeface = Hud.SANS
+            setPadding((10 * u).toInt(), (6 * u).toInt(), (10 * u).toInt(), (12 * u).toInt())
+        })
+        fun option(icon: String, title: String, sub: String, primary: Boolean, go: () -> Unit) = LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = Outline(u, Hud.alpha(if (primary) Hud.HOT else Hud.CRIMSON, if (primary) .18f else .1f))
+            setPadding((14 * u).toInt(), (12 * u).toInt(), (14 * u).toInt(), (12 * u).toInt())
+            addView(TextView(context).apply {
+                text = icon
+                setTextColor(Theme.readable(Hud.HOT))
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(18f) * u)
+                gravity = Gravity.CENTER
+            }, LinearLayout.LayoutParams((34 * u).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding((10 * u).toInt(), 0, 0, 0)
+                addView(TextView(context).apply {
+                    text = title
+                    setTextColor(Theme.readable(Color.WHITE))
+                    setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(13.5f) * u)
+                    typeface = Hud.MEDIUM
+                })
+                addView(TextView(context).apply {
+                    text = sub
+                    setTextColor(Hud.DUST)
+                    setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(7f) * u)
+                    typeface = Hud.MONO
+                    letterSpacing = .14f
+                })
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(TextView(context).apply {
+                text = "›"
+                setTextColor(Theme.readable(Hud.HOT))
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(18f) * u)
+            })
+            setOnClickListener {
+                performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                go()
+            }
+        }
+        val gap = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = (8 * u).toInt() }
+        store.addView(option("▶", "Get “$q” on Google Play", "SEARCH THE PLAY STORE · OR PRESS GO", true) { playStore(q) }, gap)
+        store.addView(option("◆", "Search Galaxy Store", "SAMSUNG'S OWN APP STORE", false) { galaxyStore(q) }, LinearLayout.LayoutParams(gap))
+        store.addView(option("⌕", "Search the web", "FIND OUT WHAT IT'S CALLED", false) { webSearch(q) }, LinearLayout.LayoutParams(gap))
+        store.visibility = View.VISIBLE
+    }
+
     private fun filter() {
         val q = query.lowercase()
         shown = if (q.isEmpty()) all else {
@@ -205,6 +300,8 @@ class AppsView(context: Context, private val u: Float) : FrameLayout(context) {
             starts + words + inside
         }
         count.text = if (q.isEmpty()) "◆ ALL APPS · ${all.size}" else "◆ APPS · ${shown.size} ${if (shown.size == 1) "MATCH" else "MATCHES"}"
+        // Nothing on the phone: offer the stores instead of an empty grid.
+        if (q.isNotEmpty() && shown.isEmpty()) showStore(query) else store.visibility = View.GONE
         adapter.notifyDataSetChanged()
         if (hiveMode) hive.setQuery(query)
     }

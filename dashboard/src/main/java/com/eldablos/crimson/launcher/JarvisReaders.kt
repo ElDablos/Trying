@@ -162,7 +162,13 @@ object JarvisReaders {
 
     private fun textOf(n: AccessibilityNodeInfo) = (n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()
 
-    fun airDevicePage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { textOf(it).equals("Controls", true) || textOf(it).equals("Power", true) }
+    /** [n] says [word]: its text, or one line of it (some apps fold a label and its value into one node). */
+    private fun says(n: AccessibilityNodeInfo, word: String): Boolean {
+        val t = textOf(n)
+        return t.equals(word, true) || (t.length < 60 && t.lines().any { it.trim().equals(word, true) })
+    }
+
+    fun airDevicePage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { says(it, "Controls") || says(it, "Power") }
 
     /** On the home screen: the device card to open (the one called [name], or the first). */
     fun airCard(root: AccessibilityNodeInfo, name: String?): AccessibilityNodeInfo? {
@@ -175,12 +181,12 @@ object JarvisReaders {
     fun airIsOff(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { Regex("currently off|device is off|is turned off", RegexOption.IGNORE_CASE).containsMatchIn(textOf(it)) }
 
     fun airPower(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
-        JarvisHands.nodes(root).firstOrNull { textOf(it).equals("Power", true) } ?: powerButton(root)
+        JarvisHands.nodes(root).firstOrNull { says(it, "Power") } ?: powerButton(root)
 
     /** The tappable controls under "Controls", in screen order. */
     private fun controls(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
         val all = JarvisHands.nodes(root)
-        val i = all.indexOfFirst { textOf(it).equals("Controls", true) }
+        val i = all.indexOfFirst { says(it, "Controls") }
         return all.drop(maxOf(0, i)).filter { it.isClickable && it.isEnabled }
     }
 
@@ -300,12 +306,12 @@ object JarvisReaders {
         return list.firstOrNull { l -> w.all { word -> JarvisHands.texts(l.card).any { it.lowercase().contains(word) } } } ?: list.firstOrNull()
     }
 
-    fun tapoLightPage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { textOf(it).equals("Brightness", true) }
+    fun tapoLightPage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { says(it, "Brightness") }
 
     /** The brightness on the light's page, 0–100, and the slider to set it with. */
     fun brightness(root: AccessibilityNodeInfo): Pair<Int?, AccessibilityNodeInfo?> {
         val all = JarvisHands.nodes(root)
-        val label = all.firstOrNull { textOf(it).equals("Brightness", true) } ?: return null to null
+        val label = all.firstOrNull { says(it, "Brightness") } ?: return null to null
         val lb = bounds(label)
         val pct = all.firstOrNull { n -> Regex("^\\d{1,3}%$").matches(textOf(n)) && kotlin.math.abs(bounds(n).centerY() - lb.centerY()) < lb.height() }
             ?.let { textOf(it).trimEnd('%').toIntOrNull() }
@@ -327,7 +333,7 @@ object JarvisReaders {
         val b = slider?.let { bounds(it) } ?: run {
             // No slider to be seen: it's the bar under the "Brightness" label, from the label to the percentage.
             val all = JarvisHands.nodes(root)
-            val label = all.firstOrNull { textOf(it).equals("Brightness", true) } ?: return false
+            val label = all.firstOrNull { says(it, "Brightness") } ?: return false
             val lb = bounds(label)
             val right = all.firstOrNull { Regex("^\\d{1,3}%$").matches(textOf(it)) }?.let { bounds(it).right } ?: (lb.left + lb.width() * 6)
             android.graphics.Rect(lb.left, lb.bottom + lb.height(), right, lb.bottom + lb.height() * 3)
@@ -339,9 +345,9 @@ object JarvisReaders {
     /** The colour dots under "My Presets", left to right. */
     fun presets(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
         val all = JarvisHands.nodes(root)
-        val label = all.firstOrNull { textOf(it).equals("My Presets", true) } ?: return emptyList()
+        val label = all.firstOrNull { says(it, "My Presets") } ?: return emptyList()
         val lb = bounds(label)
-        val below = all.firstOrNull { textOf(it).equals("Brightness", true) }?.let { bounds(it).top } ?: (lb.bottom + lb.height() * 6)
+        val below = all.firstOrNull { says(it, "Brightness") }?.let { bounds(it).top } ?: (lb.bottom + lb.height() * 6)
         return all.filter { n -> n.isClickable && bounds(n).let { b -> b.top > lb.bottom && b.bottom < below && b.width() < lb.width() * 2 } }
             .distinctBy { bounds(it).left / 10 }.sortedBy { bounds(it).left }
     }
@@ -351,7 +357,7 @@ object JarvisReaders {
         val dots = presets(root)
         if (dots.isNotEmpty()) return JarvisHands.press(dots[index.mod(dots.size)])
         val all = JarvisHands.nodes(root)
-        val label = all.firstOrNull { textOf(it).equals("My Presets", true) } ?: return false
+        val label = all.firstOrNull { says(it, "My Presets") } ?: return false
         val lb = bounds(label)
         val w = bounds(root).width().toFloat()
         // The dots don't describe themselves (Tapo draws them), so tap where they sit: a row across the

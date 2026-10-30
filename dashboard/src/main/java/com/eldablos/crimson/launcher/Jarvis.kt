@@ -717,6 +717,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Command.Reboot -> Reply(say("Rebooting, sir. Back in a moment.", "Have you tried turning me off and on again? Rebooting.", "Rebooting."),
             afterSpeech = true, then = { reboot(context) }, card = Card("⟳", "REBOOT", "RESTARTING", "everything restarts; Hands reconnect", tone = Tone.HOT))
         Command.SystemsCheck -> systemsCheck(rebooted = false)
+        Command.HandsLog -> {
+            val log = JarvisHands.lastLog(context)
+            if (log == null) Reply("I haven't worked an app since I was installed${sir()}. Ask me to do something in one first.")
+            else Reply("Here's what I did and saw last time, sir. Send it on and it'll show exactly where I got stuck.",
+                card = Card("✋", "HANDS LOG", "${log.lines().size} LINES", log.lines().getOrNull(1).orEmpty(), tone = Tone.GOLD),
+                actions = listOf(Action("SHARE", primary = true, run = { shareText("Jarvis Hands log", log) }), Action("COPY", run = {
+                    context.getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis Hands log", log))
+                })))
+        }
         is Command.TickNote -> tickNote(cmd.what) ?: Reply("I couldn't find that note${sir()}.", listOf("Read my notes"), failed = true)
         is Command.ReadNote -> {
             val i = findNote(cmd.what)
@@ -956,6 +965,16 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             Action(if (day == 0) "TOMORROW" else "TODAY", if (day == 0) "any delays tomorrow" else "how's the tube today"),
             Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") }),
         ))
+    }
+
+    /** Hands [text] to another app (WhatsApp, email, Claude…) through the share sheet. */
+    private fun shareText(title: String, text: String) {
+        try {
+            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_SUBJECT, title).putExtra(Intent.EXTRA_TEXT, text)
+            context.startActivity(Intent.createChooser(send, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            // Nothing to share with.
+        }
     }
 
     /** A web page, in whatever handles it (TfL Go or Citymapper if they claim it, else the browser). */

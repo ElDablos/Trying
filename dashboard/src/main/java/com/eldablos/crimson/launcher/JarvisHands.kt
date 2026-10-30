@@ -75,6 +75,10 @@ class JarvisHands : AccessibilityService() {
     private fun begin(j: Job, timeout: Long) {
         main.removeCallbacksAndMessages(null)
         job = j
+        actions.clear()
+        lastSeen = ""
+        jobStarted = System.currentTimeMillis()
+        act("open ${j.pkg}")
         watch(j.pkg)
         val launch = (j as? Job.Custom)?.open ?: packageManager.getLaunchIntentForPackage(j.pkg)
         if (launch == null) {
@@ -121,6 +125,7 @@ class JarvisHands : AccessibilityService() {
         main.removeCallbacks(attempt)
         if (j !is Job.Learn) main.postDelayed(attempt, POLL)
         val root = appRoot(j.pkg) ?: return
+        see(root)
         when (j) {
             is Job.Run -> {
                 val t = j.skill.steps.getOrNull(j.step) ?: return finish(true, null)
@@ -227,6 +232,7 @@ class JarvisHands : AccessibilityService() {
     private fun finish(ok: Boolean, note: String?) {
         val j = job ?: return
         job = null
+        saveLog(j.pkg, ok, note)
         main.removeCallbacksAndMessages(null)
         watch(null)
         val say = note ?: if (ok) when (j) {
@@ -387,15 +393,20 @@ class JarvisHands : AccessibilityService() {
 
         /** A finger tap at a point on screen, for controls that don't describe themselves (a slider, a colour dot). */
         /** The phone's back button, to step out of a page to the one before. */
-        fun back(): Boolean = instance?.performGlobalAction(GLOBAL_ACTION_BACK) ?: false
+        fun back(): Boolean {
+            act("back")
+            return instance?.performGlobalAction(GLOBAL_ACTION_BACK) ?: false
+        }
 
         fun tapAt(x: Float, y: Float): Boolean = instance?.run {
+            act("tap at ${x.toInt()},${y.toInt()}")
             val path = Path().apply { moveTo(x, y) }
             dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 60)).build(), null, null)
         } ?: false
 
         /** A slow finger drag, for wheels and lists that only move by hand (slow so it doesn't fling). */
         fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long = 550): Boolean = instance?.run {
+            act("swipe ${x1.toInt()},${y1.toInt()} → ${x2.toInt()},${y2.toInt()}")
             val path = Path().apply { moveTo(x1, y1); lineTo(x2, y2) }
             dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, ms)).build(), null, null)
         } ?: false
@@ -404,13 +415,69 @@ class JarvisHands : AccessibilityService() {
         fun press(node: AccessibilityNodeInfo): Boolean {
             var n: AccessibilityNodeInfo? = node
             var depth = 0
+            val r = android.graphics.Rect().also { node.getBoundsInScreen(it) }
             while (n != null && depth < 5) {
-                if (n.isClickable && n.isEnabled) return n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (n.isClickable && n.isEnabled) {
+                    val done = n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    act("press \"${(node.text ?: node.contentDescription ?: node.className)?.toString()?.take(40)}\" at ${r.centerX()},${r.centerY()}${if (depth > 0) " (via parent $depth up)" else ""} → $done")
+                    return done
+                }
                 n = n.parent
                 depth++
             }
             return false
         }
+
+        // --- What he saw and did, to send when something doesn't work ---
+
+        private val actions = ArrayList<String>()
+        private var lastSeen = ""
+        private var jobStarted = 0L
+
+        private fun act(what: String) {
+            if (actions.size < 120) actions += "+${(System.currentTimeMillis() - jobStarted) / 100 / 10.0}s $what"
+        }
+
+        /** The screen as Hands sees it: one line per node, indented, with its text, kind, flags and bounds. */
+        fun dump(root: AccessibilityNodeInfo): String {
+            val sb = StringBuilder()
+            fun go(n: AccessibilityNodeInfo?, depth: Int) {
+                if (n == null || depth > 40 || sb.length > 60_000) return
+                val r = android.graphics.Rect().also { n.getBoundsInScreen(it) }
+                val label = listOfNotNull(n.text?.toString(), n.contentDescription?.toString()?.let { "desc=$it" }, n.viewIdResourceName?.substringAfter('/')?.let { "id=$it" })
+                    .joinToString(" | ").replace('\n', '⏎').take(80)
+                val flags = buildString {
+                    if (n.isClickable) append('C')
+                    if (n.isCheckable) append(if (n.isChecked) "K+" else "K")
+                    if (n.isScrollable) append('S')
+                    if (n.rangeInfo != null) append("R(${n.rangeInfo.current}/${n.rangeInfo.max})")
+                    if (!n.isEnabled) append('-')
+                }
+                if (label.isNotEmpty() || flags.isNotEmpty() || n.childCount == 0)
+                    sb.append("  ".repeat(depth.coerceAtMost(12))).append(n.className?.toString()?.substringAfterLast('.') ?: "?")
+                        .append(' ').append(flags).append(" [${r.left},${r.top},${r.right},${r.bottom}] ").append(label).append('\n')
+                for (i in 0 until n.childCount) go(n.getChild(i), depth + 1)
+            }
+            go(root, 0)
+            return sb.toString()
+        }
+
+        private fun see(root: AccessibilityNodeInfo) {
+            val d = dump(root)
+            if (d != lastSeen) {
+                lastSeen = d
+                act("screen changed (${d.lines().size} nodes)")
+            }
+        }
+
+        private fun JarvisHands.saveLog(pkg: String, ok: Boolean, note: String?) {
+            val text = "Jarvis Hands log · $pkg · ${java.time.LocalDateTime.now().withNano(0)}\n" +
+                "Result: ${if (ok) "done" else "gave up"} · ${note ?: "-"}\n\nSteps:\n${actions.joinToString("\n")}\n\nLast screen (C clickable, K checkable, S scrolls, R slider):\n$lastSeen"
+            prefs(this).edit().putString("log", text).apply()
+        }
+
+        /** The last job's log: what he did and the last screen he saw. */
+        fun lastLog(context: Context): String? = prefs(context).getString("log", null)
 
         /** Every node under [root], for readers. */
         fun nodes(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> = ArrayList<AccessibilityNodeInfo>().also { out -> walk(root) { out += it } }

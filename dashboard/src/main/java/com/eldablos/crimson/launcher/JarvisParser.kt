@@ -130,6 +130,8 @@ object JarvisParser {
         object Reboot : Command()
         /** "Systems check": what's running and what needs you. */
         object SystemsCheck : Command()
+        /** What Hands did and saw last time, to send on. */
+        object HandsLog : Command()
         /** The heating or air con in Air+: on or off, and heat or cool. */
         data class Climate(val on: Boolean?, val mode: String? = null) : Command()
         /** "Set it to 28 degrees"; [by] for "warmer"/"two degrees down". */
@@ -168,6 +170,7 @@ object JarvisParser {
         Regex("^(?:no,? (?:it's called|it's|its|i mean|i meant|i said)|it's called|it is called|its called|it's named|the app is called|i mean|i meant|i said)\\s+(the )?(.+?)( app)?$").find(t)?.let { return Command.Correct(it.groupValues[2].clean()) }
 
         if (Regex("^(restart|reboot|reset|refresh) ?(yourself|jarvis|your systems|all systems|everything|all of jarvis|your hands)?$").matches(t)) return Command.Reboot
+        if (has("hands log", "what did you see", "what you saw", "send me the log", "share the log", "debug log", "send the log", "show me the log")) return Command.HandsLog
         if (has("systems check", "system check", "diagnostics", "status report", "are you working", "are your hands working", "run a check")) return Command.SystemsCheck
 
         // Yes, no, undo: answers to him.

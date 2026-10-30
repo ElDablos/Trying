@@ -742,6 +742,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         heading(body, "SYSTEMS", "Something not working? Restart all of Jarvis: his ears, his hands and the launcher. He reports back.")
         item(body, "Restart Jarvis", "Reconnects his hands and voice, then a systems check", "⟳ RESTART", onButton = { closeSheet(); submit("restart yourself") })
         item(body, "Systems check", "What's running, and what needs you", "CHECK", onButton = { closeSheet(); submit("systems check") })
+        item(body, "Hands log", "What he did and saw in an app last time, to send when something didn't work", "SHARE", onButton = { closeSheet(); submit("send me the hands log") })
         heading(body, "PERSONALITY", "How he talks to you. Say \"be more witty\" any time.")
         val personas = JarvisMemory.Persona.entries
         choice(body, personas.map { it.label }, personas.indexOf(JarvisMemory.persona(context))) { JarvisMemory.setPersona(context, personas[it]) }

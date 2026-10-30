@@ -994,7 +994,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             val l = r.lines.firstOrNull { it.id == line } ?: return Reply("TfL didn't say anything about that line${sir()}.", failed = true)
             val word = dayWord(day).removePrefix("on ")
             val say = if (l.fine) "The ${Travel.lineName(l)}'s running fine $word${sir()}."
-            else Travel.clause(l, word).replaceFirstChar { it.uppercase() } + (Travel.why(l).takeIf { it.isNotEmpty() }?.let { ": " + it.trimEnd('.').replaceFirstChar { c -> c.lowercase() } } ?: "") + "."
+            else Travel.clause(l, word).replaceFirstChar { it.uppercase() } + Travel.because(l) + "."
             return Reply(say, card = Card("⇄", "${Travel.lineName(l).uppercase()} · ${word.uppercase()}", l.status.uppercase(), Travel.why(l).ifEmpty { null },
                 tone = if (l.fine) Tone.GREEN else if (l.bad) Tone.HOT else Tone.GOLD),
                 actions = listOf(Action("MY COMMUTE", if (day == 0) "how's the tube" else "any delays tomorrow"), Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") })))

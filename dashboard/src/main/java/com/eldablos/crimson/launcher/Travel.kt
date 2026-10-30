@@ -169,6 +169,14 @@ object Travel {
         return if (first.length > 110) first.take(107).substringBeforeLast(' ') + "…" else first
     }
 
+    /** TfL's reason joined on to a sentence: " due to a signal failure", or ": no service between A and B". */
+    fun because(l: Line): String {
+        val w = why(l).trimEnd('.')
+        if (w.isEmpty()) return ""
+        val lower = w.replaceFirstChar { it.lowercase() }
+        return if (lower.startsWith("due to ") || lower.startsWith("because ")) " $lower" else ": $lower"
+    }
+
     fun lineName(l: Line) = if (l.mode == "tube" || l.mode == "elizabeth-line") "${l.name.removeSuffix(" line")} line" else l.name
 
     /** Whether to plan ahead on [day], for someone who takes [commute] (the usual line first). */
@@ -193,7 +201,7 @@ object Travel {
             plan = usual.bad || okBackup == null
             headline = "${lineName(usual)}: ${usual.status.lowercase()} $day"
             sb.append(clause(usual, day).replaceFirstChar { it.uppercase() })
-            why(usual).takeIf { it.isNotEmpty() }?.let { sb.append(": ").append(it.trimEnd('.').replaceFirstChar { c -> c.lowercase() }) }
+            sb.append(because(usual))
             sb.append(". ")
             sb.append(when {
                 usual.bad && okBackup != null -> "Plan ahead and take the ${lineName(okBackup)}, it's running fine."

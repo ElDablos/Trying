@@ -1838,6 +1838,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun climateJob(app: AppEntry, on: Boolean, mode: String?) {
         var pressed = false
         var waiting = 0
+        var settled = 0
         JarvisHands.custom(app.component.packageName, null, "I couldn't work ${app.label} this time, sir. Show me once: say \"learn the heating in ${app.label}\".", timeout = 45_000) { root, tries ->
             // Air+ takes a few seconds to reach the heater: wait it out (up to half a minute) before tapping.
             if (JarvisReaders.airConnecting(root)) {
@@ -1849,6 +1850,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 return@custom if (t < 10) null else "I couldn't open the heater in ${app.label}, sir."
             }
             if (pressed) return@custom "Done, sir. The heating is ${if (on) "on" else "off"}."
+            // On the heater's page (maybe straight away, if Air+ was left there): give it a moment, and wait
+            // while its controls are greyed out reconnecting.
+            if (++settled < 3 || !JarvisReaders.airReady(root)) return@custom if (++waiting < 45) null else "${app.label} couldn't connect to the heater, sir."
             val off = JarvisReaders.airIsOff(root)
             if (off != on) return@custom "It's already ${if (on) "on" else "off"}, sir."
             val p = JarvisReaders.airPower(root) ?: return@custom if (t < 8) null else "I couldn't find the power button in ${app.label}, sir."
@@ -1883,6 +1887,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var cool = 0
         var powered = false
         var waiting = 0
+        var settled = 0
         var reopened = 0
         var applied = 0
         val job = {
@@ -1913,6 +1918,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                             JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it); cool = 1 } ?: run { if (t == 3 || t == 6) JarvisHands.back() }
                             return@custom if (t < 14) null else "I couldn't open the heater in ${app.label}, sir."
                         }
+                        // Landed on the heater's page (straight away, if Air+ was left there): a moment to settle,
+                        // and no taps while its controls are greyed out reconnecting.
+                        if (++settled < 3 || !JarvisReaders.airReady(root)) return@custom if (++waiting < 45) null else "${app.label} couldn't connect to the heater, sir."
                         if (JarvisReaders.airIsOff(root)) {
                             // Power once, then wait for it to come on.
                             if (!powered) JarvisReaders.airPower(root)?.let { JarvisHands.press(it); powered = true; cool = 2 }

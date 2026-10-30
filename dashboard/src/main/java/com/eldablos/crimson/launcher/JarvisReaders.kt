@@ -184,6 +184,17 @@ object JarvisReaders {
     // then auto, temperature, timer, oscillation and light (philips_control_*), which show no text at all.
     private fun airId(n: AccessibilityNodeInfo) = n.viewIdResourceName?.substringAfter('/').orEmpty()
 
+    /**
+     * The heater's page is live: its controls are there and enabled. Right after Air+ opens (straight on
+     * this page, if that's where you left it) they can be greyed out while it reconnects.
+     */
+    fun airReady(root: AccessibilityNodeInfo): Boolean {
+        val all = JarvisHands.nodes(root)
+        val power = all.firstOrNull { airId(it) == "philips_control_power_btn_id" } ?: return all.any { says(it, "Controls") }
+        val heat = all.firstOrNull { airId(it) == "philips_control_temperature_btn" }
+        return power.isEnabled && (heat == null || heat.isEnabled)
+    }
+
     /** Off: the Power toggle isn't checked, or the page says so ("Your device is currently off."). */
     fun airIsOff(root: AccessibilityNodeInfo): Boolean {
         val all = JarvisHands.nodes(root)

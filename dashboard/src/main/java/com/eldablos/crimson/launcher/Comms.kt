@@ -238,6 +238,38 @@ object Comms {
             ?.toString()?.trim().orEmpty()
     }
 
+    /** The picture a notification carries (a screenshot's preview, a photo someone sent), if any. */
+    fun picture(context: Context, sbn: StatusBarNotification): android.graphics.Bitmap? {
+        val e = sbn.notification.extras ?: return null
+        return try {
+            @Suppress("DEPRECATION")
+            (e.getParcelable(Notification.EXTRA_PICTURE) as? android.graphics.Bitmap)
+                ?: (e.getParcelable(Notification.EXTRA_PICTURE_ICON) as? android.graphics.drawable.Icon)?.loadDrawable(context)?.let { d ->
+                    (d as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                }
+        } catch (e2: Exception) {
+            null
+        }
+    }
+
+    /** A conversation's messages ("Tom: on my way"), oldest first, or the inbox-style lines, when the notification has them. */
+    fun lines(sbn: StatusBarNotification): List<String> {
+        val e = sbn.notification.extras ?: return emptyList()
+        return try {
+            @Suppress("DEPRECATION")
+            val msgs = e.getParcelableArray(Notification.EXTRA_MESSAGES)?.mapNotNull { p ->
+                (p as? android.os.Bundle)?.let { b ->
+                    val who = b.getCharSequence("sender")?.toString() ?: (b.getParcelable("sender_person") as? android.app.Person)?.name?.toString()
+                    val text = b.getCharSequence("text")?.toString() ?: return@let null
+                    if (who.isNullOrBlank()) text else "$who: $text"
+                }
+            }.orEmpty()
+            msgs.ifEmpty { e.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.map { it.toString() }.orEmpty() }
+        } catch (e2: Exception) {
+            emptyList()
+        }
+    }
+
     /** Live progress (a delivery, a download), as 0–1, or null. */
     fun progress(sbn: StatusBarNotification): Float? {
         val e = sbn.notification.extras ?: return null

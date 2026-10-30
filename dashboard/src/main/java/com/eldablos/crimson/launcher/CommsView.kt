@@ -193,7 +193,8 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Hud.fill(Hud.alpha(Hud.tint(0xFF050203.toInt()), .8f)))
+        // Near solid, so the app underneath doesn't show through the text.
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Hud.fill(Hud.alpha(Hud.tint(0xFF050203.toInt()), .97f)))
         canvas.drawRect(0f, 0f, width.toFloat(), height * .5f, Paint().apply {
             shader = RadialGradient(width / 2f, 0f, width.toFloat(), Hud.alpha(Hud.DEEP, .25f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         })
@@ -676,7 +677,9 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             val icon = ImageView(context)
             val bitmap = app?.let { AppCatalog.icon(context, it.component) }
             if (bitmap != null) icon.setImageBitmap(bitmap) else icon.setImageDrawable(sbn.notification.smallIcon?.loadDrawable(context)?.apply { setTint(Hud.CRIMSON) })
-            head.addView(icon, LayoutParams((16 * u).toInt(), (16 * u).toInt()))
+            icon.background = Outline(u, Hud.alpha(Hud.CRIMSON, .14f))
+            icon.setPadding((3 * u).toInt(), (3 * u).toInt(), (3 * u).toInt(), (3 * u).toInt())
+            head.addView(icon, LayoutParams((24 * u).toInt(), (24 * u).toInt()))
             val name = TextView(context)
             style(name, 7.5f, Hud.CRIMSON, .16f)
             name.text = (app?.label ?: sbn.packageName.substringAfterLast('.')).uppercase() +
@@ -698,6 +701,12 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             time.text = Comms.ago(sbn.postTime)
             time.setPadding((8 * u).toInt(), 0, 0, 0)
             head.addView(time)
+            // ⌄ opens it up: the whole message, the picture, the conversation, the rest of the group.
+            val chevron = TextView(context)
+            style(chevron, 12f, Hud.HOT)
+            chevron.text = "⌄"
+            chevron.setPadding((10 * u).toInt(), 0, (2 * u).toInt(), (2 * u).toInt())
+            head.addView(chevron)
             addView(head)
 
             val title = TextView(context)
@@ -710,11 +719,63 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             val body = TextView(context)
             style(body, 11f, Hud.SOFT, face = Hud.SANS)
             body.text = Comms.text(sbn)
-            body.maxLines = 3
+            body.maxLines = 2
             body.ellipsize = TextUtils.TruncateAt.END
             body.setPadding(0, (3 * u).toInt(), 0, 0)
             body.setLineSpacing(2 * u, 1f)
             addView(body)
+
+            // Opened up: everything it has.
+            val more = LinearLayout(context).apply { orientation = VERTICAL; visibility = View.GONE }
+            val lines = Comms.lines(sbn)
+            if (lines.size > 1) lines.takeLast(8).forEach { l ->
+                more.addView(TextView(context).apply {
+                    style(this, 11f, Color.WHITE, face = Hud.SANS)
+                    text = l
+                    setPadding((8 * u).toInt(), (3 * u).toInt(), 0, (3 * u).toInt())
+                    background = android.graphics.drawable.ColorDrawable(Hud.alpha(Hud.CRIMSON, .06f))
+                }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (3 * u).toInt() })
+            }
+            Comms.picture(context, sbn)?.let { bmp ->
+                more.addView(ImageView(context).apply {
+                    setImageBitmap(bmp)
+                    adjustViewBounds = true
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    maxHeight = (260 * u).toInt()
+                    background = Outline(u, Hud.alpha(Color.BLACK, .4f))
+                    setPadding((2 * u).toInt(), (2 * u).toInt(), (2 * u).toInt(), (2 * u).toInt())
+                }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (8 * u).toInt() })
+            }
+            // The rest of this app's notifications.
+            group.items.filter { it.key != sbn.key }.take(5).forEach { other ->
+                more.addView(LinearLayout(context).apply {
+                    orientation = VERTICAL
+                    setPadding((8 * u).toInt(), (6 * u).toInt(), (6 * u).toInt(), (6 * u).toInt())
+                    background = Outline(u, Hud.alpha(Hud.CRIMSON, .06f))
+                    addView(TextView(context).apply { style(this, 11f, Color.WHITE, face = Hud.BOLD); text = Comms.title(other); maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
+                    addView(TextView(context).apply { style(this, 10.5f, Hud.SOFT, face = Hud.SANS); text = Comms.text(other); maxLines = 3; ellipsize = TextUtils.TruncateAt.END })
+                    setOnClickListener {
+                        Comms.open(context, other)
+                        onClose?.invoke()
+                    }
+                }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (6 * u).toInt() })
+            }
+            addView(more)
+            val hasMore = more.childCount > 0 || body.text.length > 90
+            chevron.visibility = if (hasMore) View.VISIBLE else View.GONE
+            val toggle = {
+                android.transition.TransitionManager.beginDelayedTransition(this@Card)
+                val open = more.visibility != View.VISIBLE
+                more.visibility = if (open) View.VISIBLE else View.GONE
+                body.maxLines = if (open) 40 else 2
+                title.maxLines = if (open) 3 else 1
+                chevron.text = if (open) "⌃" else "⌄"
+            }
+            chevron.setOnClickListener { toggle() }
+            setOnLongClickListener {
+                if (hasMore) toggle()
+                hasMore
+            }
 
             Comms.progress(sbn)?.let { p ->
                 addView(ProgressLine(context, u, p), LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (4 * u).toInt()).apply { topMargin = (8 * u).toInt() })
@@ -1103,7 +1164,7 @@ class CardShape(private val u: Float, private val accent: Int = Hud.HOT) : Drawa
         val r = RectF(bounds)
         val path = Hud.cut(r, 12 * u)
         canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(r.left, 0f, r.right, 0f, Hud.alpha(Hud.BLOOD, .55f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .85f), Shader.TileMode.CLAMP)
+            shader = LinearGradient(r.left, 0f, r.right, 0f, Hud.alpha(Hud.tint(0xFF1A070C.toInt()), .98f), Hud.alpha(Hud.tint(0xFF0C0406.toInt()), .98f), Shader.TileMode.CLAMP)
         })
         canvas.drawPath(path, Hud.stroke(Hud.alpha(Hud.CRIMSON, .45f), u))
         canvas.drawRect(r.left, r.top + 12 * u, r.left + 2 * u, r.bottom - 12 * u, Hud.glow(Hud.fill(accent), 5 * u))

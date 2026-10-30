@@ -30,7 +30,13 @@ class JarvisTest {
     fun notesAndCalendar() {
         assertEquals(Command.AddNote("Buy milk"), p("Add Buy milk to my notes"))
         assertEquals(Command.AddNote("call the bank"), p("Remind me to call the bank"))
-        assertEquals(Command.AddEvent("call the bank", today.plusDays(1), LocalTime.of(10, 0)), p("Remind me to call the bank tomorrow at 10"))
+        // Notes unless he's told the calendar.
+        assertEquals(Command.AddNote("call the bank tomorrow at 10"), p("Remind me to call the bank tomorrow at 10"))
+        assertEquals(Command.AddNote("call the bank tomorrow"), p("Add a note to call the bank tomorrow"))
+        assertEquals(Command.AddNote("milk"), p("Add milk"))
+        assertEquals(Command.AddEvent("call the bank", today.plusDays(1), LocalTime.of(10, 0)), p("Add call the bank tomorrow at 10 to my calendar"))
+        assertEquals(Command.AddEvent("gym", today, LocalTime.of(18, 0)), p("Put gym in my calendar for today at 6pm"))
+        assertEquals(Command.AddEvent("dentist", LocalDate.of(2026, 11, 2), LocalTime.of(15, 0)), p("Book the dentist for Monday at 3pm"))
         assertEquals(Command.AddEvent("Dentist", LocalDate.of(2026, 11, 2), LocalTime.of(15, 30)), p("Add Dentist on monday at 3:30pm to my calendar"))
         assertEquals(Command.ReadNotes, p("Read my notes"))
     }
@@ -169,6 +175,6 @@ class JarvisTest {
         assertEquals(Command.Music(JarvisParser.Play.NEXT), p("Skip this song"))
         assertEquals(Command.WhatsApp("tom", "I'm running late"), p("Tell Tom I'm running late"))
         assertEquals(Command.Text("mum", "I'm home"), p("Text mum I'm home"))
-        assertEquals(Command.AddEvent("call the dentist", today.plusDays(1), LocalTime.of(9, 0)), p("Remind me tomorrow at 9 to call the dentist"))
+        assertEquals(Command.AddNote("call the dentist tomorrow at 9"), p("Remind me tomorrow at 9 to call the dentist"))
     }
 }

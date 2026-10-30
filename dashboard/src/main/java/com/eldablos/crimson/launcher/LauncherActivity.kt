@@ -48,6 +48,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private lateinit var weather: WeatherView
     private lateinit var deck: DeckView
     private lateinit var jarvis: JarvisView
+    private lateinit var orb: JarvisOrb
     private lateinit var anchor: View
     private val handler = Handler(Looper.getMainLooper())
     private var mode = Mode.at(LocalTime.now().hour)
@@ -145,6 +146,18 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         anchor = View(this)
         root.addView(home)
         root.addView(effects)
+        // Jarvis's orb under the music bar: its own view, so it turns without redrawing the home screen.
+        orb = JarvisOrb(this, u).apply {
+            visibility = View.GONE
+            onTap = { openJarvis(listen = true) }
+            onHold = { openJarvis(listen = false) }
+        }
+        root.addView(orb, FrameLayout.LayoutParams(orb.size, orb.size))
+        home.onJarvisSlot = { x, y, shown ->
+            orb.translationX = x - orb.size / 2f
+            orb.translationY = y - orb.size / 2f + 6 * u
+            orb.visibility = if (shown) View.VISIBLE else View.GONE
+        }
         root.addView(comms)
         root.addView(apps)
         hub = GameHubView(this, u).apply {
@@ -251,6 +264,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         ticks = 0
         lastTelemetry = null
         effects.running = effectsOn() && !overlayOpen()
+        orb.running = effects.running
         onComms()
         showNodes()
         refreshJarvisAlerts()
@@ -411,6 +425,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             start()
         }
         effects.running = target == 0f && effectsOn()
+        orb.running = effects.running
     }
 
     /**
@@ -517,7 +532,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private fun refreshJarvisAlerts() {
         Thread {
             val n = try { JarvisProactive.unseen(this) } catch (e: Exception) { 0 }
-            runOnUiThread { home.jarvisAlerts = n }
+            runOnUiThread { orb.alerts = n }
         }.start()
     }
 
@@ -529,7 +544,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         backdrop(true)
         jarvis.show(listen, greet = !midBriefing)
         if (!listen && !midBriefing) handler.postDelayed({ jarvis.type() }, 300)
-        home.jarvisAlerts = 0
+        orb.alerts = 0
     }
 
     private fun closeJarvis() {

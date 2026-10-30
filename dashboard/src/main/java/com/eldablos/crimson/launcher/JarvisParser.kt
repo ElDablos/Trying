@@ -215,18 +215,27 @@ object JarvisParser {
         if (has("read my notes", "my notes", "what's on my list", "my list", "to do list", "todo list")) return Command.ReadNotes
         if (has("clear my notes", "clear done", "clear the ticked")) return Command.ClearNotes
 
-        // Calendar: "add dentist tomorrow at 3pm", "remind me to call the bank on friday at 10".
-        Regex("^(add|put|book|schedule|create)\\s+(an? )?(event |appointment |meeting )?(.+?)\\s+(to|in|on) (my |the )?calendar(.*)$").find(t)?.let { m ->
-            val (date, time) = whenIn(m.groupValues[4] + " " + m.groupValues[7], today)
+        // The calendar only when you say so ("…to my calendar", "book", "schedule", an appointment or
+        // meeting); everything else you ask him to add or remember goes on your notes.
+        Regex("^(add|put|book|schedule|create|stick|pop)\\s+(an? )?(event |appointment |meeting )?(.+?)\\s+(to|in|on|into) (my |the )?(calendar|diary)(.*)$").find(t)?.let { m ->
+            val (date, time) = whenIn(m.groupValues[4] + " " + m.groupValues[8], today)
             return Command.AddEvent(orig(stripWhen(m.groupValues[4])), date ?: today, time)
+        }
+        Regex("^(add|put|create|stick|pop) (it |this |that )?(to|in|on|into) (my |the )?(calendar|diary)[:,]?\\s+(.+)$").find(t)?.let { m ->
+            val (date, time) = whenIn(m.groupValues[6], today)
+            return Command.AddEvent(orig(stripWhen(m.groupValues[6])), date ?: today, time)
         }
         Regex("^remind me in (\\d+) ?(seconds?|secs?|minutes?|mins?|hours?|hrs?)( to| about| that)?\\s*(.*)$").find(t)?.let { m ->
             return Command.Timer(m.groupValues[1].toInt() * unitSeconds(m.groupValues[2]), orig(m.groupValues[4]).ifBlank { null })
         }
-        Regex("^(remind me to|remind me|add|book|schedule)\\s+(.+)$").find(t)?.let { m ->
-            val (date, time) = whenIn(m.groupValues[2], today)
-            if (date != null || time != null) return Command.AddEvent(orig(stripWhen(m.groupValues[2])), date ?: today, time)
-            if (m.groupValues[1].startsWith("remind")) return Command.AddNote(orig(m.groupValues[2]))
+        Regex("^(book|schedule|make an appointment for|make an appointment|set up a meeting|set up)\\s+(an? )?(appointment |meeting )?(.+)$").find(t)?.let { m ->
+            val (date, time) = whenIn(m.groupValues[4], today)
+            if (date != null || time != null) return Command.AddEvent(orig(stripWhen(m.groupValues[4])).replaceFirst(Regex("^(for|with) "), ""), date ?: today, time)
+        }
+        Regex("^(remind me to|remind me about|remind me that|remind me|don't let me forget to|don't let me forget)\\s+(.+)$").find(t)?.let { m ->
+            // "Tomorrow at 9 to call the dentist" reads better as "call the dentist tomorrow at 9".
+            val w = Regex("^((?:today|tonight|tomorrow|on [a-z]+day|this [a-z]+)(?: at [0-9:]+(?: ?[ap]m)?)?)(?: to)? (.+)$").find(m.groupValues[2])
+            return Command.AddNote(if (w != null) orig(w.groupValues[2]) + " " + w.groupValues[1] else orig(m.groupValues[2]))
         }
 
         // Alarms and timers.
@@ -281,6 +290,11 @@ object JarvisParser {
         if (has("next song", "next track", "skip song", "skip this song")) return Command.Music(Play.NEXT)
         if (has("previous song", "last song", "previous track")) return Command.Music(Play.PREVIOUS)
 
+        // "Send that to Tom": what he just said, as a message.
+        Regex("^(send|share|forward|whatsapp|message|text) (that|it|this) to (.+)$").find(t)?.let { m ->
+            return if (m.groupValues[1] == "text") Command.Text(m.groupValues[3].clean(), "that") else Command.WhatsApp(m.groupValues[3].clean(), "that")
+        }
+
         // People: call, WhatsApp, text.
         Regex("^(whatsapp|message|send a (whatsapp|message) to|send) (.+?)( on whatsapp)?( saying| that says| to say|:)\\s+(.+)$").find(t)?.let { m ->
             return Command.WhatsApp(m.groupValues[3].clean(), orig(m.groupValues[6]))
@@ -321,6 +335,9 @@ object JarvisParser {
         }
         Regex("^(i (went to|did|finished|done|had)|tick( off)?|done) (the |my )?(.+)$").find(t)?.let { return Command.Habit(it.groupValues[5].clean()) }
         Regex("\\bfocus( session| mode)?( for)? ?(\\d+)? ?(minutes?|mins?)?\\b").find(t)?.let { return Command.Focus(it.groupValues[3].toIntOrNull() ?: 25) }
+
+        // "Add milk", "add call the bank tomorrow": on your notes.
+        Regex("^(add|put down|write down|jot down|stick)\\s+(.+)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[2])) }
 
         // A fact he was asked to remember: "what's my locker code", "when is tom's birthday".
         Regex("^(what's|what is|what are|whats) (my |the )?(.+)$").find(t)?.let { return Command.Recall(key(it.groupValues[3])) }
@@ -460,5 +477,6 @@ object JarvisParser {
         .replace(Regex("\\b(at )?(noon|midday|midnight)\\b"), "")
         .replace(Regex("\\bthis (morning|afternoon|evening)\\b"), "")
         .replace(Regex("\\s+"), " ").trim()
-        .removePrefix("to ").trim()
+        .removePrefix("to ").removePrefix("the ").trim()
+        .replace(Regex("(\\s+(for|on|at|by|in|from))+$"), "").trim()
 }

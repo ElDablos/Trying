@@ -117,6 +117,10 @@ class Jarvis(private val context: Context, private val host: Host) {
     private var missed: Pair<String, String>? = null
     /** What he didn't understand, so if you rephrase and he gets it, he learns your first wording too. */
     private var notUnderstood: Pair<String, Long>? = null
+    /** When he last did something, the note line he last wrote, and what he last told you (for "that"). */
+    private var lastAt = 0L
+    private var lastNote: String? = null
+    private var topic: String? = null
     private val undos = ArrayDeque<Undo>()
 
     private class Undo(val label: String, val run: () -> String)
@@ -133,6 +137,8 @@ class Jarvis(private val context: Context, private val host: Host) {
         class WhichApp(val name: String) : Pending()
         /** He asked what the note should say. */
         object NoteText : Pending()
+        /** A message written but not sent yet: you can add to it, change it, send it or scrap it. */
+        class Draft(val whatsapp: Boolean, val name: String, val number: String, var text: String) : Pending()
     }
 
     private fun push(label: String, run: () -> String) {
@@ -192,10 +198,23 @@ class Jarvis(private val context: Context, private val host: Host) {
             if (c == Command.No) return styled(Reply(say("Very well, no note.", "Note abandoned.", "Cancelled.")))
             return styled(addNote(text.trim().trimEnd('.')))
         }
+        (pending as? Pending.Draft)?.let { d -> draftAnswer(d, text)?.let { return styled(it).also { r -> lastReply = r } } }
         if (!inRoutine) JarvisRoutines.match(JarvisRoutines.all(context), text)?.let { return styled(runRoutine(it)).also { r -> lastReply = r } }
         // Something you've said before that he learnt the meaning of.
         val meant = if (inRoutine) null else JarvisMemory.meaning(context, text)
-        val cmd = JarvisParser.parse(meant ?: text)
+        val parsed = JarvisParser.parse(meant ?: text)
+        // Adding on to what came before: "and eggs", "and one at 7:30", "at 3pm", "and Friday?".
+        if (!inRoutine && pending == null) followOn(text, parsed)?.let { (c, r) ->
+            if (r != null) {
+                lastAt = System.currentTimeMillis()
+                return styled(r).also { lastReply = it }
+            }
+            if (c != null) return finish(text, c, meant, inRoutine)
+        }
+        return finish(text, parsed, meant, inRoutine)
+    }
+
+    private fun finish(text: String, cmd: Command, meant: String?, inRoutine: Boolean): Reply {
         // An answer to "shall I?".
         (pending as? Pending.Confirm)?.let { p ->
             pending = null
@@ -227,7 +246,138 @@ class Jarvis(private val context: Context, private val host: Host) {
             Command.Repeat, Command.Yes, Command.No, Command.Undo -> {}
             else -> last = cmd
         }
+        lastAt = System.currentTimeMillis()
+        // What he just told you, for "add that to my notes" or "send that to Tom".
+        if (!reply.failed && informative(cmd)) topic = reply.say.replace(Regex(",? sir(?=[.!?])"), "").trim()
         return styled(reply).also { lastReply = it }
+    }
+
+    private fun informative(c: Command) = when (c) {
+        is Command.Weather, is Command.Shift, is Command.ShiftWeek, is Command.Agenda, is Command.Emails, Command.Messages, is Command.Recall,
+        Command.News, is Command.Crypto, is Command.Countdown, Command.ReadNotes, Command.Battery, Command.Time, Command.Date, Command.Joke, is Command.Alarms -> true
+        else -> false
+    }
+
+    /** "That", "it", "this" in a note or a message: what he just told you. */
+    private fun withTopic(text: String): String {
+        val t = topic ?: return text
+        val m = Regex("^(that|it|this|what you said|what you just said)\\b\\s*(.*)$", RegexOption.IGNORE_CASE).find(text.trim()) ?: return text
+        return (t.trimEnd('.') + (if (m.groupValues[2].isNotBlank()) " (${m.groupValues[2]})" else "")).trim()
+    }
+
+    /**
+     * Carrying on from the last thing, within a few minutes of it: a whole new command after "and"
+     * ("and set a timer for 5 minutes"), or more of the same ("and eggs" onto the note, "and one at
+     * 7:30" for another alarm, "at 3pm" to move the event, "Friday?" for the forecast).
+     */
+    private fun followOn(text: String, parsed: Command): Pair<Command?, Reply?>? {
+        if (System.currentTimeMillis() - lastAt > 4 * 60_000L) return null
+        val low = text.trim().trimEnd('.', '!', '?').replace(Regex("^(hey |ok )?jarvis[,]?\\s*", RegexOption.IGNORE_CASE), "")
+        val m = Regex("^(and also|and then|oh and|and|also|plus|then|oh|another|one more|and another)\\b[,]?\\s*(.*)$", RegexOption.IGNORE_CASE).find(low)
+        val rest = (m?.groupValues?.get(2) ?: low).trim()
+        if (m != null && rest.isNotEmpty()) {
+            val rc = JarvisParser.parse(rest)
+            if (rc !is Command.Unknown && rc !is Command.Greet) return rc to null
+        } else if (parsed !is Command.Unknown) {
+            return null
+        }
+        // Just more words straight after a note ("eggs", "and bread"): they go on it.
+        if (m == null && last is Command.AddNote && System.currentTimeMillis() - lastAt < 60_000L && rest.split(' ').size <= 5) return null to appendNote(rest)
+        if (rest.isEmpty()) return null
+        val lower = rest.lowercase()
+        val (date, time) = JarvisParser.whenIn(lower, LocalDate.now())
+        val bare = Regex("^(?:at |for )?(\\d{1,2})(?:[:.](\\d{2}))? ?(am|pm)?$").find(JarvisParser.spokenNumbers(lower))?.let { b ->
+            var h = b.groupValues[1].toInt()
+            if (b.groupValues[3] == "pm" && h < 12) h += 12
+            if (b.groupValues[3] == "am" && h == 12) h = 0
+            if (h in 0..23) LocalTime.of(h, b.groupValues[2].toIntOrNull() ?: 0) else null
+        }
+        val days = date?.let { ChronoUnit.DAYS.between(LocalDate.now(), it).toInt() }
+        return when (val l = last) {
+            is Command.AddNote -> if (m != null) null to appendNote(rest.replaceFirst(Regex("^(add|put|say|write)\\s+", RegexOption.IGNORE_CASE), "")) else null
+            is Command.Alarm -> (time ?: bare)?.let { Command.Alarm(it, days ?: 0) to null }
+            is Command.Timer -> Regex("(\\d+) ?(seconds?|secs?|minutes?|mins?|hours?|hrs?)").find(JarvisParser.spokenNumbers(lower))?.let {
+                Command.Timer(it.groupValues[1].toInt() * when { it.groupValues[2].startsWith("s") -> 1; it.groupValues[2].startsWith("h") -> 3600; else -> 60 }) to null
+            }
+            is Command.AddEvent -> if (date != null || time != null || bare != null) Command.Amend(date, time ?: bare) to null else null
+            is Command.Weather, is Command.Shift, is Command.Agenda, is Command.ShiftWeek ->
+                if (Regex("\\bnext week\\b").containsMatchIn(lower)) Command.FollowUp(null, nextWeek = true) to null else date?.let { Command.FollowUp(it) to null }
+            is Command.Remember -> Regex("^(?:my |the )?(.+?) (?:is|are) (.+)$", RegexOption.IGNORE_CASE).find(rest)?.let { Command.Remember(JarvisParser.key(it.groupValues[1]), it.groupValues[2]) to null }
+            is Command.Lights, is Command.Switch -> {
+                val on = (l as? Command.Lights)?.on ?: (l as? Command.Switch)?.on ?: true
+                Regex("^(?:the |my )?(.+)$").find(lower)?.let { Command.Switch(it.groupValues[1].trim(), on) to null }
+            }
+            else -> null
+        }
+    }
+
+    /** "And ask about the mortgage": onto the note he just wrote. */
+    private fun appendNote(more: String): Reply {
+        val line = lastNote ?: return addNote(more)
+        val before = DeckData.note(context)
+        val lines = openNotes().toMutableList()
+        val i = lines.lastIndexOf(line)
+        if (i < 0) return addNote(more)
+        val joined = "$line, ${more.trim().trimEnd('.')}"
+        lines[i] = joined
+        DeckData.setNote(context, lines.joinToString("\n"))
+        lastNote = joined
+        push("Note put back as it was") {
+            DeckData.setNote(context, before)
+            lastNote = line
+            "Put it back as it was."
+        }
+        val open = openNotes().filter { !it.startsWith(DONE) }
+        return Reply(
+            say(pick("Added.", "Got it, added to that note.", "And that."), pick("Added. Anything else while I've got the pen?", "Added. Keep them coming."), "Added."),
+            card = Card("✎", "NOTES · UPDATED", sub = "${open.size} open", rows = open.takeLast(5).map { Row(it, if (it == joined) "+" else "") }, tone = Tone.GOLD),
+            actions = listOf(undoAction, Action("+ MORE", "and ")),
+            listen = false,
+        )
+    }
+
+    /** While a message is waiting to go: add to it, change it, send it or scrap it. */
+    private fun draftAnswer(d: Pending.Draft, text: String): Reply? {
+        val low = text.lowercase().trim().trimEnd('.', '!', '?').replace(Regex("^(jarvis[,]? )"), "")
+        if (Regex("^(yes|yeah|yep|yup|send( it| that| the message)?( now)?|go( ahead)?|do it|ok|okay|that's it|that's all|done|perfect|good)$").matches(low)) {
+            pending = null
+            return sendDraft(d)
+        }
+        if (Regex("^(no|nope|cancel|don't send( it)?|scrap (it|that)|never ?mind|forget it|delete it)$").matches(low)) {
+            pending = null
+            return Reply(say("Message cancelled.", "Binned. It never existed.", "Cancelled."))
+        }
+        Regex("^(?:change it to|make it say|it should say|instead say|replace it with|rewrite it as)\\s+(.+)$", RegexOption.IGNORE_CASE).find(text.trim())?.let {
+            d.text = it.groupValues[1].trim().trimEnd('.').replaceFirstChar { c -> c.uppercase() }
+            return draftReply(d, "Changed.")
+        }
+        Regex("^(?:and also|oh and|and|also|plus|add|and say|also say|say|tell (?:him|her|them)|and tell (?:him|her|them)|put)\\s+(?:that\\s+)?(.+)$", RegexOption.IGNORE_CASE).find(text.trim())?.let {
+            val more = it.groupValues[1].trim().trimEnd('.')
+            d.text = d.text.trimEnd('.', ' ') + ". " + more.replaceFirstChar { c -> c.uppercase() }
+            return draftReply(d, say("Added.", "Added. Riveting stuff.", "Added."))
+        }
+        // Something else entirely: the draft waits no longer.
+        pending = null
+        return null
+    }
+
+    private fun draftReply(d: Pending.Draft, lead: String) = Reply(
+        "$lead Your message to ${d.name} now reads: ${d.text}. Send it${sir()}?",
+        listen = true,
+        card = Card("✉", "${if (d.whatsapp) "WHATSAPP" else "TEXT"} · ${d.name.uppercase()} · DRAFT", sub = "“${d.text}”", tone = Tone.GREEN),
+        actions = listOf(Action("➤ SEND", "send it", primary = true), Action("+ ADD", "and "), Action("CHANGE", "change it to "), Action("CANCEL", "cancel")),
+    )
+
+    private fun sendDraft(d: Pending.Draft): Reply {
+        val open: () -> Unit = if (d.whatsapp) {
+            val digits = d.number.filter { it.isDigit() || it == '+' }.let { n -> if (n.startsWith("0")) "44" + n.drop(1) else n.removePrefix("+") }
+            val url = "https://wa.me/$digits?text=" + URLEncoder.encode(d.text, "UTF-8");
+            { start(Intent(Intent.ACTION_VIEW, Uri.parse(url)).setPackage(WHATSAPP), Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        } else {
+            { start(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(d.number))).putExtra("sms_body", d.text)) }
+        }
+        return Reply("${say("Opening it now.", "Off it goes. Well, nearly.", "Opening.")} Just tap send in ${if (d.whatsapp) "WhatsApp" else "Messages"}${sir()}.",
+            then = open, afterSpeech = true, card = Card("✉", if (d.whatsapp) "WHATSAPP · ${d.name.uppercase()}" else "TEXT · ${d.name.uppercase()}", sub = "“${d.text}”", tone = Tone.GREEN))
     }
 
     private fun run(cmd: Command): Reply = when (cmd) {
@@ -598,10 +748,12 @@ class Jarvis(private val context: Context, private val host: Host) {
 
     private fun openNotes() = DeckData.note(context).lines().map { it.trim() }.filter { it.isNotBlank() }
 
-    private fun addNote(text: String): Reply {
+    private fun addNote(said: String): Reply {
+        val text = withTopic(said)
         val before = DeckData.note(context)
         val item = text.replaceFirstChar { it.uppercase() }
         DeckData.setNote(context, (openNotes() + item).joinToString("\n"))
+        lastNote = item
         push("“$item” taken off your notes") {
             DeckData.setNote(context, before)
             "Done, it's off your notes."
@@ -610,7 +762,12 @@ class Jarvis(private val context: Context, private val host: Host) {
         return Reply(
             say(pick("Added to your notes.", "Noted, $name.", "It's on the list, sir."), pick("Noted. I'll pretend I won't have to remind you.", "On the list. The list grows."), "Noted."),
             card = Card("✎", "NOTES", sub = "${open.size} open", rows = open.takeLast(5).map { Row(it, if (it == item) "NEW" else "") }, tone = Tone.GOLD),
-            actions = listOf(undoAction),
+            // A day or time in it: the calendar's a tap away, but only if you want it.
+            actions = listOfNotNull(
+                undoAction,
+                Action("+ MORE", "and "),
+                JarvisParser.whenIn(item.lowercase(), LocalDate.now()).let { (d, t) -> if (d != null || t != null) Action("▦ TO CALENDAR", "add $item to my calendar") else null },
+            ),
         )
     }
 
@@ -1047,7 +1204,13 @@ class Jarvis(private val context: Context, private val host: Host) {
         }
     }
 
-    private fun whatsApp(who: String, text: String?): Reply = withPerson(who, { "whatsapp $it" + (text?.let { t -> " saying $t" } ?: "") }) { p ->
+    private fun whatsApp(who: String, said: String?): Reply = withPerson(who, { "whatsapp $it" + (said?.let { t -> " saying $t" } ?: "") }) { p ->
+        val text = said?.let { withTopic(it) }
+        if (text != null) {
+            val d = Pending.Draft(true, p.name, p.number, text.trim().trimEnd('.').replaceFirstChar { it.uppercase() })
+            pending = d
+            return@withPerson draftReply(d, say("Here's your message.", "Drafted.", "Drafted."))
+        }
         val digits = p.number.filter { it.isDigit() || it == '+' }.let { n -> if (n.startsWith("0")) "44" + n.drop(1) else n.removePrefix("+") }
         val url = "https://wa.me/$digits" + (text?.let { "?text=" + URLEncoder.encode(it, "UTF-8") } ?: "")
         Reply(if (text != null) "I've opened your chat with ${p.name} with the message ready. Just tap send${sir()}." else "Opening your chat with ${p.name}.", then = {
@@ -1055,7 +1218,13 @@ class Jarvis(private val context: Context, private val host: Host) {
         }, afterSpeech = true, card = text?.let { Card("✉", "WHATSAPP · ${p.name.uppercase()}", sub = "“$it”", tone = Tone.GREEN) })
     }
 
-    private fun text(who: String, text: String?): Reply = withPerson(who, { "text $it" + (text?.let { t -> " saying $t" } ?: "") }) { p ->
+    private fun text(who: String, said: String?): Reply = withPerson(who, { "text $it" + (said?.let { t -> " saying $t" } ?: "") }) { p ->
+        val text = said?.let { withTopic(it) }
+        if (text != null) {
+            val d = Pending.Draft(false, p.name, p.number, text.trim().trimEnd('.').replaceFirstChar { it.uppercase() })
+            pending = d
+            return@withPerson draftReply(d, say("Here's your text.", "Drafted.", "Drafted."))
+        }
         Reply("Your text to ${p.name} is ready. Just tap send.", then = {
             start(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + Uri.encode(p.number))).putExtra("sms_body", text.orEmpty()))
         }, afterSpeech = true, card = text?.let { Card("✉", "TEXT · ${p.name.uppercase()}", sub = "“$it”", tone = Tone.GREEN) })

@@ -358,8 +358,7 @@ class HomeView(context: Context) : View(context) {
         stage(canvas, win(b, .66f, .25f), dy = 30 * u) { drawSteps(canvas, t) }
         stage(canvas, win(b, .72f, .25f), dy = 30 * u) { drawMusic(canvas, t) }
         if (incoming == null && calls.isNotEmpty()) drawCall(canvas, calls.first())
-        else if (incoming == null && b >= .86f && (b >= 1f || ((now() / 60) % 2 == 0L))) drawHint(canvas)
-        if (incoming == null && calls.isEmpty()) stage(canvas, win(b, .78f, .22f), dy = 20 * u) { drawJarvis(canvas) }
+        if (incoming == null && calls.isEmpty() && b >= .86f) drawJarvis(canvas) else orbSlot(slotX, slotY, false)
         drawModeShift(canvas)
         drawIncoming(canvas)
         drawLock(canvas)
@@ -905,49 +904,40 @@ class HomeView(context: Context) : View(context) {
         return "%d:%02d".format(s / 60, s % 60)
     }
 
-    private fun drawHint(canvas: Canvas) {
-        val text = if (open >= 0) "TAP AN APP · HOLD FOR OPTIONS · TAP THE CORE TO CLOSE" else "TAP A NODE · ↓ COMMS · ↑ ALL APPS · → GAME HUB"
-        canvas.drawText(text, width / 2f, y(874f), Hud.text(7 * u, Hud.alpha(Hud.DUST, .8f), Hud.MONO, .08f, Paint.Align.CENTER))
-    }
 
-    /** The Jarvis button under the music bar: a small arc reactor and his name. Tap and talk. */
+    /**
+     * The space for Jarvis's orb under the music bar, with the gesture hints either side of it. The orb
+     * itself is its own small view ([JarvisOrb]) so it can turn smoothly without redrawing the home screen.
+     */
     private fun drawJarvis(canvas: Canvas) {
-        val cy = y(834f)
-        val r = RectF(width / 2f - 74 * u, cy - 19 * u, width / 2f + 74 * u, cy + 19 * u)
-        // A slow breath, only as fast as the home screen already redraws: no extra frames for it.
-        val breath = .5f + .5f * sin(now() / 900.0).toFloat()
-        canvas.drawRoundRect(r, 19 * u, 19 * u, Hud.glow(Hud.fill(Hud.alpha(Hud.tint(0xFF1A0609.toInt()), .85f)), (6 + 6 * breath) * u, Hud.alpha(Hud.CRIMSON, .45f)))
-        canvas.drawRoundRect(r, 19 * u, 19 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .55f + .3f * breath), u))
-        // The reactor: rings and a hot core.
-        val ox = r.left + 22 * u
-        canvas.drawCircle(ox, cy, 11 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .5f), u))
-        val arc = Hud.glow(Hud.stroke(Hud.HOT, 1.6f * u), 4 * u)
-        val box = RectF(ox - 7.5f * u, cy - 7.5f * u, ox + 7.5f * u, cy + 7.5f * u)
-        for (k in 0..2) canvas.drawArc(box, k * 120f + 20f, 80f, false, arc)
-        canvas.drawCircle(ox, cy, (3 + breath) * u, Hud.glow(Hud.fill(Color.WHITE), 8 * u, Hud.HOT))
-        canvas.drawText("JARVIS", r.left + 42 * u, cy + 4.5f * u, Hud.text(12 * u, Color.WHITE, Hud.MONO_BOLD, .3f))
-        if (jarvisAlerts > 0) {
-            // He's got something to tell you: a hot dot and the count.
-            val label = "$jarvisAlerts HEADS-UP"
-            canvas.drawCircle(r.right - 16 * u - Hud.text(6.5f * u, Hud.HOT, Hud.MONO_BOLD, .12f).measureText(label) - 7 * u, cy, (2.5f + breath) * u, Hud.glow(Hud.fill(Hud.HOT), 6 * u))
-            canvas.drawText(label, r.right - 14 * u, cy + 3 * u, Hud.text(6.5f * u, Hud.HOT, Hud.MONO_BOLD, .12f, Paint.Align.RIGHT))
-        } else {
-            canvas.drawText("TAP · TALK", r.right - 14 * u, cy + 3 * u, Hud.text(6.5f * u, Hud.alpha(Hud.DUST, .9f), Hud.MONO, .12f, Paint.Align.RIGHT))
-        }
-        jarvisRect.set(r.left - 6 * u, r.top - 6 * u, r.right + 6 * u, r.bottom + 6 * u)
-        hits.add(0, RectF(jarvisRect) to { host?.openJarvis(listen = true) })
+        val cy = y(836f)
+        val hint = Hud.text(6.5f * u, Hud.alpha(Hud.DUST, .85f), Hud.MONO, .1f, Paint.Align.RIGHT)
+        val left = if (open >= 0) "HOLD FOR OPTIONS" else "↓ COMMS · ↑ APPS"
+        val right = if (open >= 0) "TAP CORE TO CLOSE" else "→ ARCADE · ← DECK"
+        val gap = 44 * u
+        canvas.drawText(left, width / 2f - gap, cy + 2.5f * u, hint)
+        hint.textAlign = Paint.Align.LEFT
+        canvas.drawText(right, width / 2f + gap, cy + 2.5f * u, hint)
+        // Thin rails from the hints to the orb.
+        val rail = Hud.stroke(Hud.alpha(Hud.CRIMSON, .35f), u)
+        canvas.drawLine(width / 2f - gap + 6 * u, cy, width / 2f - 34 * u, cy, rail)
+        canvas.drawLine(width / 2f + 34 * u, cy, width / 2f + gap - 6 * u, cy, rail)
+        orbSlot(width / 2f, cy, true)
     }
 
-    private val jarvisRect = RectF()
+    /** Where the orb goes, and whether it shows: the launcher puts [JarvisOrb] there. */
+    var onJarvisSlot: ((x: Float, y: Float, shown: Boolean) -> Unit)? = null
+    private var slotX = -1f
+    private var slotY = -1f
+    private var slotShown = false
 
-    /** Things Jarvis wants to tell you, shown on his button. */
-    var jarvisAlerts = 0
-        set(v) {
-            if (field != v) {
-                field = v
-                invalidate()
-            }
-        }
+    private fun orbSlot(x: Float, y: Float, shown: Boolean) {
+        if (x == slotX && y == slotY && shown == slotShown) return
+        slotX = x
+        slotY = y
+        slotShown = shown
+        onJarvisSlot?.invoke(x, y, shown)
+    }
 
     // --- Call bar ---
 
@@ -1352,11 +1342,6 @@ class HomeView(context: Context) : View(context) {
 
     private fun longPress(x: Float, y: Float) {
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        // Hold Jarvis to type to him instead.
-        if (!jarvisRect.isEmpty && jarvisRect.contains(x, y) && incoming == null && calls.isEmpty()) {
-            host?.openJarvis(listen = false)
-            return
-        }
         val cx = width / 2f
         if (open >= 0) {
             orbitAt(x, y)?.let { (c, _) ->

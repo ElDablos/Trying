@@ -48,7 +48,8 @@ object JarvisProactive {
                 val wake = LocalTime.ofInstant(Instant.ofEpochMilli(start), zone).minusMinutes(JarvisMemory.alarmLead(context).toLong())
                 out += Insight(
                     "alarm:$date", "⏰", "No alarm before your shift",
-                    "You're on at ${s.start.format(HM)} ${if (date == now.toLocalDate()) "today" else "tomorrow"} and there's no alarm set. Shall I set one for ${wake.format(HM)}?",
+                    "You're on at ${s.start.format(HM)} ${if (date == now.toLocalDate()) "today" else "tomorrow"} and there's no alarm set. " +
+                        (if (JarvisMemory.alarmCount(context) > 1) "Shall I set your ${JarvisMemory.alarmCount(context)} alarms from ${wake.format(HM)}, ${JarvisMemory.alarmGap(context)} minutes apart?" else "Shall I set one for ${wake.format(HM)}?"),
                     "set an alarm for my next shift", "SET ${wake.format(HM)}",
                 )
             }
@@ -66,7 +67,7 @@ object JarvisProactive {
         // The tube: trouble on your usual line, timed off your shifts. The evening before a working day, and
         // again in the three hours before you set off (or, with no shifts on the deck, mornings and evenings).
         travelDay(context, now)?.let { day -> Travel.report(context, day, fetch = false) }?.let { r ->
-            val a = Travel.advise(r, Travel.commute(context))
+            val a = Travel.advise(r, Travel.commute(context, r.day))
             val u = a.commute.firstOrNull()
             if (u != null && !u.fine) {
                 val shift = shifts[r.day]

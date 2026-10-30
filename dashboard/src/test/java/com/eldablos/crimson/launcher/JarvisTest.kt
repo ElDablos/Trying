@@ -336,6 +336,20 @@ class JarvisTest {
     }
 
     @Test
+    fun teachingHowIDoThings() {
+        val all = p("I need to wake up at 5 am to start work at 7am and I set 6 alarms 5 minutes apart starting 5 am as I leave my house at around 6.15 am")
+        assertTrue(all.toString(), all is Command.Learn)
+        val l = (all as Command.Learn).lessons
+        assertTrue(l.toString(), l.contains(JarvisLessons.Lesson.WakeBefore(LocalTime.of(5, 0), LocalTime.of(7, 0))))
+        assertTrue(l.toString(), l.contains(JarvisLessons.Lesson.AlarmSeries(6, 5, LocalTime.of(5, 0))))
+        assertTrue(l.toString(), l.contains(JarvisLessons.Lesson.LeaveAt(LocalTime.of(6, 15), LocalTime.of(7, 0))))
+        assertEquals(Command.Learn(listOf(JarvisLessons.Lesson.DayLine(java.time.DayOfWeek.THURSDAY, "elizabeth"))), p("On Thursdays I take the Elizabeth line"))
+        assertEquals(Command.Learn(listOf(JarvisLessons.Lesson.AlarmSeries(6, 5, null))), p("I set six alarms five minutes apart"))
+        assertEquals(Command.AlarmSeries(6, 5, LocalTime.of(5, 0)), p("Set 6 alarms 5 minutes apart starting 5am"))
+        assertEquals(Command.Learn(listOf(JarvisLessons.Lesson.WakeBefore(LocalTime.of(5, 0), LocalTime.of(7, 0)))), p("When I start at 7 I get up at 5"))
+    }
+
+    @Test
     fun restartAndSystemsCheck() {
         assertEquals(Command.Reboot, p("Restart yourself"))
         assertEquals(Command.Reboot, p("Restart Jarvis"))

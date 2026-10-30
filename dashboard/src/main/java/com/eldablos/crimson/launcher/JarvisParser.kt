@@ -134,6 +134,10 @@ object JarvisParser {
         object Reboot : Command()
         /** "Systems check": what's running and what needs you. */
         object SystemsCheck : Command()
+        /** How you do things, taught: he keeps it and acts on it ("I wake up at 5 for a 7 start"…). */
+        data class Learn(val lessons: List<JarvisLessons.Lesson>) : Command()
+        /** "Set 6 alarms 5 minutes apart from 5am". */
+        data class AlarmSeries(val count: Int, val gap: Int, val from: LocalTime?) : Command()
         /** What Hands did and saw last time, to send on. */
         object HandsLog : Command()
         /** The heating or air con in Air+: on or off, and heat or cool. */
@@ -174,6 +178,13 @@ object JarvisParser {
         Regex("^(?:no,? (?:it's called|it's|its|i mean|i meant|i said)|it's called|it is called|its called|it's named|the app is called|i mean|i meant|i said)\\s+(the )?(.+?)( app)?$").find(t)?.let { return Command.Correct(it.groupValues[2].clean()) }
 
         if (Regex("^(restart|reboot|reset|refresh) ?(yourself|jarvis|your systems|all systems|everything|all of jarvis|your hands)?$").matches(t)) return Command.Reboot
+        // Teaching him how you do things: kept and acted on.
+        JarvisLessons.read(t).takeIf { it.isNotEmpty() }?.let { lessons ->
+            if (JarvisLessons.isStatement(t)) return Command.Learn(lessons)
+            (lessons.firstOrNull { it is JarvisLessons.Lesson.AlarmSeries } as? JarvisLessons.Lesson.AlarmSeries)?.let { a ->
+                if (Regex("^(set|make|give me|wake me)").containsMatchIn(t)) return Command.AlarmSeries(a.count, a.gap, a.from)
+            }
+        }
         if (has("hands log", "what did you see", "what you saw", "send me the log", "share the log", "debug log", "send the log", "show me the log")) return Command.HandsLog
         if (has("systems check", "system check", "diagnostics", "status report", "are you working", "are your hands working", "run a check")) return Command.SystemsCheck
 
@@ -700,6 +711,7 @@ object JarvisParser {
         }
         .replace(Regex("\\b(at|for|until|till|by) (one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\b")) { "${it.groupValues[1]} ${num(it.groupValues[2])}" }
         .replace(Regex("\\b($AMOUNT) (seconds?|secs?|minutes?|mins?|hours?|hrs?)\\b")) { "${num(it.groupValues[1])} ${it.groupValues[2]}" }
+        .replace(Regex("\\b($AMOUNT) (alarms?)\\b")) { "${num(it.groupValues[1])} ${it.groupValues[2]}" }
 
     /** A memory's key: "my locker code" and "the locker code" are both "locker code". */
     fun key(s: String): String = s.lowercase().trim().trimEnd('?', '.', '!')

@@ -1036,7 +1036,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             }
             // The tube: your usual line on the day that matters, and whether to plan ahead.
             travel?.takeIf { it.day == (if (evening) today.plusDays(1) else today) }?.let { r ->
-                val a = Travel.advise(r, Travel.commute(context))
+                val a = Travel.advise(r, Travel.commute(context, r.day))
                 val u = a.commute.firstOrNull() ?: return@let
                 val whenSaid = if (r.day == today) "" else " TOMORROW"
                 val others = if (a.trouble.isEmpty()) "rest of network fine" else "${a.trouble.size} other line${if (a.trouble.size == 1) "" else "s"} disrupted"
@@ -1412,7 +1412,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
             // Getting to work: the usual line (and the back-ups), the rest of the network and the roads.
             travel?.takeIf { it.day == focusDay }?.let { r ->
-                val a = Travel.advise(r, Travel.commute(context))
+                val a = Travel.advise(r, Travel.commute(context, r.day))
                 val working = nextShift?.first == focusDay || cur != null
                 out += "x:travel" to (if (working || a.planAhead || a.commute.firstOrNull()?.fine == false) a.say
                     else a.commute.firstOrNull()?.let { "On the tube, the ${Travel.lineName(it)} is running a good service" + (if (evening) " tomorrow" else "") + "." }.orEmpty() +

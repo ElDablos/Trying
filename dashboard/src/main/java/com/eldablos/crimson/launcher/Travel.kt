@@ -48,6 +48,18 @@ object Travel {
     fun commute(context: Context): List<String> =
         prefs(context).getString("commute", null)?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() } ?: DEFAULT_COMMUTE
 
+    /** Your lines on [day]: the one you take that weekday ("on Thursdays I take the Elizabeth line") first. */
+    fun commute(context: Context, day: LocalDate): List<String> {
+        val usual = commute(context)
+        val that = dayLine(context, day.dayOfWeek) ?: return usual
+        return listOf(that) + usual.filter { it != that }
+    }
+
+    fun dayLine(context: Context, day: java.time.DayOfWeek): String? = prefs(context).getString("day:${day.name}", null)
+    fun setDayLine(context: Context, day: java.time.DayOfWeek, line: String) = prefs(context).edit().putString("day:${day.name}", line).apply()
+    fun dayLines(context: Context): Map<java.time.DayOfWeek, String> =
+        java.time.DayOfWeek.values().mapNotNull { d -> dayLine(context, d)?.let { d to it } }.toMap()
+
     /** Makes [line] your usual one, keeping the others as back-ups. */
     fun setUsual(context: Context, line: String) {
         val id = lineId(line) ?: return
@@ -175,6 +187,14 @@ object Travel {
         if (w.isEmpty()) return ""
         val lower = w.replaceFirstChar { it.lowercase() }
         return if (lower.startsWith("due to ") || lower.startsWith("because ")) " $lower" else ": $lower"
+    }
+
+    /** A line by its id, as you'd say it: "Elizabeth line", "Hammersmith & City line", "DLR". */
+    fun nameOf(id: String) = when (id) {
+        "hammersmith-city" -> "Hammersmith & City line"
+        "waterloo-city" -> "Waterloo & City line"
+        "dlr" -> "DLR"
+        else -> id.replaceFirstChar { it.uppercase() } + " line"
     }
 
     fun lineName(l: Line) = if (l.mode == "tube" || l.mode == "elizabeth-line") "${l.name.removeSuffix(" line")} line" else l.name

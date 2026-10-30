@@ -775,6 +775,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Command.Reboot -> Reply(say("Rebooting, sir. Back in a moment.", "Have you tried turning me off and on again? Rebooting.", "Rebooting."),
             afterSpeech = true, then = { reboot(context) }, card = Card("⟳", "REBOOT", "RESTARTING", "everything restarts; Hands reconnect", tone = Tone.HOT))
         Command.SystemsCheck -> systemsCheck(rebooted = false)
+        is Command.Learn -> learn(cmd.lessons)
+        is Command.AlarmSeries -> {
+            val first = cmd.from ?: return Reply("From what time${sir()}?", listen = true)
+            alarmSeries(first, cmd.count, cmd.gap, "Jarvis")
+        }
         Command.HandsLog -> {
             val log = JarvisHands.lastLog(context)
             if (log == null) Reply("I haven't worked an app since I was installed${sir()}. Ask me to do something in one first.")
@@ -1015,7 +1020,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             ?: return Reply("I can't reach TfL right now${sir()}. Check you're online and ask me again.", failed = true,
                 actions = listOf(Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") })))
         // One line by name, unless it's your usual one (then the full commute answer fits better).
-        if (line != null && line != Travel.commute(context).firstOrNull()) {
+        if (line != null && line != Travel.commute(context, date).firstOrNull()) {
             val l = r.lines.firstOrNull { it.id == line } ?: return Reply("TfL didn't say anything about that line${sir()}.", failed = true)
             val word = dayWord(day).removePrefix("on ")
             val say = if (l.fine) "The ${Travel.lineName(l)}'s running fine $word${sir()}."
@@ -1024,7 +1029,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 tone = if (l.fine) Tone.GREEN else if (l.bad) Tone.HOT else Tone.GOLD),
                 actions = listOf(Action("MY COMMUTE", if (day == 0) "how's the tube" else "any delays tomorrow"), Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") })))
         }
-        val a = Travel.advise(r, Travel.commute(context))
+        val a = Travel.advise(r, Travel.commute(context, r.day))
         val rows = ArrayList<Row>()
         for (l in a.commute) rows += Row(Travel.lineName(l).uppercase(), l.status, ok = l.fine)
         for (l in a.trouble.take(5)) rows += Row(Travel.lineName(l).uppercase(), l.status, ok = false)
@@ -1141,7 +1146,89 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val wakeAt = s.begin(d, zone) - JarvisMemory.alarmLead(context) * 60_000L
         if (wakeAt <= now) return Reply("Your shift's too close for an alarm now, sir. Best get moving.")
         if (wakeAt - now > 24 * 3_600_000L) return Reply("Your next shift isn't until ${whenText(d, s.start)}. I'll remind you to set it the evening before.")
-        return alarm(at(wakeAt).toLocalTime(), 0, label = "Work · ${s.start.format(tf)}")
+        // As you taught him: your run of alarms ("6 alarms 5 minutes apart"), or the one.
+        val count = JarvisMemory.alarmCount(context)
+        val label = "Work · ${s.start.format(tf)}"
+        return if (count > 1) alarmSeries(at(wakeAt).toLocalTime(), count, JarvisMemory.alarmGap(context), label) else alarm(at(wakeAt).toLocalTime(), 0, label = label)
+    }
+
+    /** [count] alarms, [gap] minutes apart, from [first]: set one after another in the clock. */
+    private fun alarmSeries(first: LocalTime, count: Int, gap: Int, label: String): Reply {
+        val times = (0 until count.coerceIn(1, 12)).map { first.plusMinutes((it * gap).toLong()) }
+        push("${times.size} alarms switched off") {
+            times.forEach { dismissAlarm(it) }
+            "I've asked the clock to switch off the ${times.first().format(tf)} to ${times.last().format(tf)} alarms."
+        }
+        val h = android.os.Handler(android.os.Looper.getMainLooper())
+        return Reply(
+            "${count.toWords().replaceFirstChar { it.uppercase() }} alarms, ${gap} minutes apart, from ${times.first().format(tf)} to ${times.last().format(tf)}${sir()}.",
+            then = {
+                times.forEachIndexed { i, t ->
+                    h.postDelayed({
+                        start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, t.hour).putExtra(AlarmClock.EXTRA_MINUTES, t.minute)
+                            .putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, label))
+                    }, i * 700L)
+                }
+            },
+            card = Card("⏰", "ALARMS · ${times.size}", "${times.first().format(tf)}–${times.last().format(tf)}", "every $gap min · ${label.uppercase()}", times.map { Row(it.format(tf), label) }, Tone.GOLD),
+            actions = listOf(undoAction),
+        )
+    }
+
+    private fun Int.toWords() = listOf("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve").getOrNull(this) ?: toString()
+
+    /** What you taught him, kept and repeated back so you know he's got it, with an offer to act on it now. */
+    private fun learn(lessons: List<JarvisLessons.Lesson>): Reply {
+        val said = ArrayList<String>()
+        val rows = ArrayList<Row>()
+        val start = lessons.filterIsInstance<JarvisLessons.Lesson.WakeBefore>().firstOrNull()?.start
+            ?: lessons.filterIsInstance<JarvisLessons.Lesson.LeaveAt>().firstOrNull()?.start
+            ?: Shifts.next(Shifts.all(context), System.currentTimeMillis(), zone)?.second?.start
+        for (l in lessons) when (l) {
+            is JarvisLessons.Lesson.WakeBefore -> {
+                val lead = java.time.Duration.between(l.wake, l.start).toMinutes().toInt()
+                JarvisMemory.setAlarmLead(context, lead)
+                said += "you're up ${duration(lead * 60_000L)} before a shift, so ${l.wake.format(tf)} for a ${l.start.format(tf)} start"
+                rows += Row("UP", "${duration(lead * 60_000L)} before work", ok = true)
+            }
+            is JarvisLessons.Lesson.AlarmSeries -> {
+                JarvisMemory.setAlarmSeries(context, l.count, l.gap)
+                said += "${l.count.toWords()} alarms, ${l.gap} minutes apart"
+                rows += Row("ALARMS", "${l.count} × every ${l.gap} min", ok = true)
+            }
+            is JarvisLessons.Lesson.LeaveAt -> {
+                val s = l.start ?: start
+                if (s != null && s.isAfter(l.leave)) {
+                    val mins = java.time.Duration.between(l.leave, s).toMinutes().toInt()
+                    JarvisMemory.setCommuteMinutes(context, mins)
+                    said += "you leave at ${l.leave.format(tf)}, ${duration(mins * 60_000L)} before you start"
+                    rows += Row("LEAVE", "${duration(mins * 60_000L)} before work", ok = true)
+                } else {
+                    JarvisMemory.remember(context, "leave time", l.leave.format(tf))
+                    said += "you leave the house at ${l.leave.format(tf)}"
+                    rows += Row("LEAVE", l.leave.format(tf), ok = true)
+                }
+            }
+            is JarvisLessons.Lesson.DayLine -> {
+                Travel.setDayLine(context, l.day, l.line)
+                val day = l.day.getDisplayName(TextStyle.FULL, Locale.getDefault())
+                val line = Travel.nameOf(l.line)
+                said += "on ${day}s you take the $line, so that's the one I'll check"
+                rows += Row(day.uppercase() + "S", line, ok = true)
+            }
+        }
+        val joined = if (said.size == 1) said[0] else said.dropLast(1).joinToString("; ") + "; and " + said.last()
+        // Something to do with it now: alarms for the next shift, if it's close.
+        val next = Shifts.next(Shifts.all(context), System.currentTimeMillis(), zone)
+        val alarmsTaught = lessons.any { it is JarvisLessons.Lesson.WakeBefore || it is JarvisLessons.Lesson.AlarmSeries }
+        val offer = next?.takeIf { alarmsTaught && it.second.begin(it.first, zone) - System.currentTimeMillis() in 3_600_000L..36 * 3_600_000L }
+        val tail = if (offer != null) {
+            val wake = offer.second.start.minusMinutes(JarvisMemory.alarmLead(context).toLong())
+            pending = Pending.Confirm({ shiftAlarm() }, "Very well. I'll remind you the evening before.")
+            " You're on at ${offer.second.start.format(tf)} ${if (offer.first == LocalDate.now()) "today" else "tomorrow"}. Shall I set them now, from ${wake.format(tf)}?"
+        } else if (alarmsTaught) " I'll offer to set them the evening before each shift." else ""
+        return Reply("Understood, sir: $joined.$tail", card = Card("✦", "LEARNT", "${rows.size} THING${if (rows.size == 1) "" else "S"}", "how you do things", rows, Tone.BLUE),
+            listen = offer != null, actions = if (offer != null) listOf(Action("SET THEM", "yes", primary = true), Action("NOT NOW", "no")) else emptyList())
     }
 
     private fun agenda(day: Int): Reply {
@@ -2282,13 +2369,21 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         return Reply(say("Forgotten.", "Forgotten. It never happened.", "Forgotten."), actions = listOf(undoAction))
     }
 
+    /** How you do things, as he's learnt it: when you're up, your alarms, your journey, your lines. */
+    private fun habitsRows(): List<Row> = buildList {
+        add(Row("UP", "${duration(JarvisMemory.alarmLead(context) * 60_000L)} before work"))
+        if (JarvisMemory.alarmCount(context) > 1) add(Row("ALARMS", "${JarvisMemory.alarmCount(context)} × every ${JarvisMemory.alarmGap(context)} min"))
+        add(Row("JOURNEY", "${JarvisMemory.commuteMinutes(context)} min · ${Travel.nameOf(Travel.commute(context).first())}"))
+        Travel.dayLines(context).forEach { (d, l) -> add(Row(d.getDisplayName(TextStyle.FULL, Locale.getDefault()).uppercase() + "S", Travel.nameOf(l))) }
+    }
+
     private fun memories(): Reply {
         val facts = JarvisMemory.facts(context)
         val skills = JarvisHands.skills(context)
         return Reply(
             if (facts.isEmpty() && skills.isEmpty()) "You haven't told me anything to remember yet. Try \"remember my locker code is 1234\"."
             else "I know ${facts.size} thing${if (facts.size == 1) "" else "s"} you've told me and ${skills.size} thing${if (skills.size == 1) "" else "s"} I can work in your apps. It all stays on this phone.",
-            card = Card("◈", "MEMORY", "${facts.size + skills.size}", "kept on this phone", facts.take(6).map { Row(it.key.uppercase(), it.value) } + skills.take(4).map { Row("✋ " + it.name.uppercase(), appLabel(it.pkg)) }, Tone.BLUE),
+            card = Card("◈", "MEMORY", "${facts.size + skills.size}", "kept on this phone", habitsRows() + facts.take(6).map { Row(it.key.uppercase(), it.value) } + skills.take(4).map { Row("✋ " + it.name.uppercase(), appLabel(it.pkg)) }, Tone.BLUE),
             actions = listOf(Action("MANAGE", run = null, say = "jarvis settings")),
         )
     }

@@ -178,6 +178,11 @@ object JarvisMemory {
     fun alarmLead(context: Context) = prefs(context).getInt("set:lead", 75)
     fun setAlarmLead(context: Context, minutes: Int) = prefs(context).edit().putInt("set:lead", minutes).apply()
 
+    /** How you like waking for work: this many alarms, this many minutes apart ("6 alarms 5 minutes apart"). */
+    fun alarmCount(context: Context) = prefs(context).getInt("set:alarm_count", 1)
+    fun alarmGap(context: Context) = prefs(context).getInt("set:alarm_gap", 5)
+    fun setAlarmSeries(context: Context, count: Int, gap: Int) = prefs(context).edit().putInt("set:alarm_count", count).putInt("set:alarm_gap", gap).apply()
+
     /** How long your journey to work takes, door to door: when to warn you about the tube. */
     fun commuteMinutes(context: Context) = prefs(context).getInt("set:commute", 45)
     fun setCommuteMinutes(context: Context, minutes: Int) = prefs(context).edit().putInt("set:commute", minutes).apply()

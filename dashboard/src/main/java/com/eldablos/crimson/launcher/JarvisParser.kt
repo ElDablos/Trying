@@ -140,12 +140,16 @@ object JarvisParser {
         data class AlarmSeries(val count: Int, val gap: Int, val from: LocalTime?) : Command()
         /** What Hands did and saw last time, to send on. */
         object HandsLog : Command()
+        /** The phone itself, through his hands: lock, screenshot, notifications, quick settings, recent apps, home, power menu. */
+        data class PhoneAction(val kind: String) : Command()
+        /** Ring, vibrate or silent. */
+        data class Ringer(val mode: String) : Command()
         /** The heating or air con in Air+: on or off, and heat or cool. */
         data class Climate(val on: Boolean?, val mode: String? = null) : Command()
         /** "Set it to 28 degrees"; [by] for "warmer"/"two degrees down". */
         data class SetTemp(val degrees: Double?, val by: Double = 0.0) : Command()
         /** "The heater's on 23": what it's set to now, so he can work from there. */
-        data class HeaterNow(val degrees: Double) : Command()
+        data class HeaterNow(val degrees: Double, val target: Double? = null) : Command()
         data class Unknown(val text: String) : Command()
     }
 
@@ -187,6 +191,18 @@ object JarvisParser {
                 if (Regex("^(set|make|give me|wake me)").containsMatchIn(t)) return Command.AlarmSeries(a.count, a.gap, a.from)
             }
         }
+        // The phone itself.
+        if (Regex("^(lock|lock up)( my| the)?( phone| screen| device| mobile)?( now)?$|\\b(lock (my|the) (phone|screen|device))\\b|^(turn|switch) (off )?the screen( off)?$|^screen off$").containsMatchIn(t)) return Command.PhoneAction("lock")
+        if (Regex("\\b(take a |grab a |take )?(screenshot|screen shot|screen grab|screengrab)\\b").containsMatchIn(t)) return Command.PhoneAction("screenshot")
+        if (Regex("\\b(show|open|pull down|check)( me)?( my| the)? notifications?\\b|\\bnotification (shade|panel|bar)\\b").containsMatchIn(t)) return Command.PhoneAction("notifications")
+        if (has("quick settings", "control centre", "control center", "quick panel")) return Command.PhoneAction("quick settings")
+        if (Regex("\\b(recent apps|recents|app switcher|open apps|switch apps|last app|previous app)\\b").containsMatchIn(t)) return Command.PhoneAction("recents")
+        if (Regex("^(go )?(to )?(the )?home( screen)?$").matches(t)) return Command.PhoneAction("home")
+        if (Regex("\\b(power menu|power options|turn off (my |the )?phone|switch off (my |the )?phone|restart (my |the )?phone|reboot (my |the )?phone|power off)\\b").containsMatchIn(t)) return Command.PhoneAction("power")
+        if (Regex("\\b(split screen|split-screen)\\b").containsMatchIn(t)) return Command.PhoneAction("split")
+        if (Regex("\\b(silent mode|put (my |the )?phone on silent|on silent|silence (my |the )?phone|go silent)\\b").containsMatchIn(t)) return Command.Ringer("silent")
+        if (Regex("\\b(vibrate( mode| only)?|put (my |the )?phone on vibrate)\\b").containsMatchIn(t)) return Command.Ringer("vibrate")
+        if (Regex("\\b(sound on|ringer on|turn (the )?(sound|ringer) (back )?on|take (my |the )?phone off (silent|vibrate)|off silent|unsilence|normal mode)\\b").containsMatchIn(t)) return Command.Ringer("normal")
         // "Hands log", and what it gets heard as ("hands long", "hand lock", "hans log").
         if (Regex("\\b(hands?|hans|hand's) (log|logs|long|lock|blog|lot)\\b").containsMatchIn(t)) return Command.HandsLog
         if (has("hands log", "what did you see", "what you saw", "send me the log", "share the log", "debug log", "send the log", "show me the log")) return Command.HandsLog
@@ -230,6 +246,10 @@ object JarvisParser {
         // Heating and air con: "turn on the heating", "set it to 28 degrees", "warmer", "turn the heat down two".
         Regex("^(?:the )?(?:heater|heating|air\\+|temperature)(?:'s| is)(?: currently| already| now)? (?:on|at|set to|set at|showing) (\\d{1,2}(?:[.,]5)?)(?: ?(?:degrees|°c?))?$").find(t)?.let {
             return Command.HeaterNow(it.groupValues[1].replace(',', '.').toDouble())
+        }
+        // Telling him where the heater is ("the temperature is at 22 right now") isn't asking him to set it.
+        if (has("heater", "heating", "temperature", "temp", "air+", "air plus")) HeaterWords.read(t)?.let { h ->
+            if (h.current != null && h.step == null && h.wentBy == null) return Command.HeaterNow(h.current, h.target)
         }
         val climateWords = has("heating", "heater", "heat", "air con", "aircon", "air conditioning", "ac", "thermostat", "air+", "air plus", "temperature", "temp")
         Regex("\\b(\\d{1,2}(?:[.,]5)?) ?(degrees|degree|°c?|deg|celsius)\\b").find(t)?.takeIf { climateWords || Regex("^(set|make|change|put|turn)").containsMatchIn(t) }?.let { m ->

@@ -392,6 +392,9 @@ class JarvisHands : AccessibilityService() {
         val busy: Boolean get() = instance?.job != null
 
         /** A finger tap at a point on screen, for controls that don't describe themselves (a slider, a colour dot). */
+        /** A system action: lock, screenshot, notifications, quick settings, recents, home, power menu, split screen. */
+        fun global(action: Int): Boolean = instance?.performGlobalAction(action) ?: false
+
         /** The phone's back button, to step out of a page to the one before. */
         fun back(): Boolean {
             act("back")

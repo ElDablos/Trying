@@ -237,6 +237,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         // A new session after half an hour away: a clean slate, with a marker.
         val now = System.currentTimeMillis()
         if (log.childCount > 0 && now - lastActive > SESSION_MS) {
+            setCompact(false)
             log.removeAllViews()
             greetedAt = 0L
         }
@@ -325,11 +326,31 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         submit(text)
     }
 
+    /** The reactor shrunk to a strip, so the conversation has the room. */
+    private var compact = false
+
+    private fun setCompact(on: Boolean) {
+        if (compact == on) return
+        compact = on
+        val lp = core.layoutParams ?: return
+        val from = if (core.height > 0) core.height else lp.height
+        android.animation.ValueAnimator.ofInt(from, dp(if (on) 118f else 258f)).apply {
+            duration = 320
+            interpolator = DecelerateInterpolator(1.6f)
+            addUpdateListener {
+                lp.height = it.animatedValue as Int
+                core.layoutParams = lp
+            }
+        }.start()
+        (lp as? LinearLayout.LayoutParams)?.topMargin = dp(if (on) 6f else 22f)
+    }
+
     /** Puts [text] to Jarvis and shows, says and does his answer. */
     /** Whether the last thing you said was spoken (then he listens again after answering) or typed. */
     private var spoken = false
 
     fun submit(text: String, voice: Boolean = false) {
+        setCompact(true)
         spoken = voice
         lastActive = System.currentTimeMillis()
         bubble(text, mine = true)
@@ -618,7 +639,13 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
             actions.forEach { a ->
                 val color = if (a.primary) Hud.GOLD else Hud.alpha(Hud.GOLD, .9f)
-                row.addView(pill(a.label, color, a.primary) { act(a) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(6f) })
+                row.addView(pill(a.label, color, a.primary) {
+                    act(a)
+                    // Dismissed (or done): the card and its buttons fold away, so it's plainly gone.
+                    if (a.closes) listOfNotNull(cardView, row.parent as? View).forEach { v ->
+                        v.animate().alpha(0f).setDuration(200).withEndAction { v.visibility = GONE }.start()
+                    }
+                }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(6f) })
             }
             val hs = HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(row) }
             hs.alpha = 0f
@@ -1280,6 +1307,10 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         private val wave = FloatArray(48)
 
         override fun onDraw(canvas: Canvas) {
+            // Drawn for its full height, and scaled down with it when the conversation needs the room.
+            val shrink = (height / dp(258f).toFloat()).coerceIn(.3f, 1f)
+            canvas.save()
+            canvas.scale(shrink, shrink, width / 2f, 0f)
             val t = (SystemClock.uptimeMillis() - start) / 1000f
             val cx = width / 2f
             val cy = 120 * u
@@ -1423,6 +1454,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 val bh = (1f + wave[i] * 8) * u
                 canvas.drawRect(wx + i * bw + bw * .2f, wy - bh, wx + (i + 1) * bw - bw * .2f, wy + bh, bar)
             }
+            canvas.restore()
             if (isShown) postInvalidateDelayed(33)
         }
     }

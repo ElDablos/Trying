@@ -70,7 +70,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      * A button under an answer: says something to Jarvis, or does something straight away. A phrase
      * ending in a space ("make it ") is started in the box for you to finish.
      */
-    class Action(val label: String, val say: String? = null, val primary: Boolean = false, val run: (() -> Unit)? = null)
+    class Action(val label: String, val say: String? = null, val primary: Boolean = false, val run: (() -> Unit)? = null, val closes: Boolean = false)
 
     /** The views he can open on himself. */
     enum class Sheet { SETTINGS, ROUTINES, NEW_ROUTINE, MEMORY }
@@ -271,6 +271,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (!inRoutine) JarvisRoutines.match(JarvisRoutines.all(context), text)?.let { return styled(runRoutine(it)).also { r -> lastReply = r } }
         // Something you've said before that he learnt the meaning of.
         val meant = if (inRoutine) null else JarvisMemory.meaning(context, text)
+        // Straight after the heater: "that's 22 actually, set it to 23", "you went down by one", "go up one".
+        if (!inRoutine && meant == null && heaterContext()) heaterTalk(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         val parsed = JarvisParser.parse(meant ?: text)
         // Adding on to what came before: "and eggs", "and one at 7:30", "at 3pm", "and Friday?".
         if (!inRoutine && pending == null) followOn(text, parsed)?.let { (c, r) ->
@@ -748,9 +750,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             travel(if (!cmd.dayGiven && prev != null && cmd.line != null) prev.day else cmd.day, cmd.line)
         }
         is Command.ItAction -> itAction(cmd.kind)
+        is Command.PhoneAction -> phoneAction(cmd.kind)
+        is Command.Ringer -> ringer(cmd.mode)
         is Command.HeaterNow -> {
+            lastDevice = "heating"
             airKnown = cmd.degrees
-            Reply("Noted${sir()}: the heater's on ${fmtTemp(cmd.degrees)}. I'll work from there.", actions = listOf(Action("WARMER", "warmer"), Action("COOLER", "cooler")))
+            calibrate(cmd.degrees)
+            if (cmd.target != null) setTemp(cmd.target, 0.0) else Reply("Noted${sir()}: the heater's on ${fmtTemp(cmd.degrees)}. I'll work from there.", actions = listOf(Action("WARMER", "warmer"), Action("COOLER", "cooler")))
         }
         is Command.CommuteTime -> {
             JarvisMemory.setCommuteMinutes(context, cmd.minutes)
@@ -910,8 +916,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             JarvisMemory.suggestions(context),
             card = Card(top.icon, "HEADS UP", sub = top.title, rows = insights.drop(1).take(3).map { Row(it.icon + "  " + it.title) }, tone = Tone.HOT),
             actions = listOfNotNull(
-                top.action?.let { Action(top.actionLabel ?: "DO IT", it, primary = true, run = { JarvisProactive.dismiss(context, top.id) }) },
-                Action("DISMISS", run = { JarvisProactive.dismiss(context, top.id) }),
+                top.action?.let { Action(top.actionLabel ?: "DO IT", it, primary = true, run = { JarvisProactive.dismiss(context, top.id) }, closes = true) },
+                // Everything on the card, not just the first.
+                Action("DISMISS", run = { insights.take(4).forEach { JarvisProactive.dismiss(context, it.id) } }, closes = true),
             ),
         ))
     }
@@ -1074,6 +1081,46 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             Action(if (day == 0) "TOMORROW" else "TODAY", if (day == 0) "any delays tomorrow" else "how's the tube today"),
             Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") }),
         ))
+    }
+
+    /** The phone itself, done with his hands (Android lets an accessibility service do these). */
+    private fun phoneAction(kind: String): Reply {
+        if (!handsReady()) return needHands(when (kind) { "lock" -> "locking the phone"; "screenshot" -> "screenshots"; else -> "that" })
+        val (action, say) = when (kind) {
+            "lock" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN to say("Locking it, sir.", "Locked. Your secrets are safe.", "Locked.")
+            "screenshot" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT to say("Screenshot taken, sir.", "Snap. Got it.", "Done.")
+            "notifications" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS to say("Your notifications, sir.", "Here's what's been pinging.", "Notifications.")
+            "quick settings" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS to say("Quick settings, sir.", "The switches.", "Quick settings.")
+            "recents" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS to say("Your recent apps, sir.", "Where were we?", "Recents.")
+            "home" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME to say("Home, sir.", "Home sweet home.", "Home.")
+            "power" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_POWER_DIALOG to say("The power menu, sir. I'll leave the big decisions to you.", "Power menu. Choose wisely.", "Power menu.")
+            "split" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN to say("Split screen, sir.", "Two for one.", "Split screen.")
+            else -> return Reply("I can't do that one yet${sir()}.", failed = true)
+        }
+        // After he's spoken (and, for a screenshot, once his own panel is out of the way).
+        return Reply(say, afterSpeech = true, end = kind == "lock", then = {
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ JarvisHands.global(action) }, if (kind == "screenshot") 700L else 150L)
+        })
+    }
+
+    /** Ring, vibrate or silent. Silent needs "Do not disturb" access, which he asks for if it's missing. */
+    private fun ringer(mode: String): Reply {
+        val am = context.getSystemService(android.media.AudioManager::class.java) ?: return Reply("I can't reach the sound settings${sir()}.", failed = true)
+        val nm = context.getSystemService(android.app.NotificationManager::class.java)
+        val target = when (mode) { "silent" -> android.media.AudioManager.RINGER_MODE_SILENT; "vibrate" -> android.media.AudioManager.RINGER_MODE_VIBRATE; else -> android.media.AudioManager.RINGER_MODE_NORMAL }
+        if (mode == "silent" && nm?.isNotificationPolicyAccessGranted != true) {
+            return Reply("I'll need permission to silence the phone${sir()}. Allow Do not disturb access for the launcher, then ask again. Vibrate for now?",
+                actions = listOf(Action("ALLOW", primary = true, run = { start(Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) }), Action("VIBRATE", "vibrate mode")))
+        }
+        val before = am.ringerMode
+        return try {
+            am.ringerMode = target
+            push("Sound back as it was") { am.ringerMode = before; "Sound's back as it was." }
+            Reply(when (mode) { "silent" -> say("Silent, sir.", "Shh. Silent.", "Silent."); "vibrate" -> say("Vibrate only, sir.", "Buzz mode.", "Vibrate."); else -> say("Sound's back on, sir.", "And we're loud again.", "Sound on.") },
+                actions = listOf(undoAction))
+        } catch (e: SecurityException) {
+            Reply("Android won't let me change that without Do not disturb access${sir()}.", actions = listOf(Action("ALLOW", run = { start(Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) })), failed = true)
+        }
     }
 
     /** "Delete it", "tick it off": the note he just read, wrote or changed. */
@@ -1876,6 +1923,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 card = Card("♨", "AIR+ · CURRENT SETTING", "?", "Air+ doesn't let me read it, so I keep track", tone = Tone.HOT))
         }
         if (degrees != null && kotlin.math.abs(degrees - known) < .25) return Reply("It's already on ${fmtTemp(known)} degrees${sir()}.")
+        // What he's about to do, so a correction afterwards ("it's on 22") can teach him how far the wheel really turns.
+        lastAirMove = AirMove(known, degrees ?: (known + by), System.currentTimeMillis())
+        lastTempTarget = degrees ?: (known + by)
         var target: Double? = degrees ?: (known + by)
         var from: Double? = known
         var wheelAt: Double = known
@@ -1980,11 +2030,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                                 }
                                 if (++moves > 30) return@custom "I couldn't get the wheel to ${fmtTemp(goal)}, sir."
                                 val chunk = steps.coerceIn(-2, 2)
-                                val row = box.height() / 5.2f
+                                val row = box.height() * airRowFraction
                                 val x = box.exactCenterX()
                                 val y = box.exactCenterY()
                                 // Higher numbers are below: drag up to bring them to the middle. Slowly, so it doesn't fling.
-                                JarvisHands.swipe(x, y, x, y - chunk * row, 650)
+                                JarvisHands.swipe(x, y, x, y - chunk * row, 800)
                                 wheelAt += chunk
                                 cool = 2
                                 null
@@ -2014,6 +2064,65 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             card = Card("♨", "HANDS · AIR+", where, if (degrees != null) "setting the heater" else if (by > 0) "a little warmer" else "a little cooler", tone = Tone.HOT),
             actions = listOf(Action("WARMER", "warmer"), Action("COOLER", "cooler")))
     }
+
+    private class AirMove(val from: Double, val to: Double, val at: Long)
+
+    /** The last time he turned the wheel: from, to, when. */
+    private var lastAirMove: AirMove? = null
+
+    /**
+     * How much of the wheel's height one degree is. Starts at what your first tries showed (about a
+     * seventh), then learns: each time you tell him where it really landed, he corrects it.
+     */
+    private var airRowFraction: Float
+        get() = context.getSharedPreferences("jarvis_hands", Context.MODE_PRIVATE).getFloat("air_row", .135f)
+        set(v) {
+            context.getSharedPreferences("jarvis_hands", Context.MODE_PRIVATE).edit().putFloat("air_row", v.coerceIn(.07f, .3f)).apply()
+        }
+
+    /** You told him where it really is after he moved it: learn how far a degree turns. */
+    private fun calibrate(actual: Double) {
+        val m = lastAirMove ?: return
+        if (System.currentTimeMillis() - m.at > 10 * 60_000L) return
+        val meant = m.to - m.from
+        val went = actual - m.from
+        if (kotlin.math.abs(meant) < .5 || kotlin.math.abs(went) < .5 || (meant > 0) != (went > 0)) return
+        airRowFraction = (airRowFraction * (meant / went)).toFloat()
+        lastAirMove = null
+    }
+
+    /** Talking about the heater just now (in the last ten minutes). */
+    private fun heaterContext() = lastDevice == "heating" && System.currentTimeMillis() - lastAt < 10 * 60_000L
+
+    /**
+     * Straight after the heater, what you say about it: where it really is ("that's 22 actually", "it's on
+     * 21 now", "you went down by one"), and where you want it ("set it to 23", "go up one"). He believes
+     * you over himself, learns from the difference, and finishes the job.
+     */
+    private fun heaterTalk(text: String): Reply? {
+        val t = JarvisParser.spokenNumbers(text.lowercase().replace("°", " degrees"))
+            .replace(Regex("\\bone\\b"), "1").replace(Regex("\\btwo\\b"), "2").replace(Regex("\\bthree\\b"), "3")
+        val r = HeaterWords.read(t) ?: return null
+        val wanted = lastAirMove?.to ?: lastTempTarget
+        r.current?.let { airKnown = it; calibrate(it) }
+        r.wentBy?.let { by ->
+            val base = airKnown ?: return@let
+            airKnown = base + by
+            calibrate(base + by)
+        }
+        val now = airKnown
+        return when {
+            r.target != null -> setTemp(r.target, 0.0)
+            r.step != null -> setTemp(null, r.step)
+            (r.current != null || r.wentBy != null) && wanted != null && now != null && kotlin.math.abs(now - wanted) >= .5 ->
+                Reply("My mistake${sir()}: it's on ${fmtTemp(now)}. Taking it to ${fmtTemp(wanted)}.", then = { setTemp(wanted, 0.0).then?.invoke() }, afterSpeech = true)
+            now != null && (r.current != null || r.wentBy != null) -> Reply("Noted${sir()}: it's on ${fmtTemp(now)}. I'll work from there.")
+            else -> null
+        }
+    }
+
+    /** The last temperature you asked for. */
+    private var lastTempTarget: Double? = null
 
     /** What the heater's set to, as far as he knows: he sets it, or you tell him. Air+ won't say. */
     private var airKnown: Double?

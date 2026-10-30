@@ -357,6 +357,34 @@ class JarvisTest {
     }
 
     @Test
+    fun heaterCorrections() {
+        fun r(s: String) = HeaterWords.read(s)
+        assertEquals(HeaterWords.Said(22.0, 23.0, null, null), r("that's 22 actually can you set it to 23"))
+        assertEquals(HeaterWords.Said(21.0, 23.0, null, null), r("now you set it to 21 set it to 23"))
+        assertEquals(HeaterWords.Said(21.0, 23.0, null, null), r("no set the temperature to 23 it's at 21 now"))
+        assertEquals(HeaterWords.Said(22.0, 23.0, null, null), r("no that's the heater is on 22 now set it to 23"))
+        assertEquals(HeaterWords.Said(22.0, null, null, null), r("no it's not it's on 22 degrees"))
+        assertEquals(HeaterWords.Said(null, null, -1.0, 1.0), r("you went down by 1 go up"))
+        assertEquals(HeaterWords.Said(null, null, null, 2.0), r("go up 2"))
+        assertEquals(null, r("what's the weather"))
+    }
+
+    @Test
+    fun phoneCommandsAndHeaterStatements() {
+        assertEquals(Command.PhoneAction("lock"), p("Lock my phone"))
+        assertEquals(Command.PhoneAction("lock"), p("lock the screen"))
+        assertEquals(Command.PhoneAction("screenshot"), p("take a screenshot"))
+        assertEquals(Command.PhoneAction("notifications"), p("show my notifications"))
+        assertEquals(Command.PhoneAction("home"), p("go home"))
+        assertEquals(Command.Ringer("vibrate"), p("put my phone on vibrate"))
+        assertEquals(Command.Ringer("silent"), p("silent mode"))
+        assertEquals(Command.HeaterNow(22.0), p("The temperature is at 22 right now"))
+        assertEquals(Command.HeaterNow(21.0), p("The heater temperature right now is at 21"))
+        assertEquals(Command.HeaterNow(22.0, 23.0), p("the heater is on 22 now set it to 23"))
+        assertEquals(Command.SetTemp(22.0), p("set the temperature to 22"))
+    }
+
+    @Test
     fun handsLogAsHeard() {
         assertEquals(Command.HandsLog, p("Send me hands long"))
         assertEquals(Command.HandsLog, p("Hands long"))

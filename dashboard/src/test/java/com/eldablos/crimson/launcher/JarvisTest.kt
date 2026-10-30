@@ -119,7 +119,10 @@ class JarvisTest {
         assertEquals(Command.Teach("bedroom light", null), p("Learn the bedroom light"))
         assertEquals(Command.Teach("fan", "smartthings"), p("Learn how to turn on the fan in SmartThings"))
         assertEquals(Command.Press("Start", "tapo"), p("Press Start in Tapo"))
-        assertEquals(Command.ShiftAlarm, p("Set an alarm for my next shift"))
+        assertEquals(Command.WorkAlarms(null), p("Set an alarm for my next shift"))
+        assertEquals(Command.WorkAlarms(1), p("Jarvis set my alarms for work tomorrow"))
+        assertEquals(Command.WorkAlarms(1), p("wake me up for my shift tomorrow"))
+        assertEquals(Command.WorkAlarms(null), p("set my work alarms"))
         assertEquals(Command.NewRoutine, p("Create a routine"))
     }
 

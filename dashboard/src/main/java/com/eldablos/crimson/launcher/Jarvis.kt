@@ -510,7 +510,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 val e = amendable as? Amendable.Event ?: return Reply("Change what${sir()}?", listen = true)
                 change(e.title + " event", value)
             }
-            is Command.Alarm, Command.ShiftAlarm, is Command.MoveAlarm -> time?.let { amend(Command.Amend(null, it)) } ?: Reply("What time should it be${sir()}?", listen = true)
+            is Command.Alarm, Command.ShiftAlarm, is Command.WorkAlarms, is Command.MoveAlarm -> time?.let { amend(Command.Amend(null, it)) } ?: Reply("What time should it be${sir()}?", listen = true)
             is Command.Remember -> remember(l.key, value)
             is Command.Recall -> JarvisMemory.recall(context, l.key)?.let { remember(it.key, value) } ?: Reply("Change what${sir()}?", listen = true)
             is Command.AddHabit, is Command.Habit, is Command.RenameHabit, is Command.Untick -> lastHabit?.let { renameHabit(it, value.replaceFirstChar { c -> c.uppercase() }) }
@@ -790,6 +790,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.Shift -> shift(cmd.day)
         is Command.ShiftWeek -> shiftWeek(cmd.next)
         Command.ShiftAlarm -> shiftAlarm()
+        is Command.WorkAlarms -> workAlarms(cmd.day)
         is Command.Agenda -> agenda(cmd.day)
         is Command.AddEvent -> addEvent(cmd)
         is Command.AddNote -> addNote(cmd.text)
@@ -1298,6 +1299,38 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val count = JarvisMemory.alarmCount(context)
         val label = "Work · ${s.start.format(tf)}"
         return if (count > 1) alarmSeries(at(wakeAt).toLocalTime(), count, JarvisMemory.alarmGap(context), label) else alarm(at(wakeAt).toLocalTime(), 0, label = label)
+    }
+
+    /**
+     * Your alarms for a working day: its shift from the deck, up as long before it as you are (2 hours
+     * for a 7 start), and your run of alarms (6, five minutes apart), labelled with the shift.
+     */
+    private fun workAlarms(day: Int?): Reply {
+        val shifts = Shifts.all(context)
+        val today = LocalDate.now()
+        val date = day?.let { today.plusDays(it.toLong()) }
+            ?: Shifts.next(shifts, System.currentTimeMillis(), zone)?.first
+            ?: return Reply("You've no shifts on the deck, sir. Tell me when you're working, like \"I'm working tomorrow 7 till 3\".", listen = true)
+        val dayName = when (date) { today -> "today"; today.plusDays(1) -> "tomorrow"; else -> "on " + date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault()) }
+        val s = shifts[date] ?: return Reply("You're not working $dayName${sir()}, so no work alarms needed. Want one anyway?",
+            actions = listOf(Action("SET ONE", "set an alarm for "), Action("MY SHIFTS", "what's my week")))
+        val lead = JarvisMemory.alarmLead(context)
+        val wake = s.start.minusMinutes(lead.toLong())
+        val count = JarvisMemory.alarmCount(context)
+        val gap = JarvisMemory.alarmGap(context)
+        val wakeAt = date.atTime(wake).let { if (wake.isAfter(s.start)) it.minusDays(1) else it }
+        val now = LocalDateTime.now()
+        if (wakeAt.isBefore(now)) return Reply("It's past your wake-up time for that shift${sir()} (${wake.format(tf)}). Best get moving.")
+        // The Clock sets a one-off alarm for its next time, so only today's or tomorrow's can be set now.
+        if (wakeAt.toLocalDate().isAfter(today.plusDays(1)) || (wakeAt.toLocalDate() == today.plusDays(1) && wake.isAfter(now.toLocalTime()))) {
+            return Reply("You're on ${s.start.format(tf)} to ${s.end.format(tf)} $dayName. I can set those the evening before, sir; I'll remind you.",
+                card = Card("⧗", "SHIFT · ${dayName.removePrefix("on ").uppercase()}", s.times(), "alarms the evening before", tone = Tone.GOLD))
+        }
+        val label = "Work · ${s.start.format(tf)}"
+        val r = if (count > 1) alarmSeries(wake, count, gap, label) else alarm(wake, if (wakeAt.toLocalDate() == today) 0 else 1, label = label)
+        val leave = s.start.minusMinutes(JarvisMemory.commuteMinutes(context).toLong())
+        return r.copy(say = "You're on ${s.start.format(tf)} to ${s.end.format(tf)} $dayName, so you're up at ${wake.format(tf)}. " + r.say +
+            " Out the door by ${leave.format(tf)}${sir()}.")
     }
 
     /** [count] alarms, [gap] minutes apart, from [first]: set one after another in the clock. */
@@ -3056,7 +3089,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             return when (JarvisParser.parse(said)) {
                 is Command.OpenApp, is Command.Call, is Command.Lights, is Command.Switch, is Command.Press, is Command.Teach,
                 is Command.Brightness, is Command.LightColour, is Command.Climate, is Command.SetTemp, is Command.Alarm, is Command.Timer,
-                Command.ShiftAlarm, is Command.AlarmSwitch, is Command.MoveAlarm, Command.Camera, is Command.Setting, Command.LightsStatus,
+                Command.ShiftAlarm, is Command.WorkAlarms, is Command.AlarmSwitch, is Command.MoveAlarm, Command.Camera, is Command.Setting, Command.LightsStatus,
                 Command.Briefing, is Command.BriefingControl, Command.Settings, Command.Routines, Command.NewRoutine -> true
                 else -> false
             }

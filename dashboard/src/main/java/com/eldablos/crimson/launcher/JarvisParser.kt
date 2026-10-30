@@ -66,6 +66,8 @@ object JarvisParser {
         /** "Learn the bedroom light": watch you do it once, then do it himself. */
         data class Teach(val name: String, val app: String?) : Command()
         object ShiftAlarm : Command()
+        /** "Set my alarms for work tomorrow": the day's shift, when you're up for it, your run of alarms. Null day: the next shift. */
+        data class WorkAlarms(val day: Int?) : Command()
 
         // The conversation itself.
         object Yes : Command()
@@ -515,7 +517,12 @@ object JarvisParser {
         Regex("\\b(\\d+) ?(seconds?|secs?|minutes?|mins?|hours?|hrs?) timer\\b").find(t)?.let { m ->
             return Command.Timer(m.groupValues[1].toInt() * unitSeconds(m.groupValues[2]))
         }
-        if (has("alarm", "wake me") && has("shift", "work", "my shift")) return Command.ShiftAlarm
+        // Alarms for work: "set my alarms for work tomorrow", "wake me up for my shift", "alarms for Friday's shift".
+        if (has("alarm", "alarms", "wake me", "wake me up") && has("work", "shift", "my shift", "the shift") &&
+            !has("delete", "remove", "turn off", "switch off", "cancel", "what", "which", "show")) {
+            val d = whenIn(t, today).first?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() }
+            return Command.WorkAlarms(d)
+        }
         // Your alarms by name: "move my 6am alarm to 6:30", "turn off my 7 o'clock alarm", "all my alarms off".
         if (has("alarm", "alarms")) {
             Regex("^(move|change|push|shift|switch|set) (my |the )?(.*?)alarm( at| for)? ?(.*?) (to|until|till|back to|forward to) (.+)$").find(t)?.let { m ->

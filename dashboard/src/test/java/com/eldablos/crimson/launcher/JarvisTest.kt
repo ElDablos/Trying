@@ -350,6 +350,14 @@ class JarvisTest {
     }
 
     @Test
+    fun handsLogAsHeard() {
+        assertEquals(Command.HandsLog, p("Send me hands long"))
+        assertEquals(Command.HandsLog, p("Hands long"))
+        assertEquals(Command.HandsLog, p("send me the hands log"))
+        assertEquals(Command.HandsLog, p("hand lock"))
+    }
+
+    @Test
     fun restartAndSystemsCheck() {
         assertEquals(Command.Reboot, p("Restart yourself"))
         assertEquals(Command.Reboot, p("Restart Jarvis"))

@@ -185,6 +185,8 @@ object JarvisParser {
                 if (Regex("^(set|make|give me|wake me)").containsMatchIn(t)) return Command.AlarmSeries(a.count, a.gap, a.from)
             }
         }
+        // "Hands log", and what it gets heard as ("hands long", "hand lock", "hans log").
+        if (Regex("\\b(hands?|hans|hand's) (log|logs|long|lock|blog|lot)\\b").containsMatchIn(t)) return Command.HandsLog
         if (has("hands log", "what did you see", "what you saw", "send me the log", "share the log", "debug log", "send the log", "show me the log")) return Command.HandsLog
         if (has("systems check", "system check", "diagnostics", "status report", "are you working", "are your hands working", "run a check")) return Command.SystemsCheck
 

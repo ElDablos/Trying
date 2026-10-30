@@ -70,6 +70,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     var onWeather: (() -> Unit)? = null
     var onWeatherDay: ((LocalDate) -> Unit)? = null
     var onReply: ((String) -> Unit)? = null
+    var onJarvis: (() -> Unit)? = null
     var onVoice: (() -> Unit)? = null
     var onLaunch: ((ComponentName) -> Unit)? = null
 
@@ -157,146 +158,107 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         val action: (() -> Unit)?,
     )
 
-    // Reading the briefing aloud.
-    private var tts: android.speech.tts.TextToSpeech? = null
+    // Reading the briefing aloud: the script, how far it's got, and the part being read now.
     private var speaking = false
 
-    /** The part being read right now ("row:2" for the third line), to light it up. */
+    /** The part being read right now ("x:sky", "news:1"…), to light up its line. */
     private var speakingId: String? = null
+    private var script: List<Pair<String, String>> = emptyList()
 
-    /** Reads [parts] (id to text) one after another, lighting up each as it's read. */
-    private fun speak(parts: List<Pair<String, String>>) {
-        val ready = tts
-        if (ready != null) {
-            say(ready, parts)
-            return
+    /** The part last started; kept when stopped, so the briefing can carry on from there. */
+    private var scriptAt = -1
+
+    private val reader = object : Speech.Listener {
+        override fun onPart(id: String) {
+            speaking = true
+            speakingId = id
+            script.indexOfFirst { it.first == id }.takeIf { it >= 0 }?.let { scriptAt = it }
+            board.invalidate()
         }
+
+        override fun onEnd(finished: Boolean) {
+            speaking = false
+            speakingId = null
+            if (finished) scriptAt = -1
+            board.invalidate()
+        }
+    }
+
+    /** Reads [parts] from [from] on, lighting up each as it's read. */
+    private fun speak(parts: List<Pair<String, String>>, from: Int = 0) {
+        script = parts
+        scriptAt = from
         speaking = true
-        withTts { t -> say(t, parts) }
+        Speech.speak(context, parts, reader, from)
+        board.invalidate()
     }
 
-    /** Starts the speech engine if needed (Google's, for its natural voices, when it's there), then runs [then]. */
-    private fun withTts(then: (android.speech.tts.TextToSpeech) -> Unit) {
-        tts?.let { return then(it) }
-        val google = try {
-            context.packageManager.getPackageInfo(GOOGLE_TTS, 0)
-            GOOGLE_TTS
-        } catch (e: Exception) {
-            null
-        }
-        val listener = android.speech.tts.TextToSpeech.OnInitListener { status ->
-            main.post {
-                val t = tts
-                if (status == android.speech.tts.TextToSpeech.SUCCESS && t != null) {
-                    pickVoice(t)
-                    then(t)
-                } else {
-                    speaking = false
-                    board.invalidate()
-                    Toast.makeText(context, "Text to speech isn't available", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-        tts = if (google != null) android.speech.tts.TextToSpeech(context.applicationContext, listener, google)
-        else android.speech.tts.TextToSpeech(context.applicationContext, listener)
-    }
-
-    /** English voices worth offering, the most natural first: your country's, then by quality. */
-    private fun voices(t: android.speech.tts.TextToSpeech): List<android.speech.tts.Voice> {
-        val country = Locale.getDefault().country
-        return try {
-            t.voices.orEmpty()
-                .filter { it.locale.language == "en" && !it.features.orEmpty().contains(android.speech.tts.TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) }
-                .sortedWith(
-                    compareByDescending<android.speech.tts.Voice> { it.locale.country == country }
-                        .thenByDescending { it.quality }
-                        .thenByDescending { it.isNetworkConnectionRequired }
-                        .thenBy { it.name },
-                )
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    /** The voice you chose, or the best one there is. */
-    private fun pickVoice(t: android.speech.tts.TextToSpeech) {
-        val saved = context.getSharedPreferences("deck", Context.MODE_PRIVATE).getString("voice", null)
-        val list = voices(t)
-        val v = list.firstOrNull { it.name == saved } ?: list.firstOrNull()
-        if (v != null) t.voice = v else t.language = Locale.getDefault()
-    }
-
-    /** "UK · Voice B · natural, online". */
-    private fun voiceLabel(v: android.speech.tts.Voice): String {
-        val country = when (v.locale.country) { "GB" -> "UK"; "US" -> "US"; "AU" -> "Australia"; "IN" -> "India"; "IE" -> "Ireland"; "ZA" -> "South Africa"; else -> v.locale.displayCountry }
-        val id = v.name.substringAfter("-x-", "").substringBefore('-')
-        val who = if (id.length >= 3) "Voice ${id.last().uppercaseChar()}" else v.name
-        val kind = when {
-            v.isNetworkConnectionRequired -> "natural, online"
-            v.quality >= android.speech.tts.Voice.QUALITY_VERY_HIGH -> "natural, on the phone"
-            else -> "on the phone"
-        }
-        return "$country · $who · $kind"
-    }
-
-    /** Pick the briefing's voice, hearing each as you choose. */
-    private fun chooseVoice() {
-        withTts { t ->
-            val list = voices(t).take(16)
-            if (list.isEmpty()) {
-                Toast.makeText(context, "No English voices installed", Toast.LENGTH_SHORT).show()
-                return@withTts
-            }
-            AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("◆ BRIEFING VOICE")
-                .setItems(list.map { voiceLabel(it) }.toTypedArray()) { _, i ->
-                    context.getSharedPreferences("deck", Context.MODE_PRIVATE).edit().putString("voice", list[i].name).apply()
-                    t.voice = list[i]
-                    say(t, listOf("x:sample" to "Hi, this is your briefing voice. Good evening, it's 7:30 p.m. and your next shift is tomorrow at 6 a.m."))
-                }
-                .show()
-        }
-    }
-
-    private fun say(t: android.speech.tts.TextToSpeech, parts: List<Pair<String, String>>) {
-        if (parts.isEmpty()) return
-        // Natural pace and pitch: the voices sound most human left close to their own.
-        t.setSpeechRate(.97f)
-        t.setPitch(1f)
-        val last = parts.last().first
-        t.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-            override fun onStart(id: String?) { main.post { speaking = true; speakingId = id; board.invalidate() } }
-            override fun onDone(id: String?) { if (id == last) main.post { speaking = false; speakingId = null; board.invalidate() } }
-            @Deprecated("Deprecated in Java")
-            override fun onError(id: String?) { main.post { speaking = false; speakingId = null; board.invalidate() } }
-        })
-        parts.forEachIndexed { i, (id, text) ->
-            t.speak(speakable(text), if (i == 0) android.speech.tts.TextToSpeech.QUEUE_FLUSH else android.speech.tts.TextToSpeech.QUEUE_ADD, null, id)
-            // A short breath between parts.
-            if (i < parts.lastIndex) t.playSilentUtterance(if (i < 2) 450 else 320, android.speech.tts.TextToSpeech.QUEUE_ADD, "pause:$i")
-        }
-    }
-
-    /** Text as a person would say it: "6 a.m." not "06:00", "about 7 hours" not "7h 11m", degrees, percent. */
-    private fun speakable(text: String): String = Companion.speakable(text)
-
+    /** Stops reading, keeping the place. */
     private fun stopSpeaking() {
-        tts?.stop()
+        Speech.stop()
         speaking = false
         speakingId = null
         board.invalidate()
     }
+
+    /** A briefing stopped part-way, ready to carry on. */
+    private val paused: Boolean get() = !speaking && scriptAt >= 0 && script.isNotEmpty()
+
+    /** Which section a part belongs to, for jumping about. */
+    private fun chapterOf(id: String): String = when {
+        id == "x:hello" || id == "x:head" -> "INTRO"
+        id == "x:work" || id == "x:plan" -> "DAY"
+        id == "x:sky" -> "WEATHER"
+        id == "x:sleep" || id == "x:wake" -> "SLEEP"
+        id == "x:msgs" -> "MESSAGES"
+        id.startsWith("x:mail") -> "EMAIL"
+        id == "x:notes" -> "NOTES"
+        id == "x:soon" -> "COUNTDOWNS"
+        id == "x:bits" -> "EXTRAS"
+        id == "x:money" -> "MONEY"
+        id == "x:newsintro" || id.startsWith("news:") -> "NEWS"
+        else -> "END"
+    }
+
+    /** The briefing's sections, in order. */
+    private fun chapters(): List<String> = script.map { chapterOf(it.first) }.distinct().filter { it != "END" }
+
+    /** Reads today's briefing from the start. */
+    fun readBriefing() {
+        Mail.catchUp(context)
+        board.freshIntel()
+        speak(board.spokenNow())
+    }
+
+    /** Carries on from where the briefing was stopped; false when there's nothing to carry on. */
+    fun resumeBriefing(): Boolean {
+        if (script.isEmpty() || scriptAt < 0) return false
+        speak(script, scriptAt)
+        return true
+    }
+
+    /** Forward or back by [by] parts (back one starts the current part again when it's under way). */
+    fun skipBriefing(by: Int) {
+        if (script.isEmpty()) return readBriefing()
+        speak(script, (scriptAt.coerceAtLeast(0) + by).coerceIn(0, script.lastIndex))
+    }
+
+    /** Jumps to a section ("NEWS", "WEATHER"…), reading the briefing first if there isn't one yet. */
+    fun jumpBriefing(chapter: String): Boolean {
+        if (script.isEmpty()) script = board.spokenNow()
+        val i = script.indexOfFirst { chapterOf(it.first) == chapter }
+        if (i < 0) return false
+        speak(script, i)
+        return true
+    }
+
+    fun stopBriefing() = stopSpeaking()
 
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)
         if (visibility != VISIBLE && speaking) stopSpeaking()
     }
 
-    override fun onDetachedFromWindow() {
-        tts?.shutdown()
-        tts = null
-        super.onDetachedFromWindow()
-    }
 
     init {
         addView(board, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -1243,6 +1205,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 "x:msgs" -> setOf("✉")
                 "x:bits" -> setOf("▮", "◇", "◆", "⏳", "◎", "👣")
                 "x:money" -> setOf("◈")
+                "x:soon" -> setOf("⏳")
                 else -> return false
             }
             return line.glyph in glyphs
@@ -1300,6 +1263,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 .show()
         }
 
+        /** Today's briefing as it would be read now. */
+        fun spokenNow(): List<Pair<String, String>> = spoken(intel())
+
         /** Who the briefing talks to. */
         private fun userName(): String = context.getSharedPreferences("deck", Context.MODE_PRIVATE).getString("name", null) ?: "Vee"
 
@@ -1335,12 +1301,13 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val d = nowT.dayOfMonth
             val suffix = if (d in 11..13) "th" else when (d % 10) { 1 -> "st"; 2 -> "nd"; 3 -> "rd"; else -> "th" }
             val mood = when {
-                list.any { it.rank == 0 } -> "There's something that needs your attention, so let's start there."
-                evening -> listOf("Let's get you ready for tomorrow.", "Here's how tomorrow's shaping up.", "Let's have a look at tomorrow.")[pick % 3]
-                nowT.hour < 12 -> listOf("Here's your day.", "Let's see what today's got in store.", "Here's what's ahead of you.")[pick % 3]
-                else -> listOf("Here's the rest of your day.", "Let's catch up on the rest of today.", "Here's where things stand.")[pick % 3]
+                list.any { it.rank == 0 } -> "I'm afraid something needs your attention, sir, so let's start there."
+                evening -> listOf("Shall we get you ready for tomorrow?", "Allow me to walk you through tomorrow.", "Here's how tomorrow's shaping up, sir.")[pick % 3]
+                nowT.hour < 12 -> listOf("All systems are running smoothly. Here's your day.", "Here's what's ahead of you today, sir.", "Shall we go through your day?")[pick % 3]
+                else -> listOf("Let me catch you up, sir.", "All systems nominal. Here's the rest of your day.", "Here's where things stand.")[pick % 3]
             }
-            out += "x:hello" to "$greet, $name. It's ${nowT.format(tf)} on ${weekday(today)} the $d$suffix. $mood"
+            // The name runs straight on from the greeting, the way a person says it.
+            out += "x:hello" to "$greet $name, it's ${nowT.format(tf)} on ${weekday(today)} the $d$suffix. $mood"
             out += "x:head" to headline(list)
 
             // Work: on shift now, or the next shift and what comes after it.
@@ -1468,7 +1435,34 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 }
             }
 
-            // The little things: battery, habits, countdowns, focus, steps.
+            // Notes: what's still on the list.
+            val open = note.lines().map { it.trim() }.filter { it.isNotBlank() && !it.startsWith(DONE) }
+            val ticked = note.lines().count { it.startsWith(DONE) }
+            if (open.isNotEmpty()) {
+                val items = open.take(8)
+                val joined = if (items.size == 1) items[0] else items.dropLast(1).joinToString(", ") + ", and " + items.last()
+                out += "x:notes" to (if (open.size == 1) "There's one thing on your notes: " else "You've got ${open.size} things on your notes: ") + joined + "." +
+                    (if (open.size > items.size) " Plus ${open.size - items.size} more." else "")
+            } else if (ticked > 0) {
+                out += "x:notes" to "Everything on your notes is ticked off. Well done, sir."
+            }
+
+            // Countdowns: every one still to come, the nearest first.
+            val coming = countdowns.filter { !it.date.isBefore(today) }.sortedBy { it.date }
+            if (coming.isNotEmpty()) {
+                val said = coming.take(6).mapIndexed { i, c ->
+                    val days = java.time.temporal.ChronoUnit.DAYS.between(today, c.date)
+                    when {
+                        days == 0L -> "${c.name} is today"
+                        days == 1L -> "${c.name} is tomorrow"
+                        i == 0 -> "${c.name} is in $days days"
+                        else -> "${c.name} in $days"
+                    }
+                }
+                out += "x:soon" to "On the countdowns: " + (if (said.size == 1) said[0] else said.dropLast(1).joinToString(", ") + ", and " + said.last()) + "."
+            }
+
+            // The little things: battery, habits, focus, steps.
             val bits = ArrayList<String>()
             telemetry?.let { t ->
                 when {
@@ -1482,14 +1476,6 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val left = habits.filter { today !in it.done }.map { it.name }
                 if (left.isEmpty()) bits += "You've ticked off every habit today. Nice work."
                 else if (nowT.hour >= 17) bits += "Still to do today: ${left.joinToString(" and ")}."
-            }
-            countdowns.filter { java.time.temporal.ChronoUnit.DAYS.between(today, it.date) in 0..10 }.take(2).forEach { c ->
-                val days = java.time.temporal.ChronoUnit.DAYS.between(today, c.date)
-                bits += when (days) {
-                    0L -> "Don't forget, it's ${c.name} today."
-                    1L -> "${c.name} is tomorrow."
-                    else -> "${c.name} is in $days days."
-                }
             }
             focus?.let { bits += "You're in a focus session, with ${duration((it.endAt - nowMs).coerceAtLeast(0))} to go." }
             if (bits.isNotEmpty()) out += "x:bits" to bits.joinToString(" ")
@@ -1514,8 +1500,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 }
             }
 
-            out += "x:end" to if (evening) listOf("That's everything for tonight, $name. Sleep well.", "That's it from me, $name. Get some rest.", "All done, $name. Have a good night.")[pick % 3]
-            else listOf("That's everything, $name. Have a good one.", "That's your briefing, $name. Go get it.", "All caught up, $name. Have a great day.")[pick % 3]
+            out += "x:end" to if (evening) listOf("That's everything for tonight, $name. Sleep well, sir.", "That's all from me. Get some rest, $name.", "All done for today, $name. I'll be here if you need me.")[pick % 3]
+            else listOf("That's everything, $name. I'll be here if you need me.", "That's your briefing, sir. Go get them.", "All caught up, $name. Have a great day.")[pick % 3]
             return out
         }
 
@@ -1549,7 +1535,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val tickerH = if (news.isNotEmpty()) 26 * u else 0f
             val rowsTop = tlTop + tlH + tickerH + 8 * u
             val rowH = 30 * u
-            val waveH = if (speaking) 22 * u else 0f
+            val waveH = if (speaking || paused) 58 * u else 0f
             val h = rowsTop + shown.size * rowH + waveH + 42 * u
             card(canvas, now, top, h) {
                 val r = RectF(14 * u, top, width - 14 * u, top + h)
@@ -1615,37 +1601,64 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         tap(row) { act() }
                     }
                 }
-                // While reading: a live voice trace.
-                if (speaking) {
+                // While reading, or stopped part-way: back, play or pause, forward, a voice trace, and the
+                // sections to jump to.
+                if (speaking || paused) {
                     val wy = top + rowsTop + shown.size * rowH + 4 * u
-                    canvas.drawText("◉ READING", r.left + 14 * u, wy + 11 * u, Hud.text(7 * u, Hud.GOLD, Hud.MONO_BOLD, .16f))
-                    val wl = r.left + 80 * u
+                    val tb = 28 * u
+                    listOf("⏮" to { skipBriefing(-1) }, (if (speaking) "❚❚" else "▶") to { if (speaking) stopSpeaking() else resumeBriefing() }, "⏭" to { skipBriefing(1) })
+                        .forEachIndexed { k, (g, act) ->
+                            val b = RectF(r.left + 14 * u + k * (tb + 5 * u), wy, r.left + 14 * u + k * (tb + 5 * u) + tb, wy + 22 * u)
+                            canvas.drawPath(Hud.cut(b, 5 * u, path), Hud.fill(Hud.alpha(if (k == 1) Hud.GOLD else Hud.BLOOD, if (k == 1) .85f else .4f)))
+                            canvas.drawPath(Hud.cut(b, 5 * u, path), Hud.stroke(Hud.alpha(Hud.GOLD, .7f), u))
+                            canvas.drawText(g, b.centerX(), b.centerY() + 4 * u, Hud.text(9 * u, if (k == 1) Theme.on(Hud.GOLD) else Hud.GOLD, Hud.SANS, align = Paint.Align.CENTER))
+                            tap(b) { act() }
+                        }
+                    val wl = r.left + 14 * u + 3 * (tb + 5 * u) + 6 * u
                     val wr = r.right - 14 * u
-                    val bars = 36
-                    val bwid = (wr - wl) / bars
-                    for (k in 0 until bars) {
-                        val ph = now / 90.0 + k * .7
-                        val amp = (.25 + .75 * kotlin.math.abs(kotlin.math.sin(ph) * kotlin.math.cos(ph * .37 + k * .2))).toFloat()
-                        val bh = 14 * u * amp
-                        canvas.drawRect(wl + k * bwid + bwid * .25f, wy + 8 * u - bh / 2, wl + (k + 1) * bwid - bwid * .25f, wy + 8 * u + bh / 2, Hud.glow(Hud.fill(Hud.alpha(Hud.GOLD, .5f + .5f * amp)), 3 * u, Hud.GOLD))
+                    val current = script.getOrNull(scriptAt)?.first?.let { chapterOf(it) }
+                    if (speaking) {
+                        val bars = 28
+                        val bwid = (wr - wl) / bars
+                        for (k in 0 until bars) {
+                            val ph = now / 90.0 + k * .7
+                            val amp = (.25 + .75 * kotlin.math.abs(kotlin.math.sin(ph) * kotlin.math.cos(ph * .37 + k * .2))).toFloat()
+                            val bh = 14 * u * amp
+                            canvas.drawRect(wl + k * bwid + bwid * .25f, wy + 11 * u - bh / 2, wl + (k + 1) * bwid - bwid * .25f, wy + 11 * u + bh / 2, Hud.glow(Hud.fill(Hud.alpha(Hud.GOLD, .5f + .5f * amp)), 3 * u, Hud.GOLD))
+                        }
+                    } else {
+                        canvas.drawText("PAUSED" + (current?.let { " · AT $it" } ?: "") + " · ▶ TO CARRY ON", wl, wy + 14 * u, Hud.fit("PAUSED · AT COUNTDOWNS · ▶ TO CARRY ON", Hud.text(7.5f * u, Hud.GOLD, Hud.MONO, .12f), wr - wl))
+                    }
+                    // The sections: tap one to jump there.
+                    var cx = r.left + 14 * u
+                    val cp = Hud.text(6.5f * u, Hud.SOFT, Hud.MONO_BOLD, .1f, Paint.Align.CENTER)
+                    for (ch in chapters()) {
+                        val w = cp.measureText(ch) + 12 * u
+                        if (cx + w > r.right - 14 * u) break
+                        val c = RectF(cx, wy + 30 * u, cx + w, wy + 48 * u)
+                        val on = ch == current
+                        canvas.drawRect(c, Hud.fill(Hud.alpha(if (on) Hud.GOLD else Hud.BLOOD, if (on) .85f else .3f)))
+                        canvas.drawRect(c, Hud.stroke(Hud.alpha(Hud.GOLD, if (on) 1f else .4f), u))
+                        cp.color = if (on) Theme.on(Hud.GOLD) else Theme.readable(Hud.SOFT)
+                        canvas.drawText(ch, c.centerX(), c.centerY() + 2.5f * u, cp)
+                        tap(c) { jumpBriefing(ch) }
+                        cx += w + 4 * u
                     }
                 }
                 // Read it out, hand it to Claude, plan shifts, or see it all.
                 val by = r.bottom - 34 * u
                 val bw = (r.width() - 28 * u - 18 * u) / 4
                 fun slot(k: Int) = RectF(r.left + 14 * u + k * (bw + 6 * u), by, r.left + 14 * u + k * (bw + 6 * u) + bw, by + 26 * u)
-                button(canvas, slot(0), if (speaking) "■ STOP" else "🔊 READ", solid = speaking) {
-                    if (speaking) stopSpeaking() else {
-                        Mail.catchUp(context)
-                        speak(spoken(intel()))
+                button(canvas, slot(0), when { speaking -> "■ STOP"; paused -> "▶ CONTINUE"; else -> "🔊 READ" }, solid = speaking || paused) {
+                    when {
+                        speaking -> stopSpeaking()
+                        paused -> resumeBriefing()
+                        else -> readBriefing()
                     }
                 }
                 // Hold to choose the voice.
-                hold(slot(0)) { chooseVoice() }
-                button(canvas, slot(1), "✳ CLAUDE", solid = true) {
-                    val text = intel().joinToString("; ") { x -> "${x.label.lowercase()}: ${x.value}" }
-                    ClaudeLink.ask(context, "Here's my day so far — $text. Help me plan the rest of it.", remember = false)
-                }
+                hold(slot(0)) { Speech.chooseVoice(context, userName()) }
+                button(canvas, slot(1), "◉ JARVIS", solid = true) { onJarvis?.invoke() }
                 button(canvas, slot(2), "⧗ SHIFTS") {
                     shiftsOpen = true
                     scrollTo(0f)
@@ -3889,39 +3902,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     companion object {
         /** How long animations keep running after the last touch. */
         private const val LIVE_MS = 20_000L
-        private const val GOOGLE_TTS = "com.google.android.tts"
-
-        /** Times, durations and symbols as they're said: "06:00" → "6 a.m.", "7h 11m" → "about 7 hours". */
-        fun speakable(text: String): String {
-            var t = text
-            t = Regex("\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b").replace(t) { m ->
-                val h = m.groupValues[1].toInt()
-                val min = m.groupValues[2].toInt()
-                when {
-                    h == 0 && min == 0 -> "midnight"
-                    h == 12 && min == 0 -> "midday"
-                    else -> {
-                        val h12 = if (h % 12 == 0) 12 else h % 12
-                        (if (min == 0) "$h12" else "$h12:%02d".format(min)) + if (h < 12) " a.m." else " p.m."
-                    }
-                }
-            }
-            t = Regex("\\b(\\d+)d (\\d+)h\\b").replace(t) { m -> spokenHours(m.groupValues[1].toInt() * 24 + m.groupValues[2].toInt(), 0) }
-            t = Regex("\\b(\\d+)h (\\d+)m\\b").replace(t) { m -> spokenHours(m.groupValues[1].toInt(), m.groupValues[2].toInt()) }
-            t = Regex("\\b(\\d+)h\\b").replace(t) { m -> spokenHours(m.groupValues[1].toInt(), 0) }
-            t = Regex("\\b(\\d+)m\\b").replace(t) { m -> m.groupValues[1].toInt().let { if (it == 1) "a minute" else "$it minutes" } }
-            return t.replace("°", " degrees").replace("%", " percent").replace(" · ", ", ").replace("·", ",")
-                .replace("▲", "up").replace("▼", "down").replace("→", "to").replace("–", " to ")
-        }
-
-        /** "an hour and 20 minutes", "2 and a half hours", "about 7 hours". */
-        private fun spokenHours(h: Int, m: Int): String = when {
-            h == 0 -> if (m == 1) "a minute" else "$m minutes"
-            h >= 3 -> "about ${if (m >= 30) h + 1 else h} hours"
-            m == 0 -> if (h == 1) "an hour" else "$h hours"
-            m in 25..35 -> if (h == 1) "an hour and a half" else "$h and a half hours"
-            else -> (if (h == 1) "an hour" else "$h hours") + " and $m minutes"
-        }
+        /** Times, durations and symbols as they're said (see [Speech.speakable]). */
+        fun speakable(text: String): String = Speech.speakable(text)
         const val CALENDAR_REQUEST = 53
         private const val DONE = "[x] "
         private const val TODO = ""

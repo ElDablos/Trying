@@ -342,7 +342,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         // (the voice can take a moment to wake), with a longer one in case it never starts at all.
         val safety = Runnable { after() }
         if (reply.afterSpeech) main.postDelayed(safety, 9000L)
-        speak(reply.say, onStart = {
+        speak(spokenFor(reply), onStart = {
             if (reply.afterSpeech) {
                 main.removeCallbacks(safety)
                 main.postDelayed(safety, 2500L + reply.say.length * 90L)
@@ -351,6 +351,11 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             main.removeCallbacks(safety)
             after()
             when {
+                interrupted -> {
+                    interrupted = false
+                    showHeard("Go ahead, sir.")
+                    listen()
+                }
                 reply.listen -> listen()
                 // A conversation: after answering something you said, he listens for what's next. Silence, "that's
                 // all" or "thanks" ends it; so does him opening an app, or you typing instead.
@@ -362,8 +367,28 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         if (!reply.afterSpeech) reply.then?.invoke()
     }
 
+    /**
+     * What he says aloud: all of it when you asked to hear it, or when there's no card; otherwise the first
+     * sentence or two, since the card on screen holds the detail.
+     */
+    private fun spokenFor(reply: Jarvis.Reply): String {
+        val text = reply.say
+        if (reply.full || reply.card == null || reply.listen || text.length <= 200) return text
+        val parts = text.split(Regex("(?<=[.!?])\\s+"))
+        val sb = StringBuilder(parts.first())
+        for (p in parts.drop(1)) {
+            if (sb.length + p.length > 170) break
+            sb.append(' ').append(p)
+        }
+        return if (sb.length < text.length - 10) "$sb The rest is on screen, sir." else text
+    }
+
+    /** You cut him off ("stop", or a tap): when he goes quiet, he listens for what you want instead. */
+    private var interrupted = false
+
     private fun speak(text: String, onStart: () -> Unit = {}, after: () -> Unit = {}) {
         setState(State.SPEAKING)
+        interrupted = false
         var started = false
         Speech.speak(context, listOf("jarvis" to Speech.speakable(text)), object : Speech.Listener {
             override fun onPart(id: String) {
@@ -371,9 +396,17 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 if (!started) {
                     started = true
                     onStart()
+                    // Say "stop" (or "Jarvis") while he talks to cut in.
+                    if (visibility == VISIBLE) JarvisEar.hush(true) {
+                        if (state == State.SPEAKING) {
+                            interrupted = true
+                            Speech.stop()
+                        }
+                    }
                 }
             }
             override fun onEnd(finished: Boolean) {
+                JarvisEar.hush(false)
                 if (state == State.SPEAKING) setState(State.IDLE)
                 after()
             }
@@ -391,6 +424,11 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
      */
     private fun micTap() {
         when {
+            state == State.SPEAKING -> {
+                // Cut him off: he stops and listens.
+                interrupted = true
+                Speech.stop()
+            }
             state == State.LISTENING && auto -> {
                 auto = false
                 performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)

@@ -236,6 +236,77 @@ class JarvisEar : Service() {
         o.show()
     }
 
+    // --- Cutting him off ---
+
+    private var hushing: SpeechService? = null
+    private var hushOn = false
+
+    private fun startHush(onStop: () -> Unit) {
+        if (hushOn || !modelReady(this) || checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        hushOn = true
+        paused++
+        stopWake()
+        Thread {
+            try {
+                val m = model ?: Model(modelDir(this).absolutePath).also { model = it }
+                val rec = Recognizer(m, 16000f, "[\"stop\", \"stop it\", \"stop talking\", \"jarvis\", \"hey jarvis\", \"enough\", \"quiet\", \"be quiet\", \"shut up\", \"wait\", \"hold on\", \"[unk]\"]")
+                rec.setWords(true)
+                main.post {
+                    if (!hushOn) {
+                        rec.close()
+                        return@post
+                    }
+                    try {
+                        var fired = false
+                        fun check(json: String?) {
+                            if (fired || !hushOn) return
+                            val o = try { JSONObject(json ?: "") } catch (e: Exception) { return }
+                            val text = o.optString("text").trim()
+                            if (text.isEmpty() || text.contains("[unk]")) return
+                            val words = o.optJSONArray("result") ?: return
+                            var sum = 0.0
+                            for (i in 0 until words.length()) sum += words.getJSONObject(i).optDouble("conf", 0.0)
+                            if (words.length() == 0 || sum / words.length() < .7) return
+                            fired = true
+                            stopHush()
+                            onStop()
+                        }
+                        hushing = SpeechService(rec, 16000f).also {
+                            it.startListening(object : org.vosk.android.RecognitionListener {
+                                override fun onPartialResult(hypothesis: String?) {}
+                                override fun onResult(hypothesis: String?) = check(hypothesis)
+                                override fun onFinalResult(hypothesis: String?) = check(hypothesis)
+                                override fun onError(exception: Exception?) = stopHush()
+                                override fun onTimeout() = stopHush()
+                            })
+                        }
+                    } catch (e: Exception) {
+                        stopHush()
+                    }
+                }
+            } catch (e: Exception) {
+                main.post { stopHush() }
+            }
+        }.start()
+    }
+
+    private fun stopHush() {
+        hushing?.let {
+            hushing = null
+            try {
+                it.stop()
+                it.shutdown()
+            } catch (e: Exception) {
+                // Already stopped.
+            }
+        }
+        if (hushOn) {
+            hushOn = false
+            paused = (paused - 1).coerceAtLeast(0)
+            if (paused == 0) startWake()
+        }
+    }
+
     private fun locked() = getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
 
     /** Hears one command; a [followUp] that hears nothing just ends the conversation. */
@@ -347,11 +418,17 @@ class JarvisEar : Service() {
         overlay?.state = JarvisOverlay.State.SPEAKING
         if (!reply.afterSpeech) reply.then?.invoke()
         var done = false
+        var cut = false
         val after = {
             if (!done) {
                 done = true
                 if (reply.afterSpeech) reply.then?.invoke()
                 when {
+                    // You cut him off: straight to your next command.
+                    cut -> {
+                        overlay?.said("Go ahead, sir.")
+                        listen(followUp = false)
+                    }
                     reply.listen -> listen(followUp = true)
                     // His hands are off to work an app: they'll report back (and maybe stay a moment).
                     JarvisHands.busy -> overlay?.state = JarvisOverlay.State.STANDBY
@@ -368,8 +445,13 @@ class JarvisEar : Service() {
             override fun onPart(id: String) {
                 main.removeCallbacks(safety)
                 main.postDelayed(safety, 2500L + reply.say.length * 90L)
+                startHush {
+                    cut = true
+                    Speech.stop()
+                }
             }
             override fun onEnd(finished: Boolean) {
+                stopHush()
                 main.removeCallbacks(safety)
                 after()
             }
@@ -531,6 +613,16 @@ class JarvisEar : Service() {
                 ear.paused = (ear.paused + if (on) 1 else -1).coerceAtLeast(0)
                 if (ear.paused > 0) ear.stopWake() else ear.startWake()
             }
+        }
+
+        /**
+         * While he talks: listens for "stop" (or "Jarvis", "enough", "quiet"…) on the phone, so you can cut
+         * him off and go straight to your next command. [onStop] runs on the main thread. Off again with
+         * [hush] false. Needs the wake word's model; without it, a tap still does the job.
+         */
+        fun hush(on: Boolean, onStop: () -> Unit = {}) {
+            val ear = instance ?: return
+            ear.main.post { if (on) ear.startHush(onStop) else ear.stopHush() }
         }
 
         /** From his hands, done in an app that might want more: true if he stays to listen. */

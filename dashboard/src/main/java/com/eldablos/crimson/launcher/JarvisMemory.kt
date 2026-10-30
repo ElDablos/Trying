@@ -142,6 +142,10 @@ object JarvisMemory {
     fun alarmLead(context: Context) = prefs(context).getInt("set:lead", 75)
     fun setAlarmLead(context: Context, minutes: Int) = prefs(context).edit().putInt("set:lead", minutes).apply()
 
+    /** How long your journey to work takes, door to door: when to warn you about the tube. */
+    fun commuteMinutes(context: Context) = prefs(context).getInt("set:commute", 45)
+    fun setCommuteMinutes(context: Context, minutes: Int) = prefs(context).edit().putInt("set:commute", minutes).apply()
+
     /** Ask before calling or messaging someone. */
     fun confirmCalls(context: Context) = prefs(context).getBoolean("set:confirm", true)
     fun setConfirmCalls(context: Context, on: Boolean) = prefs(context).edit().putBoolean("set:confirm", on).apply()

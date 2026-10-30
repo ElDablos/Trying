@@ -22,9 +22,11 @@ object JarvisParser {
         object Date : Command()
         data class Weather(val day: Int, val rainOnly: Boolean = false) : Command()
         /** The tube, trains and roads across London on a day (0 today), and whether to plan ahead. */
-        data class Travel(val day: Int) : Command()
+        data class Travel(val day: Int, val line: String? = null, val dayGiven: Boolean = true) : Command()
         /** "I take the Jubilee line to work": your usual line. */
         data class Commute(val line: String) : Command()
+        /** "It takes me 40 minutes to get to work". */
+        data class CommuteTime(val minutes: Int) : Command()
         data class Shift(val day: Int?) : Command()
         data class ShiftWeek(val next: Boolean) : Command()
         data class Agenda(val day: Int) : Command()
@@ -122,6 +124,8 @@ object JarvisParser {
         data class ChangeIt(val value: String) : Command()
         /** "Tick off the first note" ([what] is "#1", "#last" or words in it). */
         data class TickNote(val what: String) : Command()
+        /** "Delete it", "tick it off": whatever he just talked about (a note, mostly). */
+        data class ItAction(val kind: String) : Command()
         /** "What's my second note?" */
         data class ReadNote(val what: String) : Command()
         /** "That's all", "goodbye": the conversation's over, he stops listening. */
@@ -176,6 +180,8 @@ object JarvisParser {
         // Yes, no, undo: answers to him.
         if (Regex("^(yes|yeah|yep|yup|sure|do it|go ahead|go for it|please do|confirm|ok|okay|alright|correct|that's right|affirmative)( (do it|go ahead|thanks))?$").matches(t)) return Command.Yes
         if (Regex("^(no|nope|nah|cancel|don't|do not|never ?mind|forget it|leave it|no thanks|no thank you|not now)$").matches(t)) return Command.No
+        if (Regex("^(delete|remove|scrap|bin|get rid of|cross out) (it|that one|this one|that note|this note)( please)?$").matches(t)) return Command.ItAction("delete")
+        if (Regex("^(tick|mark|cross) (it|that|that one|this one|that note)( off)?( as done| as complete| done)?( please)?$|^(it's|that's) done$").matches(t)) return Command.ItAction("tick")
         if (Regex("^(undo|undo that|take that back|cancel that|delete that|remove that|reverse that|scrap that)$").matches(t)) return Command.Undo
         if (Regex("^(say that again|repeat that|repeat|what did you say|pardon|come again|sorry what)$").matches(t)) return Command.Repeat
 
@@ -227,6 +233,10 @@ object JarvisParser {
 
         // Follow-ups: "and friday?", "what about tomorrow", "make it 6:30", "move it to monday".
         // Getting about London.
+        Regex("^(?:it takes me|my commute (?:takes|is)|my journey (?:to work )?(?:takes|is)|i need) (?:about |around )?(\\d{1,3}) ?(?:minutes|mins|minute)(?: to get to work| to work| to get in)?$|^(?:it takes me|my commute (?:takes|is)) (?:about |around )?(an hour|half an hour|an hour and a half)").find(t)?.let { m ->
+            val mins = m.groupValues[1].toIntOrNull() ?: when (m.groupValues[2]) { "half an hour" -> 30; "an hour" -> 60; else -> 90 }
+            return Command.CommuteTime(mins.coerceIn(5, 180))
+        }
         Regex("^(?:i|i usually|i normally|i mostly|i always|i tend to) (?:take|use|get|ride|go on) (?:the )?([a-z&]+(?: and city| city)?) line(?: to work| in| to the office)?$|^my (?:usual |work )?line is (?:the )?([a-z&]+(?: and city)?)(?: line)?$").find(t)?.let { m ->
             val line = m.groupValues[1].ifEmpty { m.groupValues[2] }
             if (com.eldablos.crimson.launcher.Travel.lineId(line) != null) return Command.Commute(line)
@@ -234,10 +244,13 @@ object JarvisParser {
         if (!Regex("^(add|make|take|write|put|note|remind|remember|jot|create|text|message|send|tell|search|google|open)\\b").containsMatchIn(t) &&
             (has("traffic", "tube", "underground", "jubilee", "central line", "elizabeth line", "lizzy line", "overground", "dlr", "trains", "train lines", "line status", "tfl",
                 "commute", "my journey", "journey to work", "the roads", "delays", "cancellations", "cancelled trains", "strike", "strikes", "engineering works", "closures") ||
-                Regex("\\b(northern|victoria|piccadilly|district|bakerloo|metropolitan|circle|central|jubilee|elizabeth) line\\b").containsMatchIn(t))
+                Regex("\\b(northern|victoria|piccadilly|district|bakerloo|metropolitan|circle|central|jubilee|elizabeth|waterloo and city|hammersmith and city) line\\b|\\bthe (northern|victoria|piccadilly|bakerloo|metropolitan|central|jubilee|elizabeth|lizzy|dlr)\\b").containsMatchIn(t))
         ) {
-            val d = whenIn(t, today).first?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() } ?: 0
-            return Command.Travel(d.coerceAtLeast(0))
+            val d = whenIn(t, today).first?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() }
+            // One line asked about by name ("is the Central line OK", "and the Elizabeth?").
+            val line = Regex("\\b(northern|victoria|piccadilly|district|bakerloo|metropolitan|circle|central|jubilee|elizabeth|lizzy|dlr|waterloo and city|hammersmith and city)\\b").find(t)?.value
+                ?.let { com.eldablos.crimson.launcher.Travel.lineId(it) }
+            return Command.Travel((d ?: 0).coerceAtLeast(0), line, dayGiven = d != null)
         }
         Regex("^(and|what about|how about|and what about|same for|and for)\\s+(.+)$").find(t)?.let { m ->
             val rest = m.groupValues[2]

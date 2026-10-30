@@ -63,15 +63,21 @@ object JarvisProactive {
                 )
             }
         }
-        // The tube: trouble on your usual line tomorrow (told in the evening) or this morning.
-        val travelDay = when (now.hour) { in 18..22 -> now.toLocalDate().plusDays(1); in 5..9 -> now.toLocalDate(); else -> null }
-        travelDay?.let { Travel.report(context, it, fetch = false) }?.let { r ->
+        // The tube: trouble on your usual line, timed off your shifts. The evening before a working day, and
+        // again in the three hours before you set off (or, with no shifts on the deck, mornings and evenings).
+        travelDay(context, now)?.let { day -> Travel.report(context, day, fetch = false) }?.let { r ->
             val a = Travel.advise(r, Travel.commute(context))
             val u = a.commute.firstOrNull()
-            if (u != null && !u.fine) out += Insight(
-                "tube:${u.id}:${r.day}:${u.severity}", "⇄", if (a.planAhead) "Plan your journey" else a.headline, a.say,
-                if (r.day == now.toLocalDate()) "how's the tube" else "any delays tomorrow", "DETAILS",
-            )
+            if (u != null && !u.fine) {
+                val shift = shifts[r.day]
+                val leave = shift?.let { s -> s.start.minusMinutes(JarvisMemory.commuteMinutes(context).toLong()) }
+                val lead = if (leave != null && r.day == now.toLocalDate()) " You'd normally set off at ${leave.format(HM)}${if (a.planAhead) ", so give yourself extra time." else "."}" else ""
+                out += Insight(
+                    "tube:${u.id}:${r.day}:${u.severity}:${if (r.day == now.toLocalDate()) "am" else "pm"}", "⇄",
+                    if (a.planAhead) "Plan your journey" else a.headline, a.say + lead,
+                    if (r.day == now.toLocalDate()) "how's the tube" else "any delays tomorrow", "DETAILS",
+                )
+            }
         }
         // Birthdays and countdowns today or tomorrow.
         for (c in DeckStore.countdowns(context)) {
@@ -100,6 +106,22 @@ object JarvisProactive {
         }
         val gone = dismissed(context)
         return out.filter { it.id !in gone }
+    }
+
+    /**
+     * Which day's tube is worth watching now: the day of a shift starting in the next three hours, or
+     * tomorrow's from 6pm when you're working it. With no shifts on the deck: mornings and evenings.
+     */
+    fun travelDay(context: Context, now: LocalDateTime): LocalDate? {
+        val shifts = Shifts.all(context)
+        val today = now.toLocalDate()
+        if (shifts.isEmpty()) return when (now.hour) { in 18..22 -> today.plusDays(1); in 5..9 -> today; else -> null }
+        shifts[today]?.let { s ->
+            val until = java.time.Duration.between(now.toLocalTime(), s.start).toMinutes()
+            if (until in 0..180) return today
+        }
+        if (now.hour in 18..22 && shifts[today.plusDays(1)] != null) return today.plusDays(1)
+        return null
     }
 
     fun dismissed(context: Context): Set<String> = prefs(context).getStringSet("dismissed", emptySet()).orEmpty()
@@ -132,8 +154,7 @@ object JarvisProactive {
     /** From the background refresh: a notification for each new insight, once. */
     fun notify(context: Context) {
         // Fresh TfL news for the commute that matters, while we're in the background anyway.
-        val hour = LocalDateTime.now().hour
-        if (JarvisMemory.proactive(context) && (hour in 18..22 || hour in 5..9)) Travel.report(context, if (hour >= 18) LocalDate.now().plusDays(1) else LocalDate.now(), fetch = true)
+        if (JarvisMemory.proactive(context)) travelDay(context, LocalDateTime.now())?.let { Travel.report(context, it, fetch = true) }
         val list = insights(context)
         if (list.isEmpty()) return
         val p = prefs(context)

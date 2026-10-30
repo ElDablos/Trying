@@ -88,6 +88,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val actions: List<Action> = emptyList(),
         /** Run [then] once he's finished speaking (he's about to leave for another app, or hand over). */
         val afterSpeech: Boolean = false,
+        /** You asked to hear it all (your notes, the agenda, the news): read in full even with a card. */
+        val full: Boolean = false,
         val sheet: Sheet? = null,
         val failed: Boolean = false,
     )
@@ -252,7 +254,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (!inRoutine) JarvisMemory.used(context, text, cmd)
         lastFollowed = null
         val reply = try {
-            run(cmd)
+            run(cmd).let { r ->
+                if (cmd == Command.ReadNotes || cmd is Command.ReadNote || cmd is Command.Agenda || cmd is Command.Emails || cmd == Command.Messages ||
+                    cmd == Command.News || cmd is Command.Alarms || cmd is Command.Recall || cmd == Command.Memories || cmd == Command.Joke) r.copy(full = true) else r
+            }
         } catch (e: Exception) {
             Reply("Something went wrong there${sir()}. ${e.message ?: ""}".trim(), failed = true)
         }
@@ -695,7 +700,17 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Command.Time -> Reply("It's ${LocalTime.now().format(tf)}${sir()}.", card = Card("◷", "TIME", LocalTime.now().format(tf), LocalDate.now().format(dayName)))
         Command.Date -> Reply("It's ${LocalDate.now().format(dayName)}.", card = Card("▦", "DATE", LocalDate.now().format(DateTimeFormatter.ofPattern("d MMM")), LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE · 'week' w"))))
         is Command.Weather -> weather(cmd)
-        is Command.Travel -> travel(cmd.day)
+        is Command.Travel -> {
+            // "And the Central?" after asking about tomorrow: still tomorrow.
+            val prev = last as? Command.Travel
+            travel(if (!cmd.dayGiven && prev != null && cmd.line != null) prev.day else cmd.day, cmd.line)
+        }
+        is Command.ItAction -> itAction(cmd.kind)
+        is Command.CommuteTime -> {
+            JarvisMemory.setCommuteMinutes(context, cmd.minutes)
+            Reply("Noted, sir: ${cmd.minutes} minutes to work. If the tube's playing up before a shift, I'll tell you in time to leave early.",
+                card = Card("⇄", "YOUR COMMUTE", "${cmd.minutes} MIN", "door to door", tone = Tone.BLUE))
+        }
         is Command.Commute -> {
             Travel.setUsual(context, cmd.line)
             val lines = Travel.commute(context)
@@ -884,7 +899,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             is Command.Shift -> if (cmd.nextWeek) Command.ShiftWeek(true) else days?.let { Command.Shift(it) }
             is Command.ShiftWeek -> if (cmd.nextWeek) Command.ShiftWeek(true) else days?.let { Command.Shift(it) }
             is Command.Agenda -> days?.let { Command.Agenda(it) }
-            is Command.Travel -> days?.let { Command.Travel(it.coerceAtLeast(0)) }
+            is Command.Travel -> days?.let { Command.Travel(it.coerceAtLeast(0), l.line) }
             else -> null
         }
         lastFollowed = next
@@ -969,11 +984,21 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      * The tube, trains and roads across London on a day, from TfL: your usual line first (the Jubilee,
      * unless you've said otherwise), the back-ups, everything else in trouble, and whether to plan ahead.
      */
-    private fun travel(day: Int): Reply {
+    private fun travel(day: Int, line: String? = null): Reply {
         val date = LocalDate.now().plusDays(day.toLong())
         val r = Travel.report(context, date, fetch = true)
             ?: return Reply("I can't reach TfL right now${sir()}. Check you're online and ask me again.", failed = true,
                 actions = listOf(Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") })))
+        // One line by name, unless it's your usual one (then the full commute answer fits better).
+        if (line != null && line != Travel.commute(context).firstOrNull()) {
+            val l = r.lines.firstOrNull { it.id == line } ?: return Reply("TfL didn't say anything about that line${sir()}.", failed = true)
+            val word = dayWord(day).removePrefix("on ")
+            val say = if (l.fine) "The ${Travel.lineName(l)}'s running fine $word${sir()}."
+            else Travel.clause(l, word).replaceFirstChar { it.uppercase() } + (Travel.why(l).takeIf { it.isNotEmpty() }?.let { ": " + it.trimEnd('.').replaceFirstChar { c -> c.lowercase() } } ?: "") + "."
+            return Reply(say, card = Card("⇄", "${Travel.lineName(l).uppercase()} · ${word.uppercase()}", l.status.uppercase(), Travel.why(l).ifEmpty { null },
+                tone = if (l.fine) Tone.GREEN else if (l.bad) Tone.HOT else Tone.GOLD),
+                actions = listOf(Action("MY COMMUTE", if (day == 0) "how's the tube" else "any delays tomorrow"), Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") })))
+        }
         val a = Travel.advise(r, Travel.commute(context))
         val rows = ArrayList<Row>()
         for (l in a.commute) rows += Row(Travel.lineName(l).uppercase(), l.status, ok = l.fine)
@@ -992,6 +1017,17 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             Action(if (day == 0) "TOMORROW" else "TODAY", if (day == 0) "any delays tomorrow" else "how's the tube today"),
             Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") }),
         ))
+    }
+
+    /** "Delete it", "tick it off": the note he just read, wrote or changed. */
+    private fun itAction(kind: String): Reply {
+        // Just talking about a habit: it's that.
+        val habitTalk = last is Command.AddHabit || last is Command.Habit || last == Command.Habits || last is Command.Untick || last is Command.RenameHabit
+        if (habitTalk && lastHabit != null) return if (kind == "delete") removeHabit(lastHabit!!) else run(Command.Habit("it"))
+        val note = lastNote?.takeIf { openNotes().contains(it) }
+            ?: return Reply(if (kind == "delete") "Delete what, sir? Say which note, like \"delete the second note\"." else "Tick off which one, sir?", listOf("Read my notes"))
+        val body = note.removePrefix(DONE)
+        return if (kind == "delete") deleteNote(body) else tickNote(body) ?: Reply("I couldn't tick that one off${sir()}.", failed = true)
     }
 
     /** Hands [text] to another app (WhatsApp, email, Claude…) through the share sheet. */

@@ -347,8 +347,8 @@ class JarvisHands : AccessibilityService() {
         fun learn(pkg: String, name: String): Boolean = instance?.run { begin(Job.Learn(pkg, name), 60_000); true } ?: false
 
         /** Opens [pkg] (with [open], or its launcher), works the screen with [step], then comes back and says what it returned. */
-        fun custom(pkg: String, open: Intent?, failed: String, step: (AccessibilityNodeInfo, Int) -> String?): Boolean =
-            instance?.run { begin(Job.Custom(pkg, open, step, failed = failed), 12_000); true } ?: false
+        fun custom(pkg: String, open: Intent?, failed: String, timeout: Long = 12_000, step: (AccessibilityNodeInfo, Int) -> String?): Boolean =
+            instance?.run { begin(Job.Custom(pkg, open, step, failed = failed), timeout); true } ?: false
 
         /** Taps [node], or the nearest parent that can be tapped. */
         fun press(node: AccessibilityNodeInfo): Boolean {

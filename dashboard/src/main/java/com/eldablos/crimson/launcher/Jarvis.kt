@@ -1268,21 +1268,24 @@ class Jarvis(private val context: Context, private val host: Host) {
             actions = listOf(Action("SET 22°", "set it to 22 degrees"), Action("TEACH ME", "learn the $what in ${app.label}")))
     }
 
-    /** In Air+: the power to [on], then the [mode] button if asked. */
+    /**
+     * In Air+: opens the heater's page (from its card on the home screen), reads whether it's on from
+     * "Your device is currently off.", and presses Power if it needs to.
+     */
     private fun climateJob(app: AppEntry, on: Boolean, mode: String?) {
-        var powered = false
-        JarvisHands.custom(app.component.packageName, null, "I couldn't find the power button in ${app.label}, sir. Show me once: say \"learn the heating in ${app.label}\".") { root, tries ->
-            if (!powered) {
-                val p = JarvisReaders.powerButton(root) ?: return@custom if (tries < 5) null else "I couldn't find the power button in ${app.label}, sir. Show me once: say \"learn the heating in ${app.label}\"."
-                val state = JarvisReaders.powerState(p)
-                if (state != on) JarvisHands.press(p)
-                powered = true
-                if (!on || mode == null) return@custom if (state == on) "It's already ${if (on) "on" else "off"}, sir." else "Done, sir. The heating is ${if (on) "on" else "off"}."
-                return@custom null
+        var pressed = false
+        JarvisHands.custom(app.component.packageName, null, "I couldn't work ${app.label} this time, sir. Show me once: say \"learn the heating in ${app.label}\".") { root, tries ->
+            if (!JarvisReaders.airDevicePage(root)) {
+                JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it) }
+                return@custom if (tries < 8) null else "I couldn't open the heater in ${app.label}, sir."
             }
-            val m = JarvisReaders.modeButton(root, mode ?: "heat")
-            if (m != null) JarvisHands.press(m)
-            "Done, sir. The ${if (mode == "cool") "air con" else "heating"} is on" + (if (m != null) ", in ${mode} mode." else ".")
+            if (pressed) return@custom "Done, sir. The heating is ${if (on) "on" else "off"}."
+            val off = JarvisReaders.airIsOff(root)
+            if (off != on) return@custom "It's already ${if (on) "on" else "off"}, sir."
+            val p = JarvisReaders.airPower(root) ?: return@custom if (tries < 8) null else "I couldn't find the power button in ${app.label}, sir."
+            JarvisHands.press(p)
+            pressed = true
+            null
         }
     }
 
@@ -1292,26 +1295,72 @@ class Jarvis(private val context: Context, private val host: Host) {
         if (!JarvisHands.enabled(context)) return needHands("the temperature", Action("OPEN AIR+", run = { host.launch(app.component) }))
         if (degrees != null && degrees !in 10.0..32.0) return Reply("${fmtTemp(degrees)} degrees? I'd rather not, sir. Somewhere between 10 and 32.")
         var target = degrees
-        var start: Double? = null
-        var presses = 0
+        var from: Double? = null
+        var stage = 0
+        var moves = 0
         val job = {
-            JarvisHands.custom(app.component.packageName, null, "I couldn't find the temperature in ${app.label}, sir.") { root, tries ->
-                val (now, _) = JarvisReaders.setTemperature(root) ?: return@custom if (tries < 5) null else "I couldn't see the temperature in ${app.label}, sir. Is the heater on?"
-                if (start == null) start = now
-                val goal = target ?: (now + by).also { target = it }
-                if (kotlin.math.abs(now - goal) < .25) return@custom "Done, sir. It's set to ${fmtTemp(goal)} degrees" + (start?.takeIf { kotlin.math.abs(it - goal) >= .25 }?.let { ", up from ${fmtTemp(it)}".replace("up from", if (goal > it) "up from" else "down from") } ?: "") + "."
-                if (presses > 40) return@custom "I've got it to ${fmtTemp(now)} degrees, sir; it won't go further."
-                val b = JarvisReaders.tempButton(root, goal > now) ?: return@custom "I couldn't find the + and − buttons in ${app.label}, sir."
-                JarvisHands.press(b)
-                presses++
-                null
+            JarvisHands.custom(app.component.packageName, null, "I couldn't set the temperature in ${app.label} this time, sir.", timeout = 40_000) { root, tries ->
+                if (tries > 60) return@custom "I couldn't finish setting it, sir. It may need a tap from you."
+                when (stage) {
+                    // The heater's page, switched on.
+                    0 -> {
+                        if (!JarvisReaders.airDevicePage(root)) {
+                            JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it) }
+                            return@custom null
+                        }
+                        if (JarvisReaders.airIsOff(root)) {
+                            JarvisReaders.airPower(root)?.let { JarvisHands.press(it) }
+                            return@custom null
+                        }
+                        val heat = JarvisReaders.airHeatButton(root) ?: return@custom if (tries < 10) null else "I couldn't find the heat setting in ${app.label}, sir."
+                        from = JarvisReaders.airSetting(heat)
+                        val goal = target ?: ((from ?: 20.0) + by).also { target = it }
+                        if (from != null && kotlin.math.abs(from!! - goal) < .25) return@custom "It's already set to ${fmtTemp(goal)} degrees, sir."
+                        JarvisHands.press(heat)
+                        stage = 1
+                        null
+                    }
+                    // Wherever it's chosen: move it to the target, then confirm.
+                    1 -> {
+                        val goal = target ?: return@custom null
+                        when (JarvisReaders.airChoose(root, goal)) {
+                            true -> {
+                                JarvisReaders.airConfirm(root)?.let { JarvisHands.press(it) }
+                                stage = 2
+                                null
+                            }
+                            false -> if (++moves > 30) "I got it as close as I could, sir." else null
+                            null -> {
+                                // The button itself may step through the settings: keep tapping until it reads the target.
+                                val heat = JarvisReaders.airHeatButton(root) ?: return@custom null
+                                val now = JarvisReaders.airSetting(heat)
+                                if (now != null && kotlin.math.abs(now - goal) < .25) return@custom done(goal, from)
+                                if (++moves > 30) return@custom "I couldn't get it to ${fmtTemp(goal)}, sir. Teach me once: say \"learn the heating in ${app.label}\"."
+                                JarvisHands.press(heat)
+                                null
+                            }
+                        }
+                    }
+                    // Back on the page: read what it's set to now.
+                    else -> {
+                        val goal = target ?: 0.0
+                        val heat = JarvisReaders.airHeatButton(root)
+                        val now = heat?.let { JarvisReaders.airSetting(it) }
+                        if (now == null && tries < 50) return@custom null
+                        if (now != null && kotlin.math.abs(now - goal) >= .25) "It's set to ${fmtTemp(now)} degrees, sir; that's as near as it would go."
+                        else done(goal, from)
+                    }
+                }
             }
         }
         val where = degrees?.let { "${fmtTemp(it)}°" } ?: if (by > 0) "+${fmtTemp(by)}°" else "${fmtTemp(by)}°"
-        return Reply(say("Certainly, sir.", if ((degrees ?: 20.0 + by) >= 25) "Tropical. Coming up." else "On it.", "OK."), afterSpeech = true, then = { job() },
-            card = Card("♨", "HANDS · AIR+", where, if (degrees != null) "setting the temperature" else if (by > 0) "a little warmer" else "a little cooler", tone = Tone.HOT),
+        return Reply(say("Certainly, sir.", if ((degrees ?: 0.0) >= 25) "Tropical. Coming up." else "On it.", "OK."), afterSpeech = true, then = { job() },
+            card = Card("♨", "HANDS · AIR+", where, if (degrees != null) "setting the heater" else if (by > 0) "a little warmer" else "a little cooler", tone = Tone.HOT),
             actions = listOf(Action("WARMER", "warmer"), Action("COOLER", "cooler")))
     }
+
+    private fun done(goal: Double, from: Double?) = "Done, sir. The heater's set to ${fmtTemp(goal)} degrees" +
+        (from?.takeIf { kotlin.math.abs(it - goal) >= .25 }?.let { if (goal > it) ", up from ${fmtTemp(it)}." else ", down from ${fmtTemp(it)}." } ?: ".")
 
     private fun fmtTemp(d: Double) = if (d % 1.0 == 0.0) d.toInt().toString() else "%.1f".format(Locale.ROOT, d)
 

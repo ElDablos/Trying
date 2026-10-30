@@ -153,4 +153,79 @@ object JarvisReaders {
         val w = if (mode == "heat") Regex("^heat(ing)?$|\\bheat\\b|mode_?heat") else Regex("^cool(ing)?$|\\bcool\\b|mode_?cool")
         return JarvisHands.nodes(root).firstOrNull { n -> w.containsMatchIn(label(n).trim()) }
     }
+
+    // --- Philips Air+ (the heater) ---
+    // Home: a card per device ("Bedroom", "Temperature around device 21°C", power, Auto, a thermometer
+    // button). Tapping the card opens its page: "Your device is currently off.", the temperature around
+    // the device (not the setting), then Controls: Power, Auto, the thermometer (the heat setting:
+    // "Off", or the temperature it's set to), timer, fan and light.
+
+    private fun textOf(n: AccessibilityNodeInfo) = (n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()
+
+    fun airDevicePage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { textOf(it).equals("Controls", true) || textOf(it).equals("Power", true) }
+
+    /** On the home screen: the device card to open (the one called [name], or the first). */
+    fun airCard(root: AccessibilityNodeInfo, name: String?): AccessibilityNodeInfo? {
+        val all = JarvisHands.nodes(root)
+        name?.let { n -> all.firstOrNull { textOf(it).equals(n, true) }?.let { return it } }
+        return all.firstOrNull { textOf(it).startsWith("Temperature around device", true) }
+    }
+
+    /** Off when the page says so ("Your device is currently off."). */
+    fun airIsOff(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { Regex("currently off|device is off|is turned off", RegexOption.IGNORE_CASE).containsMatchIn(textOf(it)) }
+
+    fun airPower(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
+        JarvisHands.nodes(root).firstOrNull { textOf(it).equals("Power", true) } ?: powerButton(root)
+
+    /** The tappable controls under "Controls", in screen order. */
+    private fun controls(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
+        val all = JarvisHands.nodes(root)
+        val i = all.indexOfFirst { textOf(it).equals("Controls", true) }
+        return all.drop(maxOf(0, i)).filter { it.isClickable && it.isEnabled }
+    }
+
+    /** The heat setting button: the one after Auto. Its text is "Off", or what it's set to. */
+    fun airHeatButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val c = controls(root)
+        val auto = c.indexOfFirst { n -> JarvisHands.texts(n).any { it.equals("Auto", true) } }
+        if (auto >= 0) c.getOrNull(auto + 1)?.let { return it }
+        return c.firstOrNull { n -> JarvisHands.texts(n).any { Regex("^\\d{2}(\\.\\d)?\\s*°", RegexOption.IGNORE_CASE).containsMatchIn(it) } }
+    }
+
+    /** What the heat setting reads: a temperature, or null for "Off" or a level. */
+    fun airSetting(button: AccessibilityNodeInfo): Double? = JarvisHands.texts(button).firstNotNullOfOrNull { t ->
+        Regex("(\\d{2}(?:[.,]\\d)?)").find(t)?.groupValues?.get(1)?.replace(',', '.')?.toDoubleOrNull()?.takeIf { it in 5.0..40.0 }
+    }
+
+    /**
+     * Wherever the setting is chosen (a slider, a number picker, + and −, or a list of temperatures):
+     * moves it towards [target]. Returns true when it's there (or as close as it'll go).
+     */
+    fun airChoose(root: AccessibilityNodeInfo, target: Double): Boolean? {
+        val all = JarvisHands.nodes(root)
+        // A slider or picker that takes a value outright.
+        all.firstOrNull { it.rangeInfo != null }?.let { n ->
+            val r = n.rangeInfo
+            if (target >= r.min && target <= r.max) {
+                val args = android.os.Bundle().apply { putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, target.toFloat()) }
+                n.performAction(android.R.id.accessibilityActionSetProgress, args)
+                return true
+            }
+        }
+        // A list of temperatures to pick from.
+        all.firstOrNull { n -> Regex("^${target.toInt()}(\\.0)?\\s*(°c?|℃)?$", RegexOption.IGNORE_CASE).matches(textOf(n)) }?.let { JarvisHands.press(it); return true }
+        // + and −, against whatever number is showing.
+        val shown = all.mapNotNull { n -> Regex("^(\\d{2}(?:[.,]\\d)?)\\s*(°c?|℃)?$", RegexOption.IGNORE_CASE).find(textOf(n))?.groupValues?.get(1)?.replace(',', '.')?.toDoubleOrNull()?.takeIf { it in 5.0..40.0 } }.firstOrNull()
+        if (shown != null) {
+            if (kotlin.math.abs(shown - target) < .25) return true
+            val b = tempButton(root, target > shown) ?: return null
+            JarvisHands.press(b)
+            return false
+        }
+        return null
+    }
+
+    /** Confirm, OK, Done, Save or Apply, if the chooser has one. */
+    fun airConfirm(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
+        JarvisHands.nodes(root).firstOrNull { Regex("^(ok|confirm|done|save|apply|set)$", RegexOption.IGNORE_CASE).matches(textOf(it)) }
 }

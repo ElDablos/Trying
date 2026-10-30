@@ -212,6 +212,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240).setInterpolator(DecelerateInterpolator(1.6f)).start()
         core.invalidate()
         personaTag.text = JarvisMemory.persona(context).label
+        // Wake the voice now, so his first words aren't late.
+        Speech.with(context) {}
         setChips(JarvisMemory.suggestions(context))
         askForNotifications()
         // A new session after half an hour away: a clean slate, with a marker.
@@ -324,18 +326,34 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 then?.invoke()
             }
         }
-        if (reply.afterSpeech) main.postDelayed({ after() }, (1500L + reply.say.length * 70L).coerceAtMost(6000L))
-        speak(reply.say) {
+        // He says it, then does it. The safety net only starts counting once he's actually talking
+        // (the voice can take a moment to wake), with a longer one in case it never starts at all.
+        val safety = Runnable { after() }
+        if (reply.afterSpeech) main.postDelayed(safety, 9000L)
+        speak(reply.say, onStart = {
+            if (reply.afterSpeech) {
+                main.removeCallbacks(safety)
+                main.postDelayed(safety, 2500L + reply.say.length * 90L)
+            }
+        }) {
+            main.removeCallbacks(safety)
             after()
             if (reply.listen) listen()
         }
         if (!reply.afterSpeech) reply.then?.invoke()
     }
 
-    private fun speak(text: String, after: () -> Unit = {}) {
+    private fun speak(text: String, onStart: () -> Unit = {}, after: () -> Unit = {}) {
         setState(State.SPEAKING)
+        var started = false
         Speech.speak(context, listOf("jarvis" to Speech.speakable(text)), object : Speech.Listener {
-            override fun onPart(id: String) = setState(State.SPEAKING)
+            override fun onPart(id: String) {
+                setState(State.SPEAKING)
+                if (!started) {
+                    started = true
+                    onStart()
+                }
+            }
             override fun onEnd(finished: Boolean) {
                 if (state == State.SPEAKING) setState(State.IDLE)
                 after()

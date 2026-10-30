@@ -312,6 +312,16 @@ class JarvisTest {
     }
 
     @Test
+    fun editANoteWithoutSayingWhatTo() {
+        assertEquals(Command.EditNote("#last", ""), p("Edit last note"))
+        assertEquals(Command.EditNote("#last", ""), p("Edit last note/"))
+        assertEquals(Command.EditNote("#last", ""), p("Change my last note"))
+        assertEquals(Command.EditNote("#2", ""), p("Edit the second note"))
+        assertEquals(Command.EditNote("#3", ""), p("Edit note 3"))
+        assertEquals(Command.EditNote("#2", "buy bread"), p("Edit the second note to say buy bread"))
+    }
+
+    @Test
     fun restartAndSystemsCheck() {
         assertEquals(Command.Reboot, p("Restart yourself"))
         assertEquals(Command.Reboot, p("Restart Jarvis"))

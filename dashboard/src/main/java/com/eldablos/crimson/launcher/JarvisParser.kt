@@ -297,11 +297,16 @@ object JarvisParser {
         // "replace milk with oat milk on my list", "delete buy milk from my notes", "delete the last note".
         // Notes by number, as he reads them out: "edit the second note to say…", "delete note 3", "tick off the first note".
         val ord = "(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|\\d{1,2}(?:st|nd|rd|th)?)"
+        // Just which note, with nothing (or only a stray "/" or ".") to change it to: he asks what it should say.
+        Regex("^(edit|change|update|correct|fix|rewrite|amend|reword)( the| my| a)?( $ord)? note( (number |no\\.? )?$ord)?[^a-z0-9]*$").find(t)?.let { m ->
+            val ref = m.groupValues[4].ifEmpty { m.groupValues[7] }
+            return Command.EditNote(if (ref.isEmpty()) "#last" else noteRef(ref), "")
+        }
         Regex("^(edit|change|update|correct|fix|replace|rewrite|amend|make) (the |my )?$ord note( to say| so it says| to read| to| say| into| with|:)? ?(.+)$").find(t)?.let { m ->
-            return Command.EditNote(noteRef(m.groupValues[3]), orig(m.groupValues[5]))
+            return Command.EditNote(noteRef(m.groupValues[3]), orig(m.groupValues[5]).takeIf { Regex("[A-Za-z0-9]").containsMatchIn(it) }.orEmpty())
         }
         Regex("^(edit|change|update|correct|fix|replace|rewrite|amend|make) (the |my )?note (number |no\\.? )?$ord( to say| so it says| to read| to| say| into| with|:)? ?(.+)$").find(t)?.let { m ->
-            return Command.EditNote(noteRef(m.groupValues[4]), orig(m.groupValues[6]))
+            return Command.EditNote(noteRef(m.groupValues[4]), orig(m.groupValues[6]).takeIf { Regex("[A-Za-z0-9]").containsMatchIn(it) }.orEmpty())
         }
         Regex("^(delete|remove|scrap|cross out|get rid of|bin|clear|erase) (the |my )?($ord note|note (number |no\\.? )?$ord)$").find(t)?.let { m ->
             return Command.DeleteNote(noteRef(m.groupValues[4].ifEmpty { m.groupValues[6] }))

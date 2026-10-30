@@ -139,6 +139,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         class WhichApp(val name: String) : Pending()
         /** He asked what the note should say. */
         object NoteText : Pending()
+        /** He read a note back and asked what it should say instead. */
+        class NoteEdit(val ref: String?) : Pending()
         /** He asked when a countdown's for. */
         class CountdownWhen(val name: String) : Pending()
         /** A message written but not sent yet: you can add to it, change it, send it or scrap it. */
@@ -202,6 +204,18 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             val date = JarvisParser.dateIn(text, today) ?: JarvisParser.whenIn(text.lowercase(), today).first ?: JarvisParser.occasion(text, today)
             if (date != null) return styled(addCountdown(p.name, date))
             if (JarvisParser.parse(text) == Command.No) return styled(Reply("Very well, no countdown."))
+        }
+        (pending as? Pending.NoteEdit)?.let { p ->
+            pending = null
+            val c = JarvisParser.parse(text)
+            if (c == Command.No || c == Command.Dismiss) return styled(Reply(say("Very well, I'll leave it as it is.", "Left alone.", "Unchanged.")))
+            // "Say buy oat milk", "to buy oat milk", "it should say buy oat milk": just the new words.
+            val words = text.trim().replace(Regex("^(it should |make it |change it to |to |say |it says |so it says |should say )+", RegexOption.IGNORE_CASE), "").trim().trimEnd('.')
+            if (!Regex("[A-Za-z0-9]").containsMatchIn(words)) {
+                pending = p
+                return styled(Reply("I didn't catch the new words${sir()}. What should it say?", listen = true))
+            }
+            return styled(editNote(p.ref, words)).also { lastReply = it }
         }
         if (pending == Pending.NoteText) {
             pending = null
@@ -364,10 +378,18 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     /** Changes a note: [old] names it (or the last one); a word inside it ("milk" to "oat milk") changes just that. */
     private fun editNote(old: String?, new: String): Reply {
         val lines = openNotes().toMutableList()
-        if (lines.isEmpty()) return addNote(new)
+        if (lines.isEmpty()) return if (new.isBlank()) Reply("There aren't any notes to edit${sir()}. What should I write down?", listen = true).also { pending = Pending.NoteText } else addNote(new)
         val i = findNote(old)
         if (i < 0) return Reply(if (old?.startsWith("#") == true) "You haven't got a ${ordinalName(old).lowercase()} note${sir()}." else "I couldn't find a note about $old${sir()}.",
             actions = listOf(Action("READ MY NOTES", "read my notes")), failed = true)
+        // Which note, but not what to: read it back and ask, then the next thing you say is the new wording.
+        if (new.isBlank()) {
+            val body = lines[i].removePrefix(DONE)
+            pending = Pending.NoteEdit(old)
+            return Reply(say("That one says “$body”. What should it say instead, sir?", "Currently: “$body”. What's the new version?", "“$body”. Change it to?"),
+                card = notesCard(lines, lines[i], "EDITING NOTE"), listen = true,
+                actions = listOf(Action("KEEP IT", "no"), Action("DELETE IT", if (old?.startsWith("#") == true) "delete the ${ordinalName(old).lowercase()} note" else "delete the last note")))
+        }
         val before = DeckData.note(context)
         val line = lines[i]
         val done = line.startsWith(DONE)
@@ -787,7 +809,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.Unknown -> {
             val close = closest(cmd.text)
             Reply(
-                if (close.isNotEmpty()) say("I didn't quite follow, sir. Did you mean one of these?", "Close, but not quite. One of these?", "Did you mean:")
+                if (close.isNotEmpty()) {
+                    // Name the likeliest one, so a plain "yes" does it.
+                    val top = close.first()
+                    pending = Pending.Confirm({ answer(top) }, "Very well. Say it another way and I'll have another go.")
+                    say("Did you mean “$top”, sir?", "Close. “$top”, perhaps?", "“$top”?")
+                }
                 else say(pick("I'm afraid I can't do that one yet, $name.", "I didn't quite follow that, sir."), pick("That's beyond me, and I don't say that lightly.", "You've lost me there, sir."), "Can't do that."),
                 close + "What can you do?", claude = cmd.text, failed = true,
             )

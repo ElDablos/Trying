@@ -122,7 +122,8 @@ back to One UI Home the same way at any time.
   most-used need Usage access (tap a card to allow it).
 - **Hive Map**: every app in a honeycomb that repeats for ever in every direction (no edge), in patches round tags for the dock and each node, big in the
   middle and shrinking outwards. The middle bulges big with the apps spread apart and named; a sight marks the centre and it settles onto a cell after a fling. Drag to fly round it, tap a tag in the jump bar to glide there, or
-  switch to the A–Z list. Typing lights up the matches and centres the best one; Enter opens it.
+  switch to the A–Z list. Typing lights up the matches and centres the best one; Enter opens it. An app
+  you don't have offers Google Play, Galaxy Store or the web instead (Enter opens Google Play).
 - **Arcade (Game Hub)**: mission control for your games. Readouts for games, today, the week and your
   streak; a holo projector with your games on a shelf (most played and last played first), the selected
   one in a gold target lock; its playtime, this week and last played; **Launch** and **⚄** random; then
@@ -179,15 +180,44 @@ back to One UI Home the same way at any time.
   - **Speaking up**: no alarm before an early shift, rain on the way in, birthdays, the evening
     wind-down and a flat battery at bedtime, as notifications with a button and on his home button.
   - **Personality**: Butler, Witty or Brief; voice, chimes, wind-down time and more in ⚙.
-  Speech is recognised on the phone where it can be; everything he learns stays on the phone.
-  Anything he can't do he offers to hand to Claude.
+  - **Notes, by number and in bulk**: "what notes do I have" reads them numbered; "tick off the second one",
+    "I completed the last one", "remove the third and second notes", "tick my notes" (all of them), and
+    "add a note to buy milk and eggs and another note to lock the door" (two notes). Straight after notes,
+    anything unclear is asked about as a note.
+  - **Habits by what you did**: "I've placed my orders", "I worked on lessons today" tick off the habit
+    that fits, matched by its words, so new habits work the same.
+  - **Several at once**: "close the app and lock my phone", "turn the heating on, then lock my phone".
+  - **The phone**: lock it, screenshot, notifications, quick settings, recent apps, home, close the app,
+    power menu, split screen (with Hands); silent, vibrate and sound on.
+  - **Alarms in the Clock** (with Hands): a tidy list read in groups ("Every day: 7:05, 7:10 and 7:15");
+    "turn off the 7am alarms" (just 7:00–7:59), "delete all the 7am alarms" (he asks, then long-presses,
+    ticks and deletes), runs of alarms for a shift ("6 alarms 5 minutes apart").
+  - **Rules he keeps**: "the 7pm alarm always stays on", "never turn off the hallway light". Anything that
+    would switch one off asks you first.
+  - **Teach him how you do things**: "I need to wake up at 5 to start work at 7, I set 6 alarms 5 minutes
+    apart and I leave at 6:15", "on Thursdays I take the Elizabeth line". He repeats it back and acts on it.
+  - **The tube**: "any delays tomorrow?", "and the Central?", in the briefing, and a heads-up timed off
+    your shifts when your line's in trouble.
+  - **Heating**: Air+ hides its numbers, so he keeps track of the setting, turns the wheel by position,
+    and learns from "it's on 22" or "you went down by one".
+  - **Questions he can't answer**: he offers to Google it in Chrome or ask Claude; "Google…", "look up…"
+    and "ask Claude…" go straight there.
+  - **He learns**: your phrasing (a "yes" to "did you mean…" teaches him), your usual requests at each
+    time of day, which apps you use when (never while a VPN is on; off in ⚙), and his voice grows more
+    familiar the longer you have him. "What do you know about me" lists it all.
+  - **One conversation**: what you say with Hey Jarvis shows in his panel too; tap the Hey Jarvis strip to
+    open him. Say "stop" while he talks to cut in. "Send me the hands log" shares what he saw when an app
+    didn't go to plan.
+  Speech is recognised by Google's online recogniser when you're online (on the phone when you're not or
+  it's locked); everything he learns stays on the phone.
 - **Messages on the home screen** slide up into the space under the music bar: tap to open, REPLY to
   answer in the Comms Centre, or swipe it down to dismiss it (it stays in the Comms Centre).
 - **Comms Centre**: Samsung's quick controls and your notifications in one panel: twelve toggles (Wi-Fi,
   Bluetooth, mobile data, sound, rotate, torch, Do Not Disturb, location, power saving, airplane, Buds,
   and ⋯ for Samsung's own panel), brightness and volume, the music card with its output device, Smart
   View, SmartThings, Quick Share and media output shortcuts, then the notifications to open, reply to
-  inline or swipe away. Toggles marked ↗ open Android's own switch, since only the system can flip
+  inline or swipe away; ⌄ (or hold) opens a notification up: the whole message, its picture, the
+  conversation and the app's other notifications. Toggles marked ↗ open Android's own switch, since only the system can flip
   those. A swipe from the very top edge still opens Samsung's panel; that gesture belongs to Android.
 - **Crimson Comms in any app**: the app list has a **Crimson Comms** shortcut. Add it to Samsung's
   Edge Panel (Apps panel → edit → add) and the Comms Centre opens over whatever app you're in; swipe

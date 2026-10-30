@@ -21,7 +21,8 @@ The home screen, built into the Crimson Widget app (turn it on with **Use Crimso
 - **The ring**: your folders as nodes round a core; tap one and its apps fly out in orbit. The core holds
   your dock and searches every app.
 - **Its own status bar**, modes for the time of day (Morning, Work, Night Ops), themes that recolour
-  everything, and Crimson Weather (a full forecast).
+  everything, Crimson Weather (a full forecast), and a Comms Centre whose notifications open up to show
+  the whole message, its picture and the conversation.
 - **Swipes**: down for the Comms Centre (messages and calls), up for the Hive Map (every app), right
   for the Game Hub, left for the **Command Deck**: a live briefing for your day, shifts, notes,
   habits, countdowns, the tube, markets and news, read aloud to you on request.
@@ -36,11 +37,14 @@ phone itself.
 - **"Hey Jarvis" from any app**, or with the phone locked: a wake word heard on the phone, then a strip
   over whatever you're in that listens and answers. The conversation is the same one you see in his
   panel.
-- **Your day**: briefings, shifts, alarms (including runs of alarms before an early shift), notes,
-  habits, countdowns, calendar, weather, email, messages, and the tube for your commute.
+- **Your day**: briefings, shifts, alarms (read tidily, switched or deleted by the hour, runs of alarms
+  before an early shift), notes (by number, several at once), habits ("I've placed my orders"),
+  countdowns, calendar, weather, email, messages, and the tube for your commute.
+- **Several things at once**: "close the app and lock my phone", "add a note to … and another note to …".
+- **What he doesn't know**: he offers to Google it in Chrome or ask Claude.
 - **Hands**: with Jarvis Hands switched on in Accessibility he works other apps for you: your Tapo
   lights (on/off, colours, brightness), the Air+ heater (on/off, temperature), Samsung Clock's alarms,
-  and phone controls such as locking it or taking a screenshot.
+  and phone controls such as locking it, closing the app or taking a screenshot.
 - **He learns**: your routine ("I need to wake up at 5 to start work at 7"), rules ("the 7pm alarm
   always stays on"), your phrasing, your habits and, if you allow it, which apps you use when (never
   while a VPN is on). It's all kept on the phone. His voice gets more familiar the longer you use him.

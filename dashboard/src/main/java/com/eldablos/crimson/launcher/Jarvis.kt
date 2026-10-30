@@ -821,6 +821,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 })))
         }
         is Command.TickNote -> tickNote(cmd.what) ?: Reply("I couldn't find that note${sir()}.", listOf("Read my notes"), failed = true)
+        Command.TickAllNotes -> tickAllNotes()
         is Command.ReadNote -> {
             val i = findNote(cmd.what)
             if (i < 0) Reply("There isn't a note ${cmd.what.removePrefix("#")}${sir()}.", listOf("Read my notes"), failed = true)
@@ -2676,6 +2677,23 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             rows = updated.take(6).map { Row(it.removePrefix(DONE), ok = if (it.startsWith(DONE)) true else null) }), actions = listOf(undoAction))
     }
 
+    /** Every open note ticked off at once; undo puts them back. */
+    private fun tickAllNotes(): Reply {
+        val lines = openNotes()
+        val open = lines.filter { !it.startsWith(DONE) }
+        if (open.isEmpty()) return Reply(if (lines.isEmpty()) "Your notes are empty${sir()}." else "They're all ticked off already${sir()}.")
+        val before = DeckData.note(context)
+        val updated = lines.map { if (it.startsWith(DONE)) it else DONE + it }
+        DeckData.setNote(context, updated.joinToString("\n"))
+        push("Notes unticked") {
+            DeckData.setNote(context, before)
+            "Put them back as they were."
+        }
+        return Reply(say("All ${open.size} ticked off${sir()}. Well done.", "All ${open.size} done. Productive.", "All ticked."),
+            card = Card("✎", "NOTES", "ALL DONE", "${open.size} ticked off", updated.take(6).map { Row(it.removePrefix(DONE), ok = true) }, Tone.GREEN),
+            actions = listOf(undoAction, Action("CLEAR TICKED", "clear done")))
+    }
+
     // --- Helpers ---
 
     private fun start(vararg intents: Intent) {
@@ -2737,6 +2755,22 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 Command.Briefing, is Command.BriefingControl, Command.Settings, Command.Routines, Command.NewRoutine -> true
                 else -> false
             }
+        }
+
+        /** His own words, for the speech recogniser to listen out for, so it hears commands rather than near-misses ("tick", not "take"). */
+        val HEARD_WORDS = listOf(
+            "Jarvis", "Claude", "tick", "tick off", "untick", "notes", "my notes", "note", "habit", "countdown", "shift", "briefing", "alarm", "alarms",
+            "heater", "heating", "temperature", "warmer", "cooler", "degrees", "lights", "next colour", "brighter", "dimmer", "Tapo", "Air+",
+            "lock my phone", "screenshot", "notifications", "silent", "vibrate", "volume", "tube", "Jubilee line", "Elizabeth line", "Central line",
+            "remember", "undo", "that's all", "hands log", "systems check", "restart yourself",
+        )
+
+        /** Whether the phone's online now: then the recogniser's online model, which hears far better than the offline one. */
+        fun online(context: Context): Boolean = try {
+            val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+            cm?.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        } catch (e: Exception) {
+            false
         }
 
         const val DONE = "[x] "

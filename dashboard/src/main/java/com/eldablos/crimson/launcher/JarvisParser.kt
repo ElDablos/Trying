@@ -124,6 +124,8 @@ object JarvisParser {
         data class ChangeIt(val value: String) : Command()
         /** "Tick off the first note" ([what] is "#1", "#last" or words in it). */
         data class TickNote(val what: String) : Command()
+        /** "Tick off all my notes", "I've finished my notes". */
+        object TickAllNotes : Command()
         /** "Delete it", "tick it off": whatever he just talked about (a note, mostly). */
         data class ItAction(val kind: String) : Command()
         /** "What's my second note?" */
@@ -171,6 +173,8 @@ object JarvisParser {
             .replace(Regex("^(i want you to|i need you to|i'd like you to|i would like you to)\\s+"), "")
             .replace(Regex("\\s+instead$"), "")
             .replace(Regex("\\s+"), " ").trim()
+            // Letters typed or heard one by one ("t i c k my notes"): the word they spell.
+            .replace(Regex("\\b(?:[a-z] ){2,}[a-z]\\b")) { it.value.replace(" ", "") }
             .let { spokenNumbers(it) }
         if (t.isEmpty()) return Command.Greet
         fun has(vararg words: String) = words.any { Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(t) }
@@ -363,6 +367,14 @@ object JarvisParser {
         Regex("^(delete|remove|scrap|cross out|get rid of|bin|clear|erase) (the |my )?($ord note|note (number |no\\.? )?$ord)$").find(t)?.let { m ->
             return Command.DeleteNote(noteRef(m.groupValues[4].ifEmpty { m.groupValues[6] }))
         }
+        // All of them: "tick off all my notes", "take them all off" ("tick" is often heard as "take"), "complete my
+        // notes", "I've finished my notes", "mark them all done".
+        if (Regex("^(?:tick|tic|tik|take|mark|cross|complete|finish|check)(?: off)? (?:all(?: of)?(?: my| the)? notes|all of them|them all|all|everything(?: on my list)?|my notes|the notes|my list|all my list|them|the lot)(?: off| done| as done| as complete| complete)?$").matches(t) ||
+            Regex("^(?:i(?:'ve| have)? (?:done|completed|finished|ticked off|done all)|i'm done with|all done with) (?:all )?(?:of )?(?:my |the )?(?:notes|list|to-?do( list)?)$|^(?:my )?notes are (?:all )?(?:done|complete|finished)$").matches(t)) return Command.TickAllNotes
+        // "Take the second note off" is "tick" misheard.
+        Regex("^(take) (the |my )?($ord note|note (number |no\\.? )?$ord)( off| as done)$").find(t)?.let { m ->
+            return Command.TickNote(noteRef(m.groupValues[4].ifEmpty { m.groupValues[6] }))
+        }
         Regex("^(tick off|tick|mark|cross off|complete|finish|done) (the |my )?($ord note|note (number |no\\.? )?$ord)( as done| off| as complete)?$").find(t)?.let { m ->
             return Command.TickNote(noteRef(m.groupValues[4].ifEmpty { m.groupValues[6] }))
         }
@@ -388,7 +400,7 @@ object JarvisParser {
         Regex("^(add|put|write|note|jot down)\\s+(.+?)\\s+(to|on|in)\\s+(my )?(notes?|list|to-?do( list)?|shopping list)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[2])) }
         Regex("^(note|make a note|take a note|remember)( that| to)?[:,]?\\s+(.+)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[3])) }
         if (Regex("\\b(clear|delete|wipe|empty|remove|tidy)( all)? (my |the )?(notes|list|to-?do( list)?|ticked)\\b").containsMatchIn(t) || has("clear done", "clear the ticked")) return Command.ClearNotes
-        if (has("read my notes", "my notes", "what's on my list", "my list", "to do list", "todo list")) return Command.ReadNotes
+        if (has("read my notes", "my notes", "what's on my list", "my list", "to do list", "todo list", "what notes", "which notes", "any notes", "notes do i have", "read the notes", "read notes")) return Command.ReadNotes
         if (has("clear my notes", "clear done", "clear the ticked")) return Command.ClearNotes
 
         // The calendar only when you say so ("…to my calendar", "book", "schedule", an appointment or

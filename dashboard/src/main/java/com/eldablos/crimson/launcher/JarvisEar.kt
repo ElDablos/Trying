@@ -328,7 +328,8 @@ class JarvisEar : Service() {
             override fun onError(error: Int) {
                 // Refused the mic or the service (locked, or busy): hear it on the phone instead.
                 val refused = error == SpeechRecognizer.ERROR_AUDIO || error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
-                    error == SpeechRecognizer.ERROR_CLIENT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED
+                    error == SpeechRecognizer.ERROR_CLIENT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED ||
+                    error == SpeechRecognizer.ERROR_NETWORK || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT || error == SpeechRecognizer.ERROR_SERVER
                 if (recognizer !== r) return
                 recognizer = null
                 main.post { r.destroy() }
@@ -363,11 +364,11 @@ class JarvisEar : Service() {
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-GB")
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, !Jarvis.online(this))
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             // A follow-up gives up quickly if you've nothing more to say.
             .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, if (followUp) 2000L else 2500L)
-            .putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList((listOf("Jarvis", "Claude", "Tapo", "Air+", "brighter", "dimmer", "next colour", "warmer", "cooler") +
+            .putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList((Jarvis.HEARD_WORDS +
                 JarvisMemory.vocabulary(this) + AppCatalog.apps().map { it.label }).distinct().take(200))))
     }
 

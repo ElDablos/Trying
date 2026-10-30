@@ -385,6 +385,21 @@ class JarvisTest {
     }
 
     @Test
+    fun tickingNotesOff() {
+        assertEquals(Command.TickAllNotes, p("Tick my notes"))
+        assertEquals(Command.TickAllNotes, p("T i c k my notes"))
+        assertEquals(Command.TickAllNotes, p("Take my notes"))
+        assertEquals(Command.TickAllNotes, p("Can you take all of them"))
+        assertEquals(Command.TickAllNotes, p("Take all of them"))
+        assertEquals(Command.TickAllNotes, p("Finish my notes"))
+        assertEquals(Command.TickAllNotes, p("I have completed my notes"))
+        assertEquals(Command.TickAllNotes, p("tick off all my notes"))
+        assertEquals(Command.TickNote("#2"), p("take the second note off"))
+        assertEquals(Command.ReadNotes, p("What notes do I have"))
+        assertEquals(Command.ReadNotes, p("read my notes"))
+    }
+
+    @Test
     fun handsLogAsHeard() {
         assertEquals(Command.HandsLog, p("Send me hands long"))
         assertEquals(Command.HandsLog, p("Hands long"))

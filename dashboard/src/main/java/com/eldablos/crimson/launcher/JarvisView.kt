@@ -490,6 +490,9 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     /** Retried once when the recognizer was still shutting down from the last turn. */
     private var retried = false
 
+    /** The online recogniser failed just now: use the phone's own for the next try. */
+    private var offlineNext = false
+
     fun listen(auto: Boolean = false, retry: Boolean = false) {
         this.auto = auto
         if (!retry) retried = false
@@ -518,8 +521,11 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             override fun onEndOfSpeech() = setState(State.THINKING)
             override fun onError(error: Int) {
                 if (recognizer !== r) return
-                // Still busy with the last turn: try again in a moment rather than making you tap twice.
-                if ((error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT) && !retried) {
+                // Still busy with the last turn, or the online recogniser couldn't be reached: try again in a
+                // moment (offline, for the network) rather than making you tap twice.
+                val network = error == SpeechRecognizer.ERROR_NETWORK || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT || error == SpeechRecognizer.ERROR_SERVER
+                if ((error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT || network) && !retried) {
+                    if (network) offlineNext = true
                     retried = true
                     val wasAuto = this@JarvisView.auto
                     r.destroy()
@@ -536,6 +542,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             override fun onResults(results: Bundle?) {
                 // Of everything it might have heard, the one he can act on ("Claude" over "cloud").
                 if (recognizer !== r) return
+                offlineNext = false
                 finished(r)
                 releaseEar()
                 val heardAll = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
@@ -557,7 +564,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-GB")
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             // On the phone when it can be: faster, and nothing leaves it.
-            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, offlineNext || !Jarvis.online(context))
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             // Listen out for the names on this phone: apps, and words he knows.
             .putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(biasing()))
@@ -568,7 +575,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
     }
 
-    private fun biasing(): List<String> = (listOf("Jarvis", "Claude", "Tapo", "WhatsApp", "Even Us", "shift", "briefing", "note", "alarm") +
+    private fun biasing(): List<String> = (Jarvis.HEARD_WORDS + listOf("WhatsApp", "Even Us") +
         JarvisMemory.vocabulary(context) + AppCatalog.apps().map { it.label } + JarvisRoutines.all(context).map { it.name } + JarvisHands.skills(context).map { it.name }).distinct().take(200)
 
     private fun showHeard(text: String) {

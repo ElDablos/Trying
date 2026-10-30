@@ -61,7 +61,28 @@ object Comms {
     }
 
     fun changed() {
+        cache = null
         listeners.toList().forEach { it.onComms() }
+    }
+
+    /**
+     * The notifications up now, asked for at most a few times a second: asking Android hands over every
+     * notification with its pictures, too costly for every frame of an animation.
+     */
+    private var cache: List<StatusBarNotification>? = null
+    private var cachedAt = 0L
+
+    private fun current(): List<StatusBarNotification> {
+        val now = android.os.SystemClock.uptimeMillis()
+        cache?.let { if (now - cachedAt < 750) return it }
+        val fresh = try {
+            service?.get()?.activeNotifications.orEmpty().toList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        cache = fresh
+        cachedAt = now
+        return fresh
     }
 
     /** Whether a notification belongs in the Comms Centre: not media players, group headers or silent system notes. */
@@ -116,17 +137,9 @@ object Comms {
     private val DOWNLOADISH = listOf("downloading", "download complete", "downloaded", "installing", "installed", "uploading", "update available", "updating")
 
     /** Every notification up now, summaries and all. */
-    fun all(): List<StatusBarNotification> = try {
-        service?.get()?.activeNotifications.orEmpty().toList()
-    } catch (e: Exception) {
-        emptyList()
-    }
+    fun all(): List<StatusBarNotification> = current()
 
-    fun active(): List<StatusBarNotification> = try {
-        service?.get()?.activeNotifications.orEmpty().filter { shows(it) }.sortedByDescending { it.postTime }
-    } catch (e: Exception) {
-        emptyList()
-    }
+    fun active(): List<StatusBarNotification> = current().filter { shows(it) }.sortedByDescending { it.postTime }
 
     /** A call notification from any app: the phone, WhatsApp, Messenger and the like. */
     fun isCall(sbn: StatusBarNotification): Boolean {

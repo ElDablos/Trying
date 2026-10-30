@@ -46,6 +46,9 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
     var onClose: (() -> Unit)? = null
     var onLaunch: ((ComponentName) -> Unit)? = null
 
+    /** A game's menu (app info, uninstall, remove from the Arcade), at a point on screen. */
+    var onGameMenu: ((ComponentName, Float, Float) -> Unit)? = null
+
     private enum class Filter(val label: String) { ALL("ALL"), RECENT("RECENT"), MOST("MOST PLAYED"), NEW("NEW"), AZ("A–Z") }
 
     private var all: List<Arcade.Game> = emptyList()
@@ -68,6 +71,7 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
     private val scroller = OverScroller(context)
     private val main = Handler(Looper.getMainLooper())
     private val hits = ArrayList<Pair<RectF, () -> Unit>>()
+    private val holds = ArrayList<Pair<RectF, (Float, Float) -> Unit>>()
     private val camera = Camera()
     private val matrix = Matrix()
     private val path = Path()
@@ -210,12 +214,18 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
         hits += RectF(r.left, r.top - scroll, r.right, r.bottom - scroll) to action
     }
 
+    /** A hold area, page units as for [hit]; the action gets where the finger is. */
+    private fun hold(r: RectF, action: (Float, Float) -> Unit) {
+        holds += RectF(r.left, r.top - scroll, r.right, r.bottom - scroll) to action
+    }
+
     private fun seconds() = (SystemClock.uptimeMillis() - born) / 1000f
 
     // --- Drawing ---
 
     override fun onDraw(canvas: Canvas) {
         hits.clear()
+        holds.clear()
         drawBackdrop(canvas)
         if (scroller.computeScrollOffset()) {
             scroll = scroller.currY.toFloat().coerceIn(0f, maxScroll())
@@ -430,9 +440,14 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
             canvas.drawText(value, r.left + 9 * u, r.top + 17 * u, Hud.fit(value, Hud.text(13 * u, Color.WHITE, Hud.MEDIUM), bw - 14 * u))
             canvas.drawText(label, r.left + 9 * u, r.top + 30 * u, Hud.fit(label, Hud.text(6 * u, Hud.DUST, Hud.MONO, .1f), bw - 14 * u))
         }
-        val play = RectF(20 * u, 414 * u, width - 76 * u, 456 * u)
+        val play = RectF(20 * u, 414 * u, width - 128 * u, 456 * u)
         drawLaunch(canvas, play, "LAUNCH")
         hit(play) { onLaunch?.invoke(game.component) }
+        // ⋮: the game's options, uninstall among them.
+        val more = RectF(width - 118 * u, 414 * u, width - 72 * u, 456 * u)
+        Hud.panel(canvas, more, 8 * u, u, Hud.CRIMSON, Hud.alpha(Hud.DEEP, .2f))
+        canvas.drawText("⋮", more.centerX(), more.centerY() + 8 * u, Hud.text(22 * u, Hud.HOT, Hud.BOLD, align = Paint.Align.CENTER))
+        hit(more) { onGameMenu?.invoke(game.component, more.centerX(), more.bottom - scroll) }
         val dice = RectF(width - 66 * u, 414 * u, width - 20 * u, 456 * u)
         Hud.panel(canvas, dice, 8 * u, u, Hud.CRIMSON, Hud.alpha(Hud.DEEP, .2f))
         canvas.drawText("⚄", dice.centerX(), dice.centerY() + 7 * u, Hud.text(20 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER))
@@ -519,6 +534,7 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
             val label = Hud.text(7 * u, if (lit) Hud.HOT else Hud.SOFT, Hud.SANS, align = Paint.Align.CENTER)
             canvas.drawText(Hud.ellipsize(g.label, label, cell - 4 * u), r.centerX(), r.bottom + 21 * u, label)
             hit(RectF(x - (cell - size) / 2, y, x + size + (cell - size) / 2, y + size + 26 * u)) { selectGame(g) }
+            hold(RectF(x - (cell - size) / 2, y, x + size + (cell - size) / 2, y + size + 26 * u)) { fx, fy -> onGameMenu?.invoke(g.component, fx, fy) }
         }
     }
 
@@ -800,6 +816,14 @@ class GameHubView(context: Context, private val u: Float) : View(context) {
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             hits.lastOrNull { it.first.contains(e.x, e.y) }?.second?.invoke()
             return true
+        }
+
+        override fun onLongPress(e: MotionEvent) {
+            if (horizontal != null) return
+            holds.lastOrNull { it.first.contains(e.x, e.y) }?.let {
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                it.second(e.x, e.y)
+            }
         }
     })
 

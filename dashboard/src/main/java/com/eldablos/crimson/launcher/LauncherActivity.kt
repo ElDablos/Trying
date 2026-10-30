@@ -148,6 +148,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         hub = GameHubView(this, u).apply {
             visibility = View.GONE
             onClose = { closeGames() }
+            onGameMenu = { component, x, y -> gameMenu(component, x, y) }
             onLaunch = { component ->
                 AppCatalog.launch(this@LauncherActivity, component)
                 closeGames()
@@ -163,7 +164,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         deck = DeckView(this, u).apply {
             visibility = View.GONE
             onClose = { closeDeck() }
-            onSettings = { startActivity(Intent(this@LauncherActivity, LauncherSettingsActivity::class.java)) }
+            // The deck's ⚙ opens the phone's own settings (Launcher settings stay in the home menu).
+            onSettings = { safeStart(Intent(android.provider.Settings.ACTION_SETTINGS)) }
             onComms = { closeDeck(); handler.postDelayed({ openComms(null) }, 220) }
             onReply = { pkg -> closeDeck(); handler.postDelayed({ openComms(pkg) }, 220) }
             onWeather = { closeDeck(); handler.postDelayed({ openWeather() }, 220) }
@@ -284,6 +286,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         AppCatalog.clearIcons()
         showNodes()
         loadGames()
+        // An uninstalled game leaves the Arcade straight away.
+        if (hub.visibility == View.VISIBLE) hub.load()
     }
 
     /** Puts the saved nodes and dock on the ring, skipping apps that aren't installed. */
@@ -606,6 +610,25 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             startActivity(Intent(this, MainActivity::class.java))
             true
         }
+        menu.show()
+    }
+
+    /** A game in the Arcade: launch it, take it out of the Arcade, or its app info and uninstall. */
+    private fun gameMenu(component: ComponentName, x: Float, y: Float) {
+        val menu = popup(x, y)
+        menu.menu.add("Launch").setOnMenuItemClickListener {
+            AppCatalog.launch(this, component)
+            closeGames()
+            true
+        }
+        menu.menu.add("Remove from Arcade").setOnMenuItemClickListener {
+            val pkg = component.packageName
+            com.eldablos.crimson.Arcade.setIncluded(this, pkg, include = false, auto = pkg !in com.eldablos.crimson.Arcade.added(this))
+            hub.load()
+            loadGames()
+            true
+        }
+        addAppItems(menu, component)
         menu.show()
     }
 

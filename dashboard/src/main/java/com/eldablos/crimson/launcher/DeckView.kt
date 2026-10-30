@@ -335,6 +335,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         coinId = null
         board.scrollTo(0f)
         board.forget()
+        board.freshIntel()
         // Count any email still in the shade that wasn't seen arriving.
         Mail.catchUp(context)
         groups = Comms.groups()
@@ -896,6 +897,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private fun tap(r: RectF, action: () -> Unit) = hit(r) {
             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             action()
+            freshIntel()
         }
 
         /** A small cut-corner button; [solid] fills it with the theme's colour. */
@@ -990,7 +992,22 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private fun eveningMode() = LocalDateTime.now().hour >= 19
 
         /** Every line of intel, most urgent first. */
+        /** The briefing's lines, worked out at most once a second rather than every frame. */
+        private var intelCache: List<Intel>? = null
+        private var intelAt = 0L
+
         private fun intel(): List<Intel> {
+            val now = SystemClock.uptimeMillis()
+            intelCache?.let { if (now - intelAt < 1000) return it }
+            return buildIntel().also { intelCache = it; intelAt = now }
+        }
+
+        /** Drops the cached lines, after something changed that they show. */
+        fun freshIntel() {
+            intelCache = null
+        }
+
+        private fun buildIntel(): List<Intel> {
             val out = ArrayList<Intel>()
             val nowMs = System.currentTimeMillis()
             val zone = ZoneId.systemDefault()

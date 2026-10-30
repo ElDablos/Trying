@@ -665,7 +665,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 if (hands) { closeSheet(); act(Jarvis.Action("TEACH", "learn the ")) } else context.startActivity(JarvisHands.settingsIntent())
             })
         JarvisHands.skills(context).forEach { s ->
-            item(body, "✋ " + s.name.replaceFirstChar { it.uppercase() }, "${s.steps.size} step${if (s.steps.size == 1) "" else "s"} · ${s.pkg.substringAfterLast('.')}", "FORGET",
+            item(body, "✋ " + s.name.replaceFirstChar { it.uppercase() }, "${s.steps.size} step${if (s.steps.size == 1) "" else "s"} · ${AppCatalog.apps().firstOrNull { it.component.packageName == s.pkg }?.label ?: s.pkg.substringAfterLast('.')}", "FORGET",
                 onTap = { closeSheet(); submit("turn on the ${s.name}") }, onButton = { JarvisHands.deleteSkill(context, s.name); openSheet(Jarvis.Sheet.SETTINGS) })
         }
         heading(body, "MORE")

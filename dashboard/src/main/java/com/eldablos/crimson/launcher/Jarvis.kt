@@ -823,6 +823,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         }
         is Command.TickNote -> tickNote(cmd.what) ?: Reply("I couldn't find that note${sir()}.", listOf("Read my notes"), failed = true)
         Command.TickAllNotes -> tickAllNotes()
+        is Command.TickNotes -> notesByNumber(cmd.refs, delete = false)
+        is Command.DeleteNotes -> notesByNumber(cmd.refs, delete = true)
         is Command.ReadNote -> {
             val i = findNote(cmd.what)
             if (i < 0) Reply("There isn't a note ${cmd.what.removePrefix("#")}${sir()}.", listOf("Read my notes"), failed = true)
@@ -2722,7 +2724,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun habit(said: String): Reply {
         val habits = DeckStore.habits(context)
         val h = findHabit(said) ?: habits.firstOrNull { said.contains(it.name.lowercase().substringBefore(' ')) || it.name.lowercase().contains(said) }
-            ?: return tickNote(said) ?: Reply("Good for you, $name. That's not one of your habits; shall I add it?", listen = true,
+            ?: return tickNote(said) ?: if (onNotes()) Reply("Which note${sir()}? Say its number, like \"tick off the second one\".", listen = true,
+                card = notesCard(openNotes(), null, "YOUR NOTES"), actions = listOf(Action("READ MY NOTES", "read my notes"))) else Reply("Good for you, $name. That's not one of your habits; shall I add it?", listen = true,
                 actions = listOf(Action("+ ADD AS HABIT", "add a habit $said and tick it off today", primary = true)))
         lastHabit = h.name
         val today = LocalDate.now()
@@ -2757,6 +2760,35 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         }
         return Reply("Ticked off \"${lines[i]}\" on your notes.", card = Card("✎", "NOTES", sub = "${updated.count { !it.startsWith(DONE) }} open",
             rows = updated.take(6).map { Row(it.removePrefix(DONE), ok = if (it.startsWith(DONE)) true else null) }), actions = listOf(undoAction))
+    }
+
+    /** Talking about notes just now: what's unclear is about notes, not habits. */
+    private fun onNotes() = System.currentTimeMillis() - lastAt < 5 * 60_000L && when (last) {
+        Command.ReadNotes, Command.TickAllNotes, is Command.ReadNote, is Command.TickNote, is Command.TickNotes, is Command.DeleteNotes, is Command.EditNote,
+        is Command.DeleteNote, is Command.AddNote, Command.NoteAsk, Command.ClearNotes -> true
+        else -> false
+    }
+
+    /** Several notes by number, all at once (worked out before any change, so the numbers don't shift). */
+    private fun notesByNumber(refs: List<String>, delete: Boolean): Reply {
+        val lines = openNotes()
+        val idx = refs.map { findNote(it) }
+        val missing = refs.filterIndexed { i, _ -> idx[i] < 0 }
+        if (missing.isNotEmpty()) return Reply("You haven't got a ${missing.joinToString(" or ") { ordinalName(it).lowercase() }} note${sir()}. You've got ${lines.count { !it.startsWith(DONE) }}.",
+            actions = listOf(Action("READ MY NOTES", "read my notes")), failed = true)
+        val picked = idx.distinct().sorted()
+        val names = picked.map { lines[it].removePrefix(DONE) }
+        val before = DeckData.note(context)
+        val updated = if (delete) lines.filterIndexed { i, _ -> i !in picked } else lines.mapIndexed { i, l -> if (i in picked && !l.startsWith(DONE)) DONE + l else l }
+        DeckData.setNote(context, updated.joinToString("\n"))
+        push(if (delete) "Notes put back" else "Notes unticked") {
+            DeckData.setNote(context, before)
+            "Put them back as they were."
+        }
+        val list = if (names.size == 1) "“${names[0]}”" else names.dropLast(1).joinToString(", ") { "“$it”" } + " and “${names.last()}”"
+        return Reply((if (delete) "Removed $list from your notes" else "Ticked off $list") + "${sir()}.",
+            card = Card("✎", if (delete) "NOTES · REMOVED" else "NOTES · TICKED", sub = "${updated.count { !it.startsWith(DONE) }} open",
+                rows = updated.take(6).map { Row(it.removePrefix(DONE), ok = if (it.startsWith(DONE)) true else null) }), actions = listOf(undoAction))
     }
 
     /** Every open note ticked off at once; undo puts them back. */

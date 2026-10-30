@@ -436,6 +436,16 @@ class JarvisTest {
     }
 
     @Test
+    fun severalNotesByNumber() {
+        assertEquals(Command.DeleteNotes(listOf("#3", "#2")), p("remove third and second note"))
+        assertEquals(Command.TickNotes(listOf("#3", "#2")), p("I have completed third and second nodes"))
+        assertEquals(Command.TickNotes(listOf("#1", "#2", "#4")), p("tick off the first, second and fourth"))
+        assertEquals(Command.TickNotes(listOf("#1", "#3")), p("the first and third are done"))
+        assertEquals(Command.DeleteNotes(listOf("#1", "#last")), p("delete the first and last notes"))
+        assertEquals(Command.TickNote("#2"), p("I completed the second note"))
+    }
+
+    @Test
     fun handsLogAsHeard() {
         assertEquals(Command.HandsLog, p("Send me hands long"))
         assertEquals(Command.HandsLog, p("Hands long"))

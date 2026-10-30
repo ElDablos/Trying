@@ -126,6 +126,9 @@ object JarvisParser {
         data class TickNote(val what: String) : Command()
         /** "Tick off all my notes", "I've finished my notes". */
         object TickAllNotes : Command()
+        /** Several notes by number at once: "tick off the third and second", "remove the first and fourth notes". */
+        data class TickNotes(val refs: List<String>) : Command()
+        data class DeleteNotes(val refs: List<String>) : Command()
         /** "Delete it", "tick it off": whatever he just talked about (a note, mostly). */
         data class ItAction(val kind: String) : Command()
         /** "What's my second note?" */
@@ -177,6 +180,8 @@ object JarvisParser {
             .replace(Regex("^(i want to|i wanna|i'd like to|i would like to|let me|can i|could i)\\s+"), "")
             .replace(Regex("\\s+instead$"), "")
             .replace(Regex("\\s+"), " ").trim()
+            // "Notes" misheard ("nodes", "knots").
+            .replace(Regex("\\b(nodes|knots|nots)\\b"), "notes").replace(Regex("\\b(node|knot)\\b"), "note")
             // Letters typed or heard one by one ("t i c k my notes"): the word they spell.
             .replace(Regex("\\b(?:[a-z] ){2,}[a-z]\\b")) { it.value.replace(" ", "") }
             .let { spokenNumbers(it) }
@@ -384,6 +389,19 @@ object JarvisParser {
             Regex("^(?:i(?:'ve| have)? (?:done|completed|finished|ticked off|done all)|i'm done with|all done with) (?:all )?(?:of )?(?:my |the )?(?:notes|list|to-?do( list)?)$|^(?:my )?notes are (?:all )?(?:done|complete|finished)$").matches(t)) return Command.TickAllNotes
         // One by number, said any natural way: "finish my second note", "I completed the last one", "the first
         // one's done", "mark the third as done", "I've done note 2", "check off the last item".
+        // Several by number: "remove the third and second notes", "I've completed the first, second and fourth",
+        // "the first and third are done".
+        val ordList = "((?:$ord)(?:(?:,? and|,|,? &|,? plus|,? then) (?:the )?(?:$ord))+)"
+        fun refsIn(list: String) = Regex(ord).findAll(list).map { noteRef(it.value) }.distinct().toList()
+        Regex("^(?:delete|remove|scrap|cross out|get rid of|bin|erase|drop) (?:the |my )?$ordList(?: notes?| ones?| items?)?$").find(t)?.let { m ->
+            return Command.DeleteNotes(refsIn(m.groupValues[1]))
+        }
+        Regex("^(?:i(?:'ve| have| just)? |i've just |just )?(?:tick|ticked|tick off|ticked off|finish|finished|complete|completed|do|done|did|mark|marked|cross off|crossed off|check off|checked off|sort|sorted)(?: off)? (?:the |my )?$ordList(?: notes?| ones?| items?| tasks?)?(?: off| as done| done)?$").find(t)?.let { m ->
+            return Command.TickNotes(refsIn(m.groupValues[1]))
+        }
+        Regex("^(?:the |my )?$ordList(?: notes?| ones?| items?)? (?:are|have been|were) (?:done|finished|complete|completed|ticked off|sorted)$").find(t)?.let { m ->
+            return Command.TickNotes(refsIn(m.groupValues[1]))
+        }
         val doneVerb = "(?:tick|ticked|tick off|ticked off|finish|finished|complete|completed|do|done|did|mark|marked|cross|crossed|cross off|crossed off|check|checked|check off|checked off|close|closed|sort|sorted|knock off|knocked off|get through|got through)"
         val thing = "(?: one| note| item| task| thing| on the list| on my list| on my notes)?"
         Regex("^(?:i(?:'ve| have| just)? |i've just |just )?$doneVerb(?: off)? (?:the |my )?(?:$ord$thing|note (?:number |no\\.? )?$ord)(?: off| as done| done| as complete| as finished)?$").find(t)?.let { m ->

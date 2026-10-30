@@ -357,8 +357,11 @@ class HomeView(context: Context) : View(context) {
         if (openT > 0f && open >= 0) drawOrbit(canvas)
         stage(canvas, win(b, .66f, .25f), dy = 30 * u) { drawSteps(canvas, t) }
         stage(canvas, win(b, .72f, .25f), dy = 30 * u) { drawMusic(canvas, t) }
-        if (incoming == null && calls.isNotEmpty()) drawCall(canvas, calls.first())
-        if (incoming == null && calls.isEmpty() && b >= .86f) drawJarvis(canvas) else orbSlot(slotX, slotY, false)
+        if (incoming == null && calls.isNotEmpty()) {
+            // On a call: the bar takes the orb's place, so the orb moves up beside it.
+            drawCall(canvas, calls.first())
+            orbSlot(width - 14 * u - CALL_ORB_ROOM * u / 2f, y(802f) + 30 * u, b >= .86f)
+        } else if (incoming == null && b >= .86f) drawJarvis(canvas) else orbSlot(slotX, slotY, false)
         drawModeShift(canvas)
         drawIncoming(canvas)
         drawLock(canvas)
@@ -941,11 +944,14 @@ class HomeView(context: Context) : View(context) {
 
     // --- Call bar ---
 
+    private val CALL_ORB_ROOM = 76f
+
     /** A call in progress (any app): who, how long, End, and tap to go back to it. */
     private fun drawCall(canvas: Canvas, call: StatusBarNotification) {
         val green = Hud.tint(0xFF3DDC84.toInt())
         val top = y(802f)
-        val r = RectF(14 * u, top, width - 14 * u, top + 60 * u)
+        // Room on the right for Jarvis's orb, which sits beside the bar during a call.
+        val r = RectF(14 * u, top, width - 14 * u - CALL_ORB_ROOM * u, top + 60 * u)
         Hud.panel(canvas, r, 12 * u, u, Hud.alpha(green, .7f), Hud.alpha(Hud.tint(0xFF0A1A10.toInt()), .9f))
         val pulse = .5f + .5f * sin(now() / 260.0).toFloat()
         canvas.drawCircle(r.left + 18 * u, r.centerY(), (4 + 2 * pulse) * u, Hud.glow(Hud.fill(green), 8 * u))

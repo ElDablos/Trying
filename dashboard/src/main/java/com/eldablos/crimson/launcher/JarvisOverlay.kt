@@ -23,12 +23,16 @@ import kotlin.math.sin
 /**
  * Jarvis over any app, for "Hey Jarvis": a HUD strip across the top of the screen with a small arc
  * reactor, what he's doing (listening, thinking, speaking), what you said and what he answers, and a
- * waveform. It never takes the keyboard or blocks the app under it; tap it to send him away.
+ * waveform. It never takes the keyboard or blocks the app under it. Tap it to open Jarvis (the conversation
+ * carries on there); the × sends him away.
  */
 class JarvisOverlay(private val context: Context) {
     enum class State(val label: String) { LISTENING("LISTENING"), THINKING("THINKING"), SPEAKING("SPEAKING"), STANDBY("STANDING BY") }
 
     var onDismiss: (() -> Unit)? = null
+
+    /** Tapped: carry on in the Jarvis panel. */
+    var onOpen: (() -> Unit)? = null
 
     private val wm = context.getSystemService(WindowManager::class.java)
     private val u = context.resources.displayMetrics.widthPixels / 412f
@@ -103,7 +107,10 @@ class JarvisOverlay(private val context: Context) {
         private var layoutFor = ""
 
         override fun onTouchEvent(e: MotionEvent): Boolean {
-            if (e.actionMasked == MotionEvent.ACTION_UP) onDismiss?.invoke()
+            if (e.actionMasked == MotionEvent.ACTION_UP) {
+                // The × in the top right sends him away; anywhere else opens him.
+                if (e.x > width - 52 * u && e.y < 44 * u) onDismiss?.invoke() else (onOpen ?: onDismiss)?.invoke()
+            }
             return true
         }
 
@@ -145,9 +152,11 @@ class JarvisOverlay(private val context: Context) {
             canvas.drawCircle(cx, cy, 11 * u * (1 + .2f * energy), Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 shader = RadialGradient(cx, cy, 11 * u * (1 + .2f * energy), intArrayOf(Color.WHITE, holo, Color.TRANSPARENT), floatArrayOf(0f, .55f, 1f), Shader.TileMode.CLAMP)
             })
+            // The ×.
+            canvas.drawText("✕", r.right - 22 * u, r.top + 22 * u, Hud.text(11 * u, Hud.alpha(holo, .75f), Hud.SANS, align = android.graphics.Paint.Align.CENTER))
             // Status and words.
             val x = cx + 50 * u
-            val tw = r.right - 16 * u - x
+            val tw = r.right - 40 * u - x
             canvas.drawText("◆ J.A.R.V.I.S  ·  [ ${state.label} ]", x, r.top + 20 * u, Hud.glow(Hud.text(7.5f * u, if (state == State.LISTENING) Color.WHITE else holo, Hud.MONO_BOLD, .18f), 4 * u, holo))
             val text = said.ifEmpty { heard.ifEmpty { if (state == State.LISTENING) "Go ahead, sir." else "" } }
             if (text != layoutFor || layout?.width != tw.toInt()) {

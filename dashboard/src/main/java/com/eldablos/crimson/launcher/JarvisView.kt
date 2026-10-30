@@ -198,6 +198,19 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         row.addView(round("➤", true) { send() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(6f) })
         column.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(14f), dp(10f), dp(14f), dp(26f)) })
 
+        // The launcher draws edge to edge, so nothing makes room for the keyboard by itself: lift the whole
+        // panel by its height, so the box you're typing in stays above it.
+        setOnApplyWindowInsetsListener { _, insets ->
+            val ime = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+            val nav = insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
+            val lift = (ime - nav).coerceAtLeast(0)
+            if (paddingBottom != lift) {
+                setPadding(0, 0, 0, lift)
+                if (lift > 0) post { scroll.smoothScrollTo(0, log.height) }
+            }
+            insets
+        }
+
         sheet.visibility = GONE
         sheet.setBackgroundColor(Hud.alpha(Color.BLACK, .55f))
         sheet.setOnClickListener { closeSheet() }

@@ -229,6 +229,7 @@ class JarvisEar : Service() {
     private fun showOverlay() {
         val o = overlay ?: JarvisOverlay(this).also {
             it.onDismiss = { end(goHome = false) }
+            it.onOpen = { openPanel() }
             overlay = it
         }
         o.state = JarvisOverlay.State.LISTENING
@@ -561,6 +562,13 @@ class JarvisEar : Service() {
                 // Already stopped.
             }
         }
+    }
+
+    /** From the strip: stop here and carry on in the Jarvis panel, where this conversation already is. */
+    private fun openPanel() {
+        Speech.stop()
+        end(goHome = false)
+        startActivity(Intent(this, LauncherActivity::class.java).putExtra(EXTRA_BACK, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))
     }
 
     private fun toLauncher(say: String) {

@@ -2048,6 +2048,21 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             (brain ?: Jarvis(context.applicationContext, host).also { brain = it }).also { it.host = host }
         }
 
+        /**
+         * Whether [said] needs the screen: opening or working an app, or the Clock. Android won't do those
+         * behind the lock screen, so "Hey Jarvis" holds them until you unlock.
+         */
+        fun needsScreen(context: Context, said: String): Boolean {
+            JarvisRoutines.match(JarvisRoutines.all(context), said)?.let { r -> return r.steps.any { needsScreen(context, it) } }
+            return when (JarvisParser.parse(said)) {
+                is Command.OpenApp, is Command.Call, is Command.Lights, is Command.Switch, is Command.Press, is Command.Teach,
+                is Command.Brightness, is Command.LightColour, is Command.Climate, is Command.SetTemp, is Command.Alarm, is Command.Timer,
+                Command.ShiftAlarm, is Command.AlarmSwitch, is Command.MoveAlarm, Command.Camera, is Command.Setting, Command.LightsStatus,
+                Command.Briefing, is Command.BriefingControl, Command.Settings, Command.Routines, Command.NewRoutine -> true
+                else -> false
+            }
+        }
+
         const val DONE = "[x] "
         const val WHATSAPP = "com.whatsapp"
         const val TAPO = "com.tplink.iot"

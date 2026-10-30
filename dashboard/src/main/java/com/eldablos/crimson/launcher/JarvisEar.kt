@@ -54,6 +54,26 @@ class JarvisEar : Service() {
     private var paused = 0
     private var charging = false
     private var lastText = ""
+    /** Something that needs the screen, asked while the phone was locked: done as soon as you unlock. */
+    private var held: String? = null
+    private var heldAt = 0L
+
+    private val unlocked = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val text = held ?: return
+            held = null
+            if (System.currentTimeMillis() - heldAt > HOLD_MS) return
+            // A moment for the home screen (or the app you were in) to settle, then on with it.
+            main.postDelayed({
+                stopWake()
+                session = true
+                lingering = false
+                showOverlay()
+                overlay?.said("Right away, sir.")
+                handle(text)
+            }, 600)
+        }
+    }
 
     private val battery = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -91,6 +111,7 @@ class JarvisEar : Service() {
             stopSelf()
             return
         }
+        registerReceiver(unlocked, IntentFilter(Intent.ACTION_USER_PRESENT), RECEIVER_NOT_EXPORTED)
         registerReceiver(battery, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.let {
             charging = it.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
         }
@@ -110,6 +131,7 @@ class JarvisEar : Service() {
     override fun onDestroy() {
         try {
             unregisterReceiver(battery)
+            unregisterReceiver(unlocked)
         } catch (e: Exception) {
             // Not registered.
         }
@@ -274,6 +296,20 @@ class JarvisEar : Service() {
 
     private fun handle(text: String) {
         lastText = text
+        // Locked: he can talk, but can't open or work an app. He holds it until you unlock.
+        val locked = getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
+        if (locked && Jarvis.needsScreen(this, text)) {
+            held = text
+            heldAt = System.currentTimeMillis()
+            val say = "Unlock the phone and I'll do it, sir."
+            overlay?.said(say)
+            overlay?.state = JarvisOverlay.State.SPEAKING
+            Speech.speak(this, listOf("ear" to say), object : Speech.Listener {
+                override fun onPart(id: String) {}
+                override fun onEnd(finished: Boolean) = end(goHome = false)
+            })
+            return
+        }
         overlay?.heard("“$text”")
         overlay?.state = JarvisOverlay.State.THINKING
         Thread {
@@ -356,7 +392,7 @@ class JarvisEar : Service() {
         if (goHome && wasLingering) {
             startActivity(Intent(this, LauncherActivity::class.java).putExtra(EXTRA_BACK, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))
         }
-        if (wakeEnabled(this)) startWake() else stopSelf()
+        if (wakeEnabled(this)) startWake() else if (held == null) stopSelf()
     }
 
     companion object {
@@ -369,6 +405,7 @@ class JarvisEar : Service() {
         private const val NOTIFICATION = 7301
         private const val ACTION_STOP = "stop"
         private const val WAKE_CONFIDENCE = .62
+        private const val HOLD_MS = 3 * 60_000L
         const val MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
 
         private fun prefs(context: Context) = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)

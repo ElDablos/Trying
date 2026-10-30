@@ -228,6 +228,17 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             greetedAt = 0L
         }
         lastActive = now
+        // One conversation: what you said to him over other apps ("Hey Jarvis") shows here too, and the
+        // first time he's opened, the last few hours of it.
+        val away = if (shownUpTo == 0L) JarvisChat.since(context, now - 6 * 3600_000L).takeLast(12)
+        else JarvisChat.since(context, shownUpTo, JarvisChat.EAR)
+        val tf = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+        away.forEach { e ->
+            val time = java.time.Instant.ofEpochMilli(e.at).atZone(java.time.ZoneId.systemDefault()).format(tf)
+            val via = if (e.via == JarvisChat.EAR) "HEY JARVIS" else time
+            bubble(e.text, e.mine, stamp = if (e.mine) "$via  ·  YOU  ›" else "◆ JARVIS  ·  $via${if (e.via == JarvisChat.EAR) "  ·  $time" else ""}")
+        }
+        shownUpTo = now
         // He says hello once a session, not every time you open him.
         if (!greet || now - greetedAt < SESSION_MS) {
             if (listen) listen()
@@ -248,6 +259,9 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     }
 
     private var greetedAt = 0L
+
+    /** The conversation's shown up to here; later lines from "Hey Jarvis" are added when he's next opened. */
+    private var shownUpTo = 0L
     private var lastActive = 0L
 
     /** Back from working another app: says how it went. */
@@ -521,7 +535,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     }
 
     private fun biasing(): List<String> = (listOf("Jarvis", "Claude", "Tapo", "WhatsApp", "Even Us", "shift", "briefing", "note", "alarm") +
-        AppCatalog.apps().map { it.label } + JarvisRoutines.all(context).map { it.name } + JarvisHands.skills(context).map { it.name }).distinct().take(200)
+        JarvisMemory.vocabulary(context) + AppCatalog.apps().map { it.label } + JarvisRoutines.all(context).map { it.name } + JarvisHands.skills(context).map { it.name }).distinct().take(200)
 
     private fun showHeard(text: String) {
         heard.text = text
@@ -558,7 +572,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
 
     // --- The conversation on screen ---
 
-    private fun bubble(text: String, mine: Boolean, card: Jarvis.Card? = null, actions: List<Jarvis.Action> = emptyList()) {
+    private fun bubble(text: String, mine: Boolean, card: Jarvis.Card? = null, actions: List<Jarvis.Action> = emptyList(), stamp: String? = null) {
         val v = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(12.5f) * u)
             setTextColor(if (mine) Hud.BONE else Color.WHITE)
@@ -572,7 +586,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             translationY = 10 * u
         }
         val label = TextView(context).apply {
-            this.text = if (mine) "YOU  ›" else "◆ JARVIS  ·  " + java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+            this.text = stamp ?: if (mine) "YOU  ›" else "◆ JARVIS  ·  " + java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
             mono(this, 6.5f, if (mine) Hud.DUST else Hud.HOT, .2f)
             gravity = if (mine) Gravity.END else Gravity.START
         }

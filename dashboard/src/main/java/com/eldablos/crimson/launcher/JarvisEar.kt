@@ -366,7 +366,8 @@ class JarvisEar : Service() {
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             // A follow-up gives up quickly if you've nothing more to say.
             .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, if (followUp) 2000L else 2500L)
-            .putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(listOf("Jarvis", "Claude", "Tapo", "Air+", "brighter", "dimmer", "next colour", "warmer", "cooler") + AppCatalog.apps().map { it.label }.take(150))))
+            .putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList((listOf("Jarvis", "Claude", "Tapo", "Air+", "brighter", "dimmer", "next colour", "warmer", "cooler") +
+                JarvisMemory.vocabulary(this) + AppCatalog.apps().map { it.label }).distinct().take(200))))
     }
 
     private val host = object : Jarvis.Host {
@@ -408,7 +409,7 @@ class JarvisEar : Service() {
         overlay?.heard("“$text”")
         overlay?.state = JarvisOverlay.State.THINKING
         Thread {
-            val reply = brain().answer(text)
+            val reply = brain().answer(text, via = JarvisChat.EAR)
             main.post { respond(reply) }
         }.start()
     }
@@ -469,6 +470,7 @@ class JarvisEar : Service() {
 
     /** From his hands, still in the app: say how it went, then a few seconds for "next colour" or "brighter" before going back. */
     private fun linger(say: String) {
+        JarvisChat.add(this, false, say, JarvisChat.EAR)
         session = true
         lingering = true
         stopWake()

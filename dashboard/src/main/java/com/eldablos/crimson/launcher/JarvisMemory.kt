@@ -29,7 +29,43 @@ object JarvisMemory {
         val i = all.indexOfFirst { it.band == b && it.text.equals(phrase, true) }
         if (i >= 0) all[i] = Phrase(b, all[i].count + 1, phrase) else all += Phrase(b, 1, phrase)
         val kept = all.sortedByDescending { it.count }.take(60)
-        prefs(context).edit().putString("phrases", kept.joinToString("\n") { "${it.band}\t${it.count}\t${it.text}" }).apply()
+        // When, too: the timeline he learns your habits from ("heating on, most evenings around 7").
+        val times = (timeline(context) + Use(System.currentTimeMillis(), phrase)).takeLast(400)
+        prefs(context).edit().putString("phrases", kept.joinToString("\n") { "${it.band}\t${it.count}\t${it.text}" })
+            .putString("timeline", times.joinToString("\n") { "${it.at}\t${it.text}" }).apply()
+    }
+
+    class Use(val at: Long, val text: String)
+
+    fun timeline(context: Context): List<Use> = prefs(context).getString("timeline", null).orEmpty().split('\n').mapNotNull { line ->
+        val p = line.split('\t')
+        if (p.size < 2) null else p[0].toLongOrNull()?.let { Use(it, p[1]) }
+    }
+
+    /**
+     * What you usually ask for around now: said on at least three different days within 40 minutes of
+     * this time of day, and not yet today. He offers it before you ask.
+     */
+    fun usualNow(context: Context, now: java.time.LocalDateTime = java.time.LocalDateTime.now()): List<String> {
+        val zone = java.time.ZoneId.systemDefault()
+        val minute = now.hour * 60 + now.minute
+        val today = now.toLocalDate()
+        val uses = timeline(context).map { u -> u to java.time.Instant.ofEpochMilli(u.at).atZone(zone).toLocalDateTime() }
+        val doneToday = uses.filter { it.second.toLocalDate() == today }.map { it.first.text.lowercase() }.toSet()
+        return uses.filter { (_, t) ->
+            val m = t.hour * 60 + t.minute
+            t.toLocalDate() != today && t.toLocalDate().isAfter(today.minusDays(28)) && kotlin.math.abs(m - minute) <= 40
+        }.groupBy { it.first.text.lowercase() }
+            .filter { (k, v) -> k !in doneToday && v.map { it.second.toLocalDate() }.distinct().size >= 3 }
+            .entries.sortedByDescending { it.value.size }.map { it.value.first().first.text }
+    }
+
+    /** Words and phrases you use, for the speech recogniser to listen out for: it gets better at your voice. */
+    fun vocabulary(context: Context): List<String> {
+        val p = prefs(context)
+        val meant = p.all.keys.filter { it.startsWith("meant:") }.map { it.removePrefix("meant:") }
+        val facts = p.all.keys.filter { it.startsWith("fact:") }.map { it.removePrefix("fact:") }
+        return (phrases(context).sortedByDescending { it.count }.map { it.text }.take(50) + meant.take(40) + facts.take(30)).distinct()
     }
 
     class Phrase(val band: String, val count: Int, val text: String)

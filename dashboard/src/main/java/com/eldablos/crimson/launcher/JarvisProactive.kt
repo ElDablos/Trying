@@ -79,6 +79,12 @@ object JarvisProactive {
                 )
             }
         }
+        // Your habits: what you usually ask for around this time, offered before you ask.
+        JarvisMemory.usualNow(context, now).firstOrNull { u ->
+            JarvisParser.parse(u).let { c -> c !is JarvisParser.Command.Unknown && c !is JarvisParser.Command.Undo && c !is JarvisParser.Command.Dismiss && c !is JarvisParser.Command.Thanks }
+        }?.let { u ->
+            out += Insight("habit:${u.lowercase()}:${now.toLocalDate()}", "✦", "Your usual: $u", "Around now you usually say “$u”, sir. Shall I?", u, "DO IT")
+        }
         // Birthdays and countdowns today or tomorrow.
         for (c in DeckStore.countdowns(context)) {
             val days = ChronoUnit.DAYS.between(now.toLocalDate(), c.date)

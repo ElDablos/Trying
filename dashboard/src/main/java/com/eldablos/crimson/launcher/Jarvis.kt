@@ -192,7 +192,28 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     // --- Answering ---
 
     /** Puts what you said to Jarvis: the conversation so far, routines, then the command itself. */
-    fun answer(said: String, inRoutine: Boolean = false): Reply {
+    private var depth = 0
+
+    /**
+     * Answers [said], from the panel or over another app ([via]), and writes both sides into the one
+     * conversation the panel shows. Off the main thread.
+     */
+    fun answer(said: String, inRoutine: Boolean = false, via: String = JarvisChat.PANEL): Reply {
+        val top = depth == 0 && !inRoutine
+        depth++
+        try {
+            val r = answerNow(said, inRoutine)
+            if (top) {
+                JarvisChat.add(context, true, said, via)
+                JarvisChat.add(context, false, r.say, via)
+            }
+            return r
+        } finally {
+            depth--
+        }
+    }
+
+    private fun answerNow(said: String, inRoutine: Boolean): Reply {
         val text = said.trim()
         // An answer to his question about which app.
         (pending as? Pending.WhichApp)?.let { p ->
@@ -827,7 +848,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 if (close.isNotEmpty()) {
                     // Name the likeliest one, so a plain "yes" does it.
                     val top = close.first()
-                    pending = Pending.Confirm({ answer(top) }, "Very well. Say it another way and I'll have another go.")
+                    // A "yes" teaches him: next time, what you said means that.
+                    pending = Pending.Confirm({
+                        JarvisMemory.learnMeaning(context, cmd.text, top)
+                        answer(top)
+                    }, "Very well. Say it another way and I'll have another go.")
                     say("Did you mean “$top”, sir?", "Close. “$top”, perhaps?", "“$top”?")
                 }
                 else say(pick("I'm afraid I can't do that one yet, $name.", "I didn't quite follow that, sir."), pick("That's beyond me, and I don't say that lightly.", "You've lost me there, sir."), "Can't do that."),
@@ -1886,6 +1911,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     fun bestHeard(alternatives: List<String>): String {
         val first = alternatives.firstOrNull().orEmpty()
         if (JarvisRoutines.match(JarvisRoutines.all(context), first) != null) return first
+        // Something you've said before (or taught him the meaning of) beats a guess: he learns your voice's habits.
+        val usual = JarvisMemory.phrases(context).map { it.text.lowercase() }.toSet()
+        alternatives.firstOrNull { a -> JarvisMemory.meaning(context, a) != null || a.lowercase().trimEnd('.', '?', '!') in usual }?.let { return it }
         for (a in alternatives) {
             when (val c = JarvisParser.parse(a)) {
                 is Command.Unknown -> continue

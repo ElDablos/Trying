@@ -299,7 +299,11 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     }
 
     /** Puts [text] to Jarvis and shows, says and does his answer. */
-    fun submit(text: String) {
+    /** Whether the last thing you said was spoken (then he listens again after answering) or typed. */
+    private var spoken = false
+
+    fun submit(text: String, voice: Boolean = false) {
+        spoken = voice
         lastActive = System.currentTimeMillis()
         bubble(text, mine = true)
         setState(State.THINKING)
@@ -346,7 +350,14 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         }) {
             main.removeCallbacks(safety)
             after()
-            if (reply.listen) listen()
+            when {
+                reply.listen -> listen()
+                // A conversation: after answering something you said, he listens for what's next. Silence, "that's
+                // all" or "thanks" ends it; so does him opening an app, or you typing instead.
+                spoken && !reply.end && !reply.afterSpeech && reply.sheet == null && !reply.failed && visibility == VISIBLE && !sheetOpen &&
+                    JarvisMemory.keepListening(context) -> listen(auto = true)
+                spoken && reply.failed && visibility == VISIBLE && JarvisMemory.keepListening(context) -> listen(auto = true)
+            }
         }
         if (!reply.afterSpeech) reply.then?.invoke()
     }
@@ -371,7 +382,11 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
 
     // --- Listening ---
 
-    fun listen() {
+    /** True while listening by himself after an answer: silence then just ends the conversation, quietly. */
+    private var auto = false
+
+    fun listen(auto: Boolean = false) {
+        this.auto = auto
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             bubble("I'll need the microphone to hear you, sir. Allow it and I'll be listening.", mine = false)
             onPermission?.invoke(arrayOf(Manifest.permission.RECORD_AUDIO))
@@ -398,7 +413,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             override fun onError(error: Int) {
                 releaseEar()
                 setState(State.IDLE)
-                showHeard(if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) "Didn't catch that. Tap the core to try again." else "")
+                val silent = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                showHeard(if (silent && !auto) "Didn't catch that. Tap the core to try again." else "")
             }
             override fun onResults(results: Bundle?) {
                 // Of everything it might have heard, the one he can act on ("Claude" over "cloud").
@@ -407,7 +423,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 val said = if (heardAll.size > 1) jarvis.bestHeard(heardAll) else heardAll.firstOrNull().orEmpty()
                 if (said.isNotEmpty()) {
                     JarvisSound.play(context, JarvisSound.Cue.HEARD)
-                    submit(said)
+                    submit(said, voice = true)
                 } else {
                     setState(State.IDLE)
                 }
@@ -679,6 +695,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         heading(body, "VOICE & SOUNDS")
         item(body, "Voice", "Pick from the phone's voices; British male first", "CHANGE", onButton = { Speech.chooseVoice(context, context.getSharedPreferences("deck", Context.MODE_PRIVATE).getString("name", null) ?: "Vee") })
         toggle(body, "Sounds", "A chime when he listens, hears and finishes", JarvisMemory.sounds(context)) { JarvisMemory.setSounds(context, it) }
+        toggle(body, "Keep listening", "After answering, he listens for your next command. Silence or \"that's all\" ends it", JarvisMemory.keepListening(context)) { JarvisMemory.setKeepListening(context, it) }
         heading(body, "SPEAKING UP", "He tells you before you ask: no alarm before a shift, rain on the way in, birthdays, bedtime.")
         toggle(body, "Heads-ups", "On the home screen's Jarvis button and as notifications", JarvisMemory.proactive(context)) { JarvisMemory.setProactive(context, it) }
         val winds = listOf(-1, 21 * 60, 21 * 60 + 30, 22 * 60, 22 * 60 + 30, 23 * 60)
@@ -732,9 +749,11 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         heading(body, "CALLS")
         toggle(body, "Ask before calling", "\"Call Mum, sir?\" before he dials", JarvisMemory.confirmCalls(context)) { JarvisMemory.setConfirmCalls(context, it) }
         heading(body, "HANDS", "Lets him tap buttons in other apps (Tapo lights and anything you teach him). Idle until he's asked.")
-        val hands = JarvisHands.enabled(context)
-        item(body, if (hands) "Jarvis Hands is on" else "Jarvis Hands is off", if (hands) "Say \"learn the bedroom light\" to teach him something" else "Settings → Accessibility → Installed apps → Jarvis Hands",
-            if (hands) "TEACH" else "ENABLE", onButton = {
+        val hands = JarvisHands.instance != null
+        val stuck = !hands && JarvisHands.enabled(context)
+        item(body, when { hands -> "Jarvis Hands is on"; stuck -> "Jarvis Hands isn't responding"; else -> "Jarvis Hands is off" },
+            when { hands -> "Say \"learn the bedroom light\" to teach him something"; stuck -> "Android has stopped them: switch Jarvis Hands off and on in Accessibility"; else -> "Settings → Accessibility → Installed apps → Jarvis Hands" },
+            if (hands) "TEACH" else if (stuck) "FIX" else "ENABLE", onButton = {
                 if (hands) { closeSheet(); act(Jarvis.Action("TEACH", "learn the ")) } else context.startActivity(JarvisHands.settingsIntent())
             })
         JarvisHands.skills(context).forEach { s ->

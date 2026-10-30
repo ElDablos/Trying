@@ -123,6 +123,10 @@ object JarvisMemory {
 
     fun setPersona(context: Context, p: Persona) = prefs(context).edit().putString("set:persona", p.name).apply()
 
+    /** After answering something you said, he listens for the next thing without a tap. */
+    fun keepListening(context: Context) = prefs(context).getBoolean("set:keep_listening", true)
+    fun setKeepListening(context: Context, on: Boolean) = prefs(context).edit().putBoolean("set:keep_listening", on).apply()
+
     fun sounds(context: Context) = prefs(context).getBoolean("set:sounds", true)
     fun setSounds(context: Context, on: Boolean) = prefs(context).edit().putBoolean("set:sounds", on).apply()
 

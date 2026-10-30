@@ -116,6 +116,12 @@ object JarvisParser {
         data class RenameHabit(val old: String, val new: String) : Command()
         /** "Change it to …": whatever "it" is from the conversation (the note just read, the event just added…). */
         data class ChangeIt(val value: String) : Command()
+        /** "Tick off the first note" ([what] is "#1", "#last" or words in it). */
+        data class TickNote(val what: String) : Command()
+        /** "What's my second note?" */
+        data class ReadNote(val what: String) : Command()
+        /** "That's all", "goodbye": the conversation's over, he stops listening. */
+        object Dismiss : Command()
         /** The heating or air con in Air+: on or off, and heat or cool. */
         data class Climate(val on: Boolean?, val mode: String? = null) : Command()
         /** "Set it to 28 degrees"; [by] for "warmer"/"two degrees down". */
@@ -232,6 +238,7 @@ object JarvisParser {
 
         // Small talk.
         if (Regex("^(hi|hello|hey|yo|good (morning|afternoon|evening)|morning|evening)$").matches(t)) return Command.Greet
+        if (Regex("^(that's all|that's it|that is all|that will be all|that'll be all|nothing|nothing else|no that's all|no that's it|goodbye|bye|bye bye|see you|see ya|stop listening|i'm done|im done|all done|we're done|that's everything|dismissed|go to sleep|sleep)( for now)?( thanks| thank you| jarvis| sir)*$").matches(t.replace(",", ""))) return Command.Dismiss
         if (has("thanks", "thank you", "cheers", "nice one", "good job", "well done", "good work", "love you", "legend") ||
             Regex("^you('re| are) (brilliant|amazing|the best|great|awesome|a star|a legend|so good|smart|clever)").containsMatchIn(t)) return Command.Thanks
         if (has("joke", "make me laugh", "something funny")) return Command.Joke
@@ -261,6 +268,23 @@ object JarvisParser {
 
         // Editing notes: "change my note from dim my laundry to do my laundry", "change the last note to …",
         // "replace milk with oat milk on my list", "delete buy milk from my notes", "delete the last note".
+        // Notes by number, as he reads them out: "edit the second note to say…", "delete note 3", "tick off the first note".
+        val ord = "(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|\\d{1,2}(?:st|nd|rd|th)?)"
+        Regex("^(edit|change|update|correct|fix|replace|rewrite|amend|make) (the |my )?$ord note( to say| so it says| to read| to| say| into| with|:)? ?(.+)$").find(t)?.let { m ->
+            return Command.EditNote(noteRef(m.groupValues[3]), orig(m.groupValues[5]))
+        }
+        Regex("^(edit|change|update|correct|fix|replace|rewrite|amend|make) (the |my )?note (number |no\\.? )?$ord( to say| so it says| to read| to| say| into| with|:)? ?(.+)$").find(t)?.let { m ->
+            return Command.EditNote(noteRef(m.groupValues[4]), orig(m.groupValues[6]))
+        }
+        Regex("^(delete|remove|scrap|cross out|get rid of|bin|clear|erase) (the |my )?($ord note|note (number |no\\.? )?$ord)$").find(t)?.let { m ->
+            return Command.DeleteNote(noteRef(m.groupValues[4].ifEmpty { m.groupValues[6] }))
+        }
+        Regex("^(tick off|tick|mark|cross off|complete|finish|done) (the |my )?($ord note|note (number |no\\.? )?$ord)( as done| off| as complete)?$").find(t)?.let { m ->
+            return Command.TickNote(noteRef(m.groupValues[4].ifEmpty { m.groupValues[6] }))
+        }
+        Regex("^(read|what's|what is|whats|tell me|read me) (the |my )?($ord note|note (number |no\\.? )?$ord)$").find(t)?.let { m ->
+            return Command.ReadNote(noteRef(m.groupValues[4].ifEmpty { m.groupValues[6] }))
+        }
         Regex("^(change|edit|update|correct|fix|rename|replace|amend)( my| the)?( last| latest)? note( from| that says| saying| about)? (.+?) (to|with|into|so it says|to say) (.+)$").find(t)?.let { m ->
             return Command.EditNote(m.groupValues[5].clean(), orig(m.groupValues[7]))
         }
@@ -484,6 +508,16 @@ object JarvisParser {
     }
 
     private fun String.clean() = trim().trimEnd('.', ',', '!', '?').trim()
+
+    private val ORDINALS = listOf("first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth")
+
+    /** A note as he numbers them: "second" → "#2", "3rd" → "#3", "last" → "#last". */
+    fun noteRef(word: String): String {
+        val w = word.lowercase().trim()
+        if (w == "last") return "#last"
+        ORDINALS.indexOf(w).takeIf { it >= 0 }?.let { return "#${it + 1}" }
+        return Regex("^(\\d{1,2})").find(w)?.let { "#${it.value}" } ?: w
+    }
 
     private fun next(today: LocalDate, month: Int, day: Int): LocalDate =
         LocalDate.of(today.year, month, day).let { if (it.isBefore(today)) LocalDate.of(today.year + 1, month, day) else it }

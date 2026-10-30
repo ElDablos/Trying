@@ -340,6 +340,9 @@ class JarvisEar : Service() {
                     reply.listen -> listen(followUp = true)
                     // His hands are off to work an app: they'll report back (and maybe stay a moment).
                     JarvisHands.busy -> overlay?.state = JarvisOverlay.State.STANDBY
+                    reply.end -> main.postDelayed({ end(goHome = false) }, 900)
+                    // A conversation: he listens for what's next; silence ends it.
+                    JarvisMemory.keepListening(this) -> listen(followUp = true)
                     else -> main.postDelayed({ if (!JarvisHands.busy) end(goHome = false) }, 2200)
                 }
             }

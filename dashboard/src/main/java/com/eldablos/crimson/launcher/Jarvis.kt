@@ -82,6 +82,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val claude: String? = null,
         /** The briefing takes over the talking. */
         val silent: Boolean = false,
+        /** The conversation's over: he doesn't listen again. */
+        val end: Boolean = false,
         val card: Card? = null,
         val actions: List<Action> = emptyList(),
         /** Run [then] once he's finished speaking (he's about to leave for another app, or hand over). */
@@ -340,6 +342,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     /** The note line that best matches [what]: containing it, or sharing most of its words. */
     private fun findNote(what: String?): Int {
         val lines = openNotes()
+        // By number, counting the open ones as he reads them out.
+        Regex("^#(last|\\d+)$").find(what?.trim().orEmpty())?.let { m ->
+            val open = lines.withIndex().filter { !it.value.startsWith(DONE) }
+            val pick = if (m.groupValues[1] == "last") open.lastOrNull() else open.getOrNull(m.groupValues[1].toInt() - 1)
+            return pick?.index ?: -1
+        }
         if (what == null) return lastNote?.let { lines.lastIndexOf(it) }?.takeIf { it >= 0 } ?: lines.indexOfLast { !it.startsWith(DONE) }
         val q = what.lowercase().trim()
         lines.indexOfFirst { it.removePrefix(DONE).lowercase() == q }.takeIf { it >= 0 }?.let { return it }
@@ -358,12 +366,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val lines = openNotes().toMutableList()
         if (lines.isEmpty()) return addNote(new)
         val i = findNote(old)
-        if (i < 0) return Reply("I couldn't find a note about $old${sir()}.", actions = listOf(Action("READ MY NOTES", "read my notes")), failed = true)
+        if (i < 0) return Reply(if (old?.startsWith("#") == true) "You haven't got a ${ordinalName(old).lowercase()} note${sir()}." else "I couldn't find a note about $old${sir()}.",
+            actions = listOf(Action("READ MY NOTES", "read my notes")), failed = true)
         val before = DeckData.note(context)
         val line = lines[i]
         val done = line.startsWith(DONE)
         val body = line.removePrefix(DONE)
-        val replaced = if (old != null && !body.equals(old, true) && body.lowercase().contains(old.lowercase())) {
+        val replaced = if (old != null && !old.startsWith("#") && !body.equals(old, true) && body.lowercase().contains(old.lowercase())) {
             val at = body.lowercase().indexOf(old.lowercase())
             body.substring(0, at) + new + body.substring(at + old.length)
         } else {
@@ -615,7 +624,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             greeting() + " " + say("How may I assist you today?", "What are we doing today?", "What do you need?"),
             JarvisMemory.suggestions(context), listen = true,
         )
-        Command.Thanks -> Reply(say(pick("Always a pleasure, $name.", "You're welcome, sir.", "My pleasure."), pick("Don't mention it. Really, I'd rather you didn't.", "All in a day's work.", "Anytime. I've nowhere else to be."), "No problem."))
+        Command.Thanks -> Reply(say(pick("Always a pleasure, $name.", "You're welcome, sir.", "My pleasure."), pick("Don't mention it. Really, I'd rather you didn't.", "All in a day's work.", "Anytime. I've nowhere else to be."), "No problem."), end = true)
         Command.HowAreYou -> Reply(say(pick("All systems operational, sir. And you?", "Running at full capacity, $name. How are you?"), pick("Fully charged, unlike your phone some days.", "Better now you're here, sir."), "All good."))
         Command.WhoAreYou -> Reply("I'm Jarvis, $name. I look after your day: shifts, calendar, notes, messages, email, the weather and the news. I work the phone and your apps for you, and I learn as we go, all on this phone.")
         Command.Help -> help()
@@ -668,6 +677,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.DeleteThing -> deleteThing(cmd.subject)
         is Command.RenameHabit -> renameHabit(cmd.old, cmd.new)
         is Command.ChangeIt -> changeIt(cmd.value)
+        is Command.TickNote -> tickNote(cmd.what) ?: Reply("I couldn't find that note${sir()}.", listOf("Read my notes"), failed = true)
+        is Command.ReadNote -> {
+            val i = findNote(cmd.what)
+            if (i < 0) Reply("There isn't a note ${cmd.what.removePrefix("#")}${sir()}.", listOf("Read my notes"), failed = true)
+            else openNotes()[i].let { lastNote = it; Reply("${ordinalName(cmd.what)}: ${it.removePrefix(DONE)}.", actions = listOf(Action("CHANGE IT", "change it to "), Action("✓ TICK", "tick off ${cmd.what.replace("#", "note ")}"))) }
+        }
+        Command.Dismiss -> Reply(say(pick("Very good, sir. I'll be here.", "As you wish. Just say the word.", "Standing by, $name."), pick("Off duty. Finally.", "I'll be here, pretending not to listen."), "OK."), end = true)
         is Command.Brightness -> lightControl("brightness", cmd.percent, cmd.by, null)
         is Command.LightColour -> lightControl("colour", null, 0, cmd.colour)
         is Command.Climate -> climate(cmd.on, cmd.mode)
@@ -701,7 +717,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.Teach -> teachStart(cmd.name, cmd.app)
         is Command.Press -> press(cmd.label, cmd.app)
         Command.Yes -> Reply(say("Very good, sir.", "Glad we agree.", "OK."))
-        Command.No -> Reply(say("Very well.", "Fair enough.", "OK."))
+        Command.No -> Reply(say("Very well.", "Fair enough.", "OK."), end = true)
         Command.Undo -> undo()
         Command.Repeat -> lastReply?.let { if (last is Command.Briefing || last is Command.BriefingControl) briefingControl(Command.BriefingControl(JarvisParser.Control.BACK)) else it }
             ?: Reply("I haven't said anything yet${sir()}.")
@@ -1031,9 +1047,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun readNotes(): Reply {
         val all = openNotes()
         val open = all.filter { !it.startsWith(DONE) }
-        val card = Card("✎", "NOTES", "${open.size}", "open · ${all.size - open.size} done", all.take(8).map { Row(it.removePrefix(DONE), ok = if (it.startsWith(DONE)) true else null) })
+        val card = Card("✎", "NOTES", "${open.size}", "open · ${all.size - open.size} done",
+            open.take(10).mapIndexed { i, n -> Row("${i + 1}  $n") } + all.filter { it.startsWith(DONE) }.take(3).map { Row(it.removePrefix(DONE), ok = true) })
         if (open.isEmpty()) return Reply("Your notes are clear, $name.", card = card)
-        return Reply("You've got ${open.size} thing${if (open.size == 1) "" else "s"} on your notes: " + (if (open.size == 1) open[0] else open.dropLast(1).joinToString(", ") + ", and " + open.last()) + ".", card = card)
+        if (open.size == 1) return Reply("You've got one note: ${open[0]}.", card = card, actions = listOf(Action("CHANGE IT", "change it to "), Action("✓ TICK", "tick off note 1")))
+        // First, second, third…: so you can say "edit the second note" or "delete the third".
+        return Reply(
+            "You've got ${open.size} notes. " + open.take(10).mapIndexed { i, n -> "${ordinalName("#${i + 1}")}, ${n.trimEnd('.')}." }.joinToString(" "),
+            card = card, actions = listOf(Action("EDIT NOTE…", "edit the  note to "), Action("DELETE NOTE…", "delete the  note")),
+        )
     }
 
     private fun clearNotes(): Reply {
@@ -1286,7 +1308,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         )
     }
 
-    private fun handsOnClock() = JarvisHands.enabled(context) && AppCatalog.apps().any { it.component.packageName == JarvisReaders.CLOCK }
+    private fun handsOnClock() = handsReady() && AppCatalog.apps().any { it.component.packageName == JarvisReaders.CLOCK }
 
     private fun showAlarms() = Intent(AlarmClock.ACTION_SHOW_ALARMS).setPackage(JarvisReaders.CLOCK).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
@@ -1478,7 +1500,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     private fun lightsStatus(): Reply {
         val tapo = AppCatalog.apps().firstOrNull { it.component.packageName == TAPO } ?: return Reply("I can't find the Tapo app, sir.", failed = true)
-        if (!JarvisHands.enabled(context)) return needHands("checking your lights", Action("OPEN TAPO", run = { host.launch(tapo.component) }))
+        if (!handsReady()) return needHands("checking your lights", Action("OPEN TAPO", run = { host.launch(tapo.component) }))
         return Reply(say("Let me look, sir.", "Peeking at the lights.", "Checking."), afterSpeech = true, then = {
             JarvisHands.custom(TAPO, null, "I couldn't read Tapo just now, sir.") { root, tries ->
                 val list = JarvisReaders.devices(root)
@@ -1498,7 +1520,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         // Something taught beats a guess: "learn the heating in Air+".
         JarvisHands.skill(context, what)?.let { skill -> return device(skill.name, on, light = false) }
         val app = airApp() ?: return Reply("I can't find the Air+ app on the phone, sir.", failed = true)
-        if (!JarvisHands.enabled(context)) return needHands("the $what", Action("OPEN AIR+", run = { host.launch(app.component) }))
+        if (!handsReady()) return needHands("the $what", Action("OPEN AIR+", run = { host.launch(app.component) }))
         val want = on ?: true
         push("The $what ${if (want) "off" else "on"} again") {
             climateJob(app, !want, null)
@@ -1533,7 +1555,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun setTemp(degrees: Double?, by: Double): Reply {
         lastDevice = "heating"
         val app = airApp() ?: return Reply("I can't find the Air+ app on the phone, sir.", failed = true)
-        if (!JarvisHands.enabled(context)) return needHands("the temperature", Action("OPEN AIR+", run = { host.launch(app.component) }))
+        if (!handsReady()) return needHands("the temperature", Action("OPEN AIR+", run = { host.launch(app.component) }))
         if (degrees != null && degrees !in 10.0..32.0) return Reply("${fmtTemp(degrees)} degrees? I'd rather not, sir. Somewhere between 10 and 32.")
         var target = degrees
         var from: Double? = null
@@ -1673,7 +1695,18 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         return Reply(pick("Opening ${app.label}.", "${app.label}, coming up.", "${app.label}, sir."), then = { host.launch(app.component) }, afterSpeech = true)
     }
 
-    private fun needHands(what: String, fallback: Action? = null) = Reply(
+    /** His hands are switched on and actually connected (Android can stop them after a crash or an update). */
+    private fun handsReady() = JarvisHands.instance != null
+
+    private fun needHands(what: String, fallback: Action? = null) = if (JarvisHands.enabled(context)) Reply(
+        // Switched on in Settings, but Android has stopped them: off and on again wakes them.
+        "My hands are switched on but not answering, sir; Android sometimes stops them after an update or a crash. Switch Jarvis Hands off and on again in Accessibility, then ask me again.",
+        card = Card("✋", "JARVIS HANDS · NOT RESPONDING", sub = "Switched on, but Android has stopped them", rows = listOf(
+            Row("1", "Settings → Accessibility → Installed apps"), Row("2", "Jarvis Hands: off, then on"), Row("3", "Ask me again"),
+        ), tone = Tone.HOT),
+        actions = listOfNotNull(Action("✋ OPEN ACCESSIBILITY", primary = true, run = { start(JarvisHands.settingsIntent()) }), fallback),
+        failed = true,
+    ) else Reply(
         "For $what I need my hands: switch on Jarvis Hands in Accessibility settings, then ask me again${sir()}. They only wake when I'm doing something for you.",
         card = Card("✋", "JARVIS HANDS · OFF", sub = "Lets Jarvis tap buttons in other apps for you", rows = listOf(
             Row("1", "Settings → Accessibility"), Row("2", "Installed apps → Jarvis Hands"), Row("3", "Switch it on"),
@@ -1686,7 +1719,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val label = (skill?.name ?: name ?: "light").removePrefix("the ")
         lastDevice = label
         val tapo = AppCatalog.apps().firstOrNull { it.component.packageName == TAPO }
-        if (!JarvisHands.enabled(context)) {
+        if (!handsReady()) {
             return needHands("the $label", tapo?.let { t -> Action("OPEN TAPO", run = { host.launch(t.component) }) })
         }
         val verb = when (on) { true -> "ON"; false -> "OFF"; null -> "TOGGLE" }
@@ -1728,7 +1761,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     /** On the light's page in Tapo: brightness (to a level, or brighter/dimmer) or colour (a named preset, or the next). */
     private fun lightControl(kind: String, percent: Int?, by: Int, colour: String?): Reply {
         val tapo = AppCatalog.apps().firstOrNull { it.component.packageName == TAPO } ?: return Reply("I can't find the Tapo app, sir.", failed = true)
-        if (!JarvisHands.enabled(context)) return needHands("the lights", Action("OPEN TAPO", run = { host.launch(tapo.component) }))
+        if (!handsReady()) return needHands("the lights", Action("OPEN TAPO", run = { host.launch(tapo.component) }))
         val name = lastDevice?.takeIf { Regex("light|lamp|bulb|room").containsMatchIn(it) }
         lastDevice = name ?: "light"
         val prefs = context.getSharedPreferences("jarvis_hands", Context.MODE_PRIVATE)
@@ -1768,7 +1801,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun appLabel(pkg: String) = AppCatalog.apps().firstOrNull { it.component.packageName == pkg }?.label ?: pkg.substringAfterLast('.')
 
     private fun teachStart(name: String, appName: String?): Reply {
-        if (!JarvisHands.enabled(context)) return needHands("learning that")
+        if (!handsReady()) return needHands("learning that")
         val app = appName?.let { findApp(it) }
             ?: if (Regex("light|lamp|bulb|plug|socket|strip").containsMatchIn(name)) AppCatalog.apps().firstOrNull { it.component.packageName == TAPO } else null
         if (app == null) {
@@ -1787,7 +1820,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     )
 
     private fun press(label: String, appName: String): Reply {
-        if (!JarvisHands.enabled(context)) return needHands("pressing buttons in other apps")
+        if (!handsReady()) return needHands("pressing buttons in other apps")
         val app = findApp(appName) ?: return Reply("I couldn't find an app called $appName, sir.", failed = true)
         return Reply("${ack()} Pressing $label in ${app.label}.", then = { JarvisHands.press(app.component.packageName, label) }, afterSpeech = true)
     }
@@ -2042,10 +2075,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     /** "Tick off buy milk": the note that says it, ticked. */
+    private fun ordinalName(ref: String): String = when (val n = ref.removePrefix("#")) {
+        "last" -> "Last"
+        else -> n.toIntOrNull()?.let { listOf("First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth").getOrNull(it - 1) ?: "Number $it" } ?: n
+    }
+
     private fun tickNote(said: String): Reply? {
         val q = said.lowercase().removeSuffix(" from my notes").removeSuffix(" from my list").trim()
         val lines = openNotes()
-        val i = lines.indexOfFirst { !it.startsWith(DONE) && it.lowercase().contains(q) }.takeIf { it >= 0 }
+        val i = findNote(q).takeIf { q.startsWith("#") && it >= 0 } ?: lines.indexOfFirst { !it.startsWith(DONE) && it.lowercase().contains(q) }.takeIf { it >= 0 }
             ?: lines.indexOfFirst { l -> !l.startsWith(DONE) && q.split(' ').filter { it.length > 2 }.let { w -> w.isNotEmpty() && w.all { l.lowercase().contains(it) } } }.takeIf { it >= 0 }
             ?: return null
         val before = DeckData.note(context)

@@ -223,10 +223,10 @@ class JarvisTest {
     @Test
     fun editingByVoice() {
         assertEquals(Command.EditNote("dim my laundry", "do my laundry"), p("Change my note from dim my laundry to do my laundry"))
-        assertEquals(Command.EditNote(null, "do my laundry"), p("Change the last note to do my laundry"))
+        assertEquals(Command.EditNote("#last", "do my laundry"), p("Change the last note to do my laundry"))
         assertEquals(Command.EditNote("milk", "oat milk"), p("Replace milk with oat milk on my list"))
         assertEquals(Command.DeleteNote("buy milk"), p("Delete buy milk from my notes"))
-        assertEquals(Command.DeleteNote(null), p("Delete the last note"))
+        assertEquals(Command.DeleteNote("#last"), p("Delete the last note"))
         assertEquals(Command.RenameHabit("gym", "Gym session"), p("Rename the gym habit to gym session"))
         assertEquals(Command.AddShift(LocalDate.of(2026, 11, 2), LocalTime.of(8, 0), LocalTime.of(16, 0)), p("Change my shift on Monday to 8 till 4"))
         assertEquals(Command.Change("dentist", "Friday at 2"), p("Move the dentist to Friday at 2"))
@@ -271,5 +271,18 @@ class JarvisTest {
         assertEquals(Command.ChangeIt("Dentist check-up"), p("Rename it to Dentist check-up"))
         assertEquals(Command.Amend(null, LocalTime.of(6, 30)), p("Change it to 6:30"))
         assertEquals(Command.Amend(LocalDate.of(2026, 11, 6), null), p("Move it to Friday"))
+    }
+
+    @Test
+    fun notesByNumberAndEndingTheConversation() {
+        assertEquals(Command.EditNote("#2", "buy bread"), p("Edit the second note to say buy bread"))
+        assertEquals(Command.EditNote("#3", "call mum"), p("Change note 3 to call mum"))
+        assertEquals(Command.DeleteNote("#3"), p("Delete the third note"))
+        assertEquals(Command.DeleteNote("#last"), p("Remove the last note"))
+        assertEquals(Command.TickNote("#1"), p("Tick off the first note"))
+        assertEquals(Command.ReadNote("#2"), p("What's my second note"))
+        assertEquals(Command.Dismiss, p("That's all, thanks"))
+        assertEquals(Command.Dismiss, p("Goodbye Jarvis"))
+        assertEquals(Command.ReadNotes, p("What are my notes"))
     }
 }

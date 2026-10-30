@@ -494,9 +494,12 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == DeckView.CALENDAR_REQUEST) deck.calendarAccessChanged()
-        if (requestCode == JARVIS_REQUEST && jarvis.visibility == View.VISIBLE &&
-            permissions.indexOf(android.Manifest.permission.RECORD_AUDIO).let { it >= 0 && grantResults.getOrNull(it) == PackageManager.PERMISSION_GRANTED }
-        ) jarvis.listen()
+        val mic = permissions.indexOf(android.Manifest.permission.RECORD_AUDIO).let { it >= 0 && grantResults.getOrNull(it) == PackageManager.PERMISSION_GRANTED }
+        if (requestCode == JARVIS_REQUEST && mic) {
+            // Allowed from the Hey Jarvis switch: start listening for the wake word; from the core: listen now.
+            if (JarvisEar.wakeEnabled(this) && JarvisEar.modelReady(this)) JarvisEar.start(this)
+            if (jarvis.visibility == View.VISIBLE && !jarvis.sheetOpen) jarvis.listen()
+        }
     }
 
     // --- Jarvis ---

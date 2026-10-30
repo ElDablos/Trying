@@ -88,13 +88,17 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         v.letterSpacing = spacing
     }
 
+    /** A pill's angled background: filled when [solid] (picked, on), outlined otherwise. */
+    private fun pillBackground(color: Int, solid: Boolean): android.graphics.drawable.Drawable =
+        Cut(if (solid) color else Hud.alpha(Hud.tint(0xFF0C0607.toInt()), .9f), Hud.alpha(color, if (solid) 1f else .6f), 6 * u)
+
     private fun pill(label: String, color: Int, solid: Boolean, size: Float = 8f, act: () -> Unit) = TextView(context).apply {
         text = label
         mono(this, size, if (solid) Theme.on(color) else color, .1f)
         if (solid) setTextColor(Theme.on(color))
         gravity = Gravity.CENTER
         setPadding(dp(13f), dp(8f), dp(13f), dp(8f))
-        background = Cut(if (solid) color else Hud.alpha(Hud.tint(0xFF0C0607.toInt()), .9f), Hud.alpha(color, if (solid) 1f else .6f), 6 * u)
+        background = pillBackground(color, solid)
         setOnClickListener {
             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             act()
@@ -265,6 +269,9 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         animate().cancel()
         if (now) visibility = GONE else animate().alpha(0f).setDuration(180).withEndAction { visibility = GONE }.start()
     }
+
+    /** Settings (or another sheet) are open. */
+    val sheetOpen: Boolean get() = sheet.visibility == VISIBLE
 
     /** Back closes a sheet first; false when there was none. */
     fun back(): Boolean {
@@ -620,7 +627,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 for (k in 0 until row.childCount) (row.getChildAt(k) as TextView).let { t ->
                     val on = k == i
                     t.setTextColor(if (on) Theme.on(Hud.GOLD) else Theme.readable(Hud.GOLD))
-                    (t.background as GradientDrawable).setColor(if (on) Hud.GOLD else Hud.alpha(Hud.tint(0xFF120807.toInt()), .92f))
+                    t.background = pillBackground(Hud.GOLD, on)
                 }
             }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(6f) })
         }
@@ -641,10 +648,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             set(state)
             sw.text = if (state) "● ON" else "○ OFF"
             sw.setTextColor(if (state) Theme.on(green) else Theme.readable(Hud.DUST))
-            (sw.background as GradientDrawable).apply {
-                setColor(if (state) green else Hud.alpha(Hud.tint(0xFF120807.toInt()), .92f))
-                setStroke(dp(1f), if (state) green else Hud.alpha(Hud.DUST, .6f))
-            }
+            sw.background = pillBackground(if (state) green else Hud.DUST, state)
         }
         row.addView(sw)
         body.addView(row)

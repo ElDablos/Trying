@@ -801,6 +801,11 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         heading(body, "VOICE & SOUNDS")
         item(body, "Voice", "Pick from the phone's voices; British male first", "CHANGE", onButton = { Speech.chooseVoice(context, context.getSharedPreferences("deck", Context.MODE_PRIVATE).getString("name", null) ?: "Vee") })
         toggle(body, "Sounds", "A chime when he listens, hears and finishes", JarvisMemory.sounds(context)) { JarvisMemory.setSounds(context, it) }
+        toggle(body, "Learn from phone use", "Which apps you open and when, so he can offer them at the right time. Kept on this phone; never while a VPN is on", PhoneHabits.enabled(context)) {
+            PhoneHabits.setEnabled(context, it)
+            if (it && !DeckData.hasUsageAccess(context)) try { context.startActivity(DeckData.usageAccessIntent(context).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
+            if (!it) PhoneHabits.forget(context)
+        }
         toggle(body, "Keep listening", "After answering, he listens for your next command. Silence or \"that's all\" ends it", JarvisMemory.keepListening(context)) { JarvisMemory.setKeepListening(context, it) }
         heading(body, "SPEAKING UP", "He tells you before you ask: no alarm before a shift, rain on the way in, birthdays, bedtime.")
         toggle(body, "Heads-ups", "On the home screen's Jarvis button and as notifications", JarvisMemory.proactive(context)) { JarvisMemory.setProactive(context, it) }

@@ -44,6 +44,10 @@ import kotlin.random.Random
  * thread, and run the reply's [Reply.then] on the main thread.
  */
 class Jarvis private constructor(private val context: Context, var host: Host) {
+    init {
+        JarvisMemory.seed(context)
+    }
+
     /** What Jarvis needs from the launcher. */
     interface Host {
         /** The briefing: read it, or steer it (null control reads it from the start). */
@@ -202,8 +206,14 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val top = depth == 0 && !inRoutine
         depth++
         try {
-            val r = answerNow(said, inRoutine)
+            var r = answerNow(said, inRoutine)
             if (top) {
+                // His voice grows with you: how he says it changes the more you talk.
+                JarvisVoice.heard(context, said)
+                if (persona != Persona.BRIEF && !r.silent) {
+                    val usual = JarvisMemory.phrases(context).any { it.count >= 8 && it.text.equals(said.trim().trimEnd('.', '?', '!'), true) }
+                    r = r.copy(say = JarvisVoice.evolve(context, r.say, said, name, usual))
+                }
                 JarvisChat.add(context, true, said, via)
                 JarvisChat.add(context, false, r.say, via)
             }
@@ -876,7 +886,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     fun opening(): Reply {
         val insights = JarvisProactive.insights(context)
         JarvisProactive.markSeen(context, insights)
-        val hello = greeting() + " " + say("How may I assist you?", pick("What are we doing today?", "What can I do for you?"), "Go ahead.")
+        val hello = (if (persona == Persona.BRIEF) greeting() else JarvisVoice.hello(context, greeting(), name)) +
+            (JarvisVoice.milestone(context, name)?.takeIf { persona != Persona.BRIEF }?.let { " $it" } ?: "") +
+            " " + say("How may I assist you?", pick("What are we doing today?", "What can I do for you?"), "Go ahead.")
         val top = insights.firstOrNull() ?: return styled(Reply(hello, JarvisMemory.suggestions(context)))
         return styled(Reply(
             "$hello ${top.say}",
@@ -2375,6 +2387,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (JarvisMemory.alarmCount(context) > 1) add(Row("ALARMS", "${JarvisMemory.alarmCount(context)} × every ${JarvisMemory.alarmGap(context)} min"))
         add(Row("JOURNEY", "${JarvisMemory.commuteMinutes(context)} min · ${Travel.nameOf(Travel.commute(context).first())}"))
         Travel.dayLines(context).forEach { (d, l) -> add(Row(d.getDisplayName(TextStyle.FULL, Locale.getDefault()).uppercase() + "S", Travel.nameOf(l))) }
+        // What he's noticed you do on the phone.
+        PhoneHabits.byBand(context).forEach { (band, apps) ->
+            if (apps.isNotEmpty()) add(Row(band.uppercase() + "S", apps.joinToString(", ") { PhoneHabits.label(context, it) }))
+        }
+        JarvisMemory.timeline(context).groupBy { it.text.lowercase() }.filter { it.value.size >= 5 }.keys.take(3).forEach { add(Row("YOU OFTEN SAY", "“$it”")) }
     }
 
     private fun memories(): Reply {

@@ -205,7 +205,8 @@ object JarvisParser {
         if (has("my routines", "show routines", "list routines", "what routines")) return Command.Routines
 
         // Memory: "remember my locker code is 4412", "what's my locker code", "forget my locker code".
-        if (has("what do you know about me", "what do you remember", "your memory", "what have you learnt", "what have you learned")) return Command.Memories
+        if (has("what do you know about me", "what do you remember", "your memory", "what have you learnt", "what have you learned", "what have you noticed",
+                "what do i usually do", "my patterns", "my routine", "what's my routine")) return Command.Memories
         Regex("^remember (that )?(.+?) (is|are|was) (.+)$").find(t)?.takeIf { !it.groupValues[2].startsWith("to ") }?.let { m ->
             return Command.Remember(key(m.groupValues[2]), orig(m.groupValues[4]))
         }

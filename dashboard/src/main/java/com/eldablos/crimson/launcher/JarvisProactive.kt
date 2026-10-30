@@ -86,6 +86,11 @@ object JarvisProactive {
         }?.let { u ->
             out += Insight("habit:${u.lowercase()}:${now.toLocalDate()}", "✦", "Your usual: $u", "Around now you usually say “$u”, sir. Shall I?", u, "DO IT")
         }
+        // What you do on the phone around now (never learnt while a VPN is on).
+        PhoneHabits.usualNow(context, now).firstOrNull()?.let { pkg ->
+            val label = PhoneHabits.label(context, pkg)
+            out += Insight("app:$pkg:${now.toLocalDate()}", "▣", "Your usual: $label", "You usually open $label around now, sir. Shall I?", "open $label", "OPEN")
+        }
         // Birthdays and countdowns today or tomorrow.
         for (c in DeckStore.countdowns(context)) {
             val days = ChronoUnit.DAYS.between(now.toLocalDate(), c.date)

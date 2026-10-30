@@ -87,7 +87,8 @@ object JarvisMemory {
             "evening" -> listOf("Brief me", "Am I working tomorrow?", "Set an alarm for 7", "Read me the news")
             else -> listOf("Am I working tomorrow?", "Set an alarm for 7", "Turn on do not disturb", "Read my notes")
         }
-        return (learnt + starters).distinctBy { it.lowercase() }.take(6)
+        val apps = if (hour == LocalTime.now().hour) PhoneHabits.usualNow(context).take(2).map { "Open " + PhoneHabits.label(context, it) } else emptyList()
+        return (apps + learnt + starters).distinctBy { it.lowercase() }.take(6)
     }
 
     // --- Apps and people he's learnt ---
@@ -177,6 +178,22 @@ object JarvisMemory {
     /** How long before a shift's start he sets the alarm for it. */
     fun alarmLead(context: Context) = prefs(context).getInt("set:lead", 75)
     fun setAlarmLead(context: Context, minutes: Int) = prefs(context).edit().putInt("set:lead", minutes).apply()
+
+    /**
+     * What Vee's already told us, so he knows it from the start: up 2 hours before a shift (5 for a 7 start),
+     * 6 alarms 5 minutes apart, out of the door 45 minutes before (6:15 for 7), and the Elizabeth line on
+     * Thursdays. Only where it hasn't been set already; once.
+     */
+    fun seed(context: Context) {
+        val p = prefs(context)
+        if (p.getBoolean("seeded:1", false)) return
+        val e = p.edit().putBoolean("seeded:1", true)
+        if (!p.contains("set:lead")) e.putInt("set:lead", 120)
+        if (!p.contains("set:alarm_count")) e.putInt("set:alarm_count", 6).putInt("set:alarm_gap", 5)
+        if (!p.contains("set:commute")) e.putInt("set:commute", 45)
+        e.apply()
+        if (Travel.dayLine(context, java.time.DayOfWeek.THURSDAY) == null) Travel.setDayLine(context, java.time.DayOfWeek.THURSDAY, "elizabeth")
+    }
 
     /** How you like waking for work: this many alarms, this many minutes apart ("6 alarms 5 minutes apart"). */
     fun alarmCount(context: Context) = prefs(context).getInt("set:alarm_count", 1)

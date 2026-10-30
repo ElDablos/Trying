@@ -72,6 +72,12 @@ class RefreshJob : JobService() {
             // Picks up newly installed games and fresh playtime.
             ArcadeWidgetProvider.refresh(context)
             // Jarvis speaking up: no alarm before a shift, rain on the way in, the wind-down.
+            // What you've been doing on the phone, for Jarvis to learn your day (skipped while a VPN is on).
+            if (background) try {
+                com.eldablos.crimson.launcher.PhoneHabits.collect(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "Phone habits failed", e)
+            }
             if (background) try {
                 com.eldablos.crimson.launcher.JarvisProactive.notify(context)
             } catch (e: Exception) {

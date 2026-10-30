@@ -274,6 +274,15 @@ class JarvisTest {
     }
 
     @Test
+    fun restartAndSystemsCheck() {
+        assertEquals(Command.Reboot, p("Restart yourself"))
+        assertEquals(Command.Reboot, p("Restart Jarvis"))
+        assertEquals(Command.Reboot, p("reboot"))
+        assertEquals(Command.SystemsCheck, p("Run a systems check"))
+        assertEquals(Command.SystemsCheck, p("Are your hands working"))
+    }
+
+    @Test
     fun notesByNumberAndEndingTheConversation() {
         assertEquals(Command.EditNote("#2", "buy bread"), p("Edit the second note to say buy bread"))
         assertEquals(Command.EditNote("#3", "call mum"), p("Change note 3 to call mum"))

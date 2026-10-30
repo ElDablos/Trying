@@ -444,6 +444,34 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         }
     }
 
+    /** What's running and what needs you: after a reboot, or when asked. */
+    fun systemsCheck(rebooted: Boolean): Reply {
+        fun granted(p: String) = context.checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+        val hands = JarvisHands.instance != null
+        val handsOn = JarvisHands.enabled(context)
+        val wake = JarvisEar.wakeEnabled(context)
+        val listening = JarvisEar.instance != null
+        val overlay = android.provider.Settings.canDrawOverlays(context)
+        val rows = listOf(
+            Row("HANDS", if (hands) "connected" else if (handsOn) "stopped: switch off and on" else "off", ok = hands),
+            Row("HEY JARVIS", when { !wake -> "off"; !JarvisEar.modelReady(context) -> "needs download"; listening -> "listening"; else -> "starts on the home screen" }, ok = if (wake) listening else null),
+            Row("MICROPHONE", if (granted(Manifest.permission.RECORD_AUDIO)) "allowed" else "not allowed", ok = granted(Manifest.permission.RECORD_AUDIO)),
+            Row("OVER APPS", if (overlay) "allowed" else "not allowed", ok = overlay),
+            Row("NOTIFICATIONS", if (granted(Manifest.permission.POST_NOTIFICATIONS)) "allowed" else "not allowed", ok = granted(Manifest.permission.POST_NOTIFICATIONS)),
+            Row("CALENDAR", if (Shifts.canWrite(context)) "allowed" else "not allowed", ok = Shifts.canWrite(context)),
+            Row("CONTACTS", if (granted(Manifest.permission.READ_CONTACTS)) "allowed" else "not allowed", ok = granted(Manifest.permission.READ_CONTACTS)),
+        )
+        val problems = rows.count { it.ok == false }
+        val lead = if (rebooted) say("All systems back online, sir.", "And we're back. Did you miss me?", "Back online.") else say("Systems check complete.", "Diagnostics done. I'm fabulous.", "Check done.")
+        val tail = when {
+            !hands && handsOn -> " My hands are still stopped: switch Jarvis Hands off and on in Accessibility and they'll reconnect."
+            problems == 0 -> " Everything's running."
+            else -> " $problems thing${if (problems == 1) " needs" else "s need"} your attention; they're marked on the card."
+        }
+        return Reply(lead + tail, card = Card("⟳", if (rebooted) "REBOOTED" else "SYSTEMS CHECK", if (problems == 0) "ALL GREEN" else "$problems ISSUE${if (problems == 1) "" else "S"}", "J.A.R.V.I.S", rows, if (problems == 0) Tone.GREEN else Tone.HOT),
+            actions = listOfNotNull(if (!hands) Action("✋ ACCESSIBILITY", primary = true, run = { start(JarvisHands.settingsIntent()) }) else null, Action("⚙ SETTINGS", "jarvis settings")))
+    }
+
     private fun renameHabit(old: String, new: String): Reply {
         val before = DeckStore.habits(context)
         val h = findHabit(old) ?: return Reply("I couldn't find a habit called $old${sir()}.", failed = true)
@@ -677,6 +705,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.DeleteThing -> deleteThing(cmd.subject)
         is Command.RenameHabit -> renameHabit(cmd.old, cmd.new)
         is Command.ChangeIt -> changeIt(cmd.value)
+        Command.Reboot -> Reply(say("Rebooting, sir. Back in a moment.", "Have you tried turning me off and on again? Rebooting.", "Rebooting."),
+            afterSpeech = true, then = { reboot(context) }, card = Card("⟳", "REBOOT", "RESTARTING", "everything restarts; Hands reconnect", tone = Tone.HOT))
+        Command.SystemsCheck -> systemsCheck(rebooted = false)
         is Command.TickNote -> tickNote(cmd.what) ?: Reply("I couldn't find that note${sir()}.", listOf("Read my notes"), failed = true)
         is Command.ReadNote -> {
             val i = findNote(cmd.what)
@@ -2121,6 +2152,26 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
          * conversation ("and blue", "make it 24") carries on whichever you talk to. [host] is whoever's
          * showing him now.
          */
+        /**
+         * Restarts all of Jarvis: the listener stops, and the launcher's process ends. Android brings the home
+         * screen straight back and reconnects his hands as it does; he then reports in.
+         */
+        fun reboot(context: Context) {
+            context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).edit().putLong("rebooted_at", System.currentTimeMillis()).commit()
+            JarvisEar.stop(context)
+            Speech.stop()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 350)
+        }
+
+        /** Just rebooted (in the last half minute): the home screen opens Jarvis with a systems check. */
+        fun justRebooted(context: Context): Boolean {
+            val p = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
+            val at = p.getLong("rebooted_at", 0)
+            if (at == 0L) return false
+            p.edit().remove("rebooted_at").apply()
+            return System.currentTimeMillis() - at < 30_000L
+        }
+
         fun shared(context: Context, host: Host): Jarvis = synchronized(this) {
             (brain ?: Jarvis(context.applicationContext, host).also { brain = it }).also { it.host = host }
         }

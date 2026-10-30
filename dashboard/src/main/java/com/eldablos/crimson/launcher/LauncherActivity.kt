@@ -220,7 +220,13 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         loadGames()
         registerReceiver(unlocked, IntentFilter(Intent.ACTION_USER_PRESENT), RECEIVER_NOT_EXPORTED)
         home.boot()
-        if (fromJarvisShortcut(intent)) handler.postDelayed({ openJarvis(listen = true) }, 400)
+        // Back from "restart yourself": give his hands a moment to reconnect, then the systems check.
+        if (Jarvis.justRebooted(this)) handler.postDelayed({
+            for (v in listOf(weather, hub, apps, comms, deck)) v.visibility = View.GONE
+            backdrop(true)
+            jarvis.rebooted()
+        }, 2200)
+        else if (fromJarvisShortcut(intent)) handler.postDelayed({ openJarvis(listen = true) }, 400)
         else if (jarvisExtras(intent)) handler.postDelayed({ handleJarvis(intent) }, 400)
     }
 

@@ -122,6 +122,10 @@ object JarvisParser {
         data class ReadNote(val what: String) : Command()
         /** "That's all", "goodbye": the conversation's over, he stops listening. */
         object Dismiss : Command()
+        /** "Restart yourself": everything restarted, Hands reconnected. */
+        object Reboot : Command()
+        /** "Systems check": what's running and what needs you. */
+        object SystemsCheck : Command()
         /** The heating or air con in Air+: on or off, and heat or cool. */
         data class Climate(val on: Boolean?, val mode: String? = null) : Command()
         /** "Set it to 28 degrees"; [by] for "warmer"/"two degrees down". */
@@ -158,6 +162,9 @@ object JarvisParser {
 
         // A correction to a name he couldn't find.
         Regex("^(?:no,? (?:it's called|it's|its|i mean|i meant|i said)|it's called|it is called|its called|it's named|the app is called|i mean|i meant|i said)\\s+(the )?(.+?)( app)?$").find(t)?.let { return Command.Correct(it.groupValues[2].clean()) }
+
+        if (Regex("^(restart|reboot|reset|refresh) ?(yourself|jarvis|your systems|all systems|everything|all of jarvis|your hands)?$").matches(t)) return Command.Reboot
+        if (has("systems check", "system check", "diagnostics", "status report", "are you working", "are your hands working", "run a check")) return Command.SystemsCheck
 
         // Yes, no, undo: answers to him.
         if (Regex("^(yes|yeah|yep|yup|sure|do it|go ahead|go for it|please do|confirm|ok|okay|alright|correct|that's right|affirmative)( (do it|go ahead|thanks))?$").matches(t)) return Command.Yes

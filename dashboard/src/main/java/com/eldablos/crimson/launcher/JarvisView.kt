@@ -687,8 +687,22 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         body.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(6f) })
     }
 
+    /** Back from a reboot: the systems check, said and shown. */
+    fun rebooted() {
+        if (visibility != VISIBLE) {
+            visibility = VISIBLE
+            alpha = 0f
+            animate().alpha(1f).setDuration(220).start()
+        }
+        greetedAt = System.currentTimeMillis()
+        respond(jarvis.systemsCheck(rebooted = true), "")
+    }
+
     private fun settings(body: LinearLayout) {
         title(body, "Jarvis settings")
+        heading(body, "SYSTEMS", "Something not working? Restart all of Jarvis: his ears, his hands and the launcher. He reports back.")
+        item(body, "Restart Jarvis", "Reconnects his hands and voice, then a systems check", "⟳ RESTART", onButton = { closeSheet(); submit("restart yourself") })
+        item(body, "Systems check", "What's running, and what needs you", "CHECK", onButton = { closeSheet(); submit("systems check") })
         heading(body, "PERSONALITY", "How he talks to you. Say \"be more witty\" any time.")
         val personas = JarvisMemory.Persona.entries
         choice(body, personas.map { it.label }, personas.indexOf(JarvisMemory.persona(context))) { JarvisMemory.setPersona(context, personas[it]) }

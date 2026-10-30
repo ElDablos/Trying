@@ -177,11 +177,23 @@ object JarvisReaders {
         return all.firstOrNull { textOf(it).startsWith("Temperature around device", true) }
     }
 
-    /** Off when the page says so ("Your device is currently off."). */
-    fun airIsOff(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { Regex("currently off|device is off|is turned off", RegexOption.IGNORE_CASE).containsMatchIn(textOf(it)) }
+    /** Still reaching the heater ("Connecting" on its card or page): nothing can be tapped until it's done. */
+    fun airConnecting(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { Regex("^connecting", RegexOption.IGNORE_CASE).containsMatchIn(textOf(it)) }
 
-    fun airPower(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
-        JarvisHands.nodes(root).firstOrNull { says(it, "Power") } ?: powerButton(root)
+    // Air+'s controls, from the Hands log: the Power toggle (philips_control_power_btn_id, checked when on),
+    // then auto, temperature, timer, oscillation and light (philips_control_*), which show no text at all.
+    private fun airId(n: AccessibilityNodeInfo) = n.viewIdResourceName?.substringAfter('/').orEmpty()
+
+    /** Off: the Power toggle isn't checked, or the page says so ("Your device is currently off."). */
+    fun airIsOff(root: AccessibilityNodeInfo): Boolean {
+        val all = JarvisHands.nodes(root)
+        all.firstOrNull { airId(it) == "philips_control_power_btn_id" && it.isCheckable }?.let { return !it.isChecked }
+        return all.any { Regex("currently off|device is off|is turned off", RegexOption.IGNORE_CASE).containsMatchIn(textOf(it)) }
+    }
+
+    fun airPower(root: AccessibilityNodeInfo): AccessibilityNodeInfo? = JarvisHands.nodes(root).let { all ->
+        all.firstOrNull { airId(it) == "philips_control_power_btn_id" } ?: all.firstOrNull { says(it, "Power") } ?: powerButton(root)
+    }
 
     /** The tappable controls under "Controls", in screen order. */
     private fun controls(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
@@ -195,6 +207,7 @@ object JarvisReaders {
      * "Off", or what it's set to ("30°C").
      */
     fun airHeatButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        JarvisHands.nodes(root).firstOrNull { airId(it) == "philips_control_temperature_btn" }?.let { return it }
         val c = controls(root)
         // The smallest tappable thing saying "Auto": the button itself, not a panel holding all of them.
         val auto = c.filter { n -> JarvisHands.texts(n).any { it.equals("Auto", true) } }.minByOrNull { bounds(it).width() * bounds(it).height() }
@@ -205,6 +218,16 @@ object JarvisReaders {
         }
         return c.filter { n -> JarvisHands.texts(n).any { Regex("^\\d{2}(\\.\\d)?\\s*°", RegexOption.IGNORE_CASE).containsMatchIn(it) } }
             .minByOrNull { bounds(it).width() * bounds(it).height() }
+    }
+
+    /** What the temperature wheel's on now: the number in its middle. */
+    fun airPickerValue(root: AccessibilityNodeInfo): Double? {
+        val items = JarvisHands.nodes(root).mapNotNull { n ->
+            Regex("^(\\d{1,2})\\s*°\\s*c$", RegexOption.IGNORE_CASE).find(textOf(n))?.groupValues?.get(1)?.toIntOrNull()?.let { it to bounds(n) }
+        }.filter { it.second.height() > 0 }.distinctBy { it.first }.sortedBy { it.second.centerY() }
+        if (items.size < 3) return null
+        val mid = (items.first().second.top + items.last().second.bottom) / 2
+        return items.minBy { kotlin.math.abs(it.second.centerY() - mid) }.first.toDouble()
     }
 
     /** The "Set the preferred temperature" wheel is showing. */

@@ -20,6 +20,7 @@ object Speech {
     private const val GOOGLE_TTS = "com.google.android.tts"
     private val main by lazy { Handler(Looper.getMainLooper()) }
     private var tts: TextToSpeech? = null
+    private var appContext: Context? = null
     private var ready = false
     private val waiting = ArrayList<(TextToSpeech) -> Unit>()
 
@@ -40,6 +41,7 @@ object Speech {
         waiting += then
         if (t != null) return
         val app = context.applicationContext
+        appContext = app
         val google = try {
             app.packageManager.getPackageInfo(GOOGLE_TTS, 0)
             GOOGLE_TTS
@@ -51,6 +53,10 @@ object Speech {
                 val engine = tts
                 if (status == TextToSpeech.SUCCESS && engine != null) {
                     ready = true
+                    // An assistant's voice: it plays over other apps at the media volume, and ducks their sound.
+                    engine.setAudioAttributes(android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
                     pickVoice(app, engine)
                     waiting.toList().forEach { it(engine) }
                 } else {
@@ -73,6 +79,7 @@ object Speech {
         listener = who
         if (previous != null && previous !== who) previous.onEnd(false)
         with(context) { t ->
+            focus(context, true)
             // Calm and unhurried: a touch lower and slower than the voice's own.
             t.setSpeechRate(.96f)
             t.setPitch(.94f)
@@ -83,12 +90,12 @@ object Speech {
                 }
 
                 override fun onDone(id: String?) {
-                    if (id == last) main.post { if (listener === who) { listener = null; who.onEnd(true) } }
+                    if (id == last) main.post { focus(context, false); if (listener === who) { listener = null; who.onEnd(true) } }
                 }
 
                 @Deprecated("Deprecated in Java")
                 override fun onError(id: String?) {
-                    main.post { if (listener === who) { listener = null; who.onEnd(false) } }
+                    main.post { focus(context, false); if (listener === who) { listener = null; who.onEnd(false) } }
                 }
             })
             parts.drop(from).forEachIndexed { i, (id, text) ->
@@ -100,7 +107,26 @@ object Speech {
     }
 
     /** Stops whatever's being said; its listener hears it ended, unfinished. */
+    // Audio focus while he talks: music and videos in other apps duck under him, then come back.
+    private var focusRequest: android.media.AudioFocusRequest? = null
+
+    private fun focus(context: Context, on: Boolean) {
+        val am = context.applicationContext.getSystemService(android.media.AudioManager::class.java) ?: return
+        if (on) {
+            if (focusRequest != null) return
+            val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build()).build()
+            am.requestAudioFocus(req)
+            focusRequest = req
+        } else {
+            focusRequest?.let { am.abandonAudioFocusRequest(it) }
+            focusRequest = null
+        }
+    }
+
     fun stop() {
+        appContext?.let { focus(it, false) }
         tts?.stop()
         listener?.let { listener = null; it.onEnd(false) }
     }

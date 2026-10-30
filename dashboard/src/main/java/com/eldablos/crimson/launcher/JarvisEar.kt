@@ -328,19 +328,28 @@ class JarvisEar : Service() {
                 // Refused the mic or the service (locked, or busy): hear it on the phone instead.
                 val refused = error == SpeechRecognizer.ERROR_AUDIO || error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
                     error == SpeechRecognizer.ERROR_CLIENT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED
-                if (refused && modelReady(this@JarvisEar) && recognizer === r) {
-                    recognizer = null
-                    r.destroy()
-                    return listenOffline(followUp)
-                }
+                if (recognizer !== r) return
+                recognizer = null
+                main.post { r.destroy() }
+                if (refused && modelReady(this@JarvisEar)) return listenOffline(followUp)
                 if (followUp) end(goHome = lingering) else {
                     overlay?.said("Didn't catch that, sir.")
                     main.postDelayed({ end(goHome = false) }, 1500)
                 }
             }
             override fun onResults(results: Bundle?) {
+                if (recognizer !== r) return
+                // Let go of the recognizer (and the audio it holds) before he answers, or his voice can't be heard.
+                recognizer = null
+                main.post { r.destroy() }
                 val all = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
-                if (all.isEmpty()) return onError(SpeechRecognizer.ERROR_NO_MATCH)
+                if (all.isEmpty()) {
+                    if (followUp) end(goHome = lingering) else {
+                        overlay?.said("Didn't catch that, sir.")
+                        main.postDelayed({ end(goHome = false) }, 1500)
+                    }
+                    return
+                }
                 JarvisSound.play(this@JarvisEar, JarvisSound.Cue.HEARD)
                 handle(brain().bestHeard(all))
             }
@@ -356,7 +365,7 @@ class JarvisEar : Service() {
             .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             // A follow-up gives up quickly if you've nothing more to say.
-            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, if (followUp) 1500L else 2500L)
+            .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, if (followUp) 2000L else 2500L)
             .putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(listOf("Jarvis", "Claude", "Tapo", "Air+", "brighter", "dimmer", "next colour", "warmer", "cooler") + AppCatalog.apps().map { it.label }.take(150))))
     }
 

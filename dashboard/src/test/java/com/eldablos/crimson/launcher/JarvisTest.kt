@@ -203,4 +203,20 @@ class JarvisTest {
         assertEquals(Command.LightsStatus, p("Which lights are on"))
         assertEquals(Command.ScreenTime, p("What's my screen time"))
     }
+
+    @Test
+    fun heatingInAirPlus() {
+        assertEquals(Command.Climate(true, "heat"), p("Turn on the heating"))
+        assertEquals(Command.Climate(false, "heat"), p("Heating off"))
+        assertEquals(Command.Climate(true, "cool"), p("Turn on the air con"))
+        assertEquals(Command.SetTemp(28.0), p("Set it to 28 degrees"))
+        assertEquals(Command.SetTemp(22.0), p("Set the heating to 22"))
+        assertEquals(Command.SetTemp(21.5), p("Make it 21.5 degrees"))
+        assertEquals(Command.SetTemp(null, 2.0), p("Turn the heat up two degrees"))
+        assertEquals(Command.SetTemp(null, -1.0), p("Cooler"))
+        assertEquals(Command.Climate(true, "heat"), p("I'm cold"))
+        // Still the weather, and still alarms.
+        assertEquals(Command.Weather(0), p("What's the temperature"))
+        assertEquals(Command.Amend(null, LocalTime.of(6, 30)), p("Make it 6:30"))
+    }
 }

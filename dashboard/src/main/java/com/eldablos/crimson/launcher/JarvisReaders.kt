@@ -107,4 +107,50 @@ object JarvisReaders {
         }
         return lead
     }
+
+    // --- Heating and air con (Air+) ---
+
+    private val TEMP = Regex("^(\\d{1,2}(?:[.,]\\d)?)\\s*(°\\s*c?|℃|°)?$", RegexOption.IGNORE_CASE)
+
+    /** The set temperature on screen: the biggest-looking number between 10 and 35, preferring one with a °. */
+    fun setTemperature(root: AccessibilityNodeInfo): Pair<Double, AccessibilityNodeInfo>? {
+        val found = JarvisHands.nodes(root).mapNotNull { n ->
+            val t = (n.text ?: n.contentDescription)?.toString()?.trim() ?: return@mapNotNull null
+            val m = TEMP.find(t) ?: Regex("(\\d{1,2}(?:[.,]\\d)?)\\s*(°|℃|degrees)", RegexOption.IGNORE_CASE).find(t) ?: return@mapNotNull null
+            val v = m.groupValues[1].replace(',', '.').toDoubleOrNull()?.takeIf { it in 10.0..35.0 } ?: return@mapNotNull null
+            val r = android.graphics.Rect().also { n.getBoundsInScreen(it) }
+            Triple(v, n, r.height() + if (t.contains('°') || t.contains('℃')) 1000 else 0)
+        }
+        return found.maxByOrNull { it.third }?.let { it.first to it.second }
+    }
+
+    private fun label(n: AccessibilityNodeInfo) = listOfNotNull(n.text, n.contentDescription, n.viewIdResourceName).joinToString(" ").lowercase()
+
+    /** The + or − button for the temperature. */
+    fun tempButton(root: AccessibilityNodeInfo, up: Boolean): AccessibilityNodeInfo? {
+        val words = if (up) Regex("^[+＋]$|increase|raise|plus|warmer|higher|temp_?up|\\bup\\b|add") else Regex("^[-−–＿_]$|decrease|lower|minus|cooler|temp_?down|\\bdown\\b|reduce")
+        return JarvisHands.nodes(root).firstOrNull { n -> (n.isClickable || n.parent?.isClickable == true) && words.containsMatchIn(label(n).trim()) }
+    }
+
+    /** The power button or switch. */
+    fun powerButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
+        JarvisHands.nodes(root).firstOrNull { n -> (n.isClickable || n.isCheckable) && Regex("power|on_off|onoff|turn (on|off)|switch").containsMatchIn(label(n)) }
+            ?: JarvisHands.nodes(root).firstOrNull { it.isCheckable && (it.className?.contains("Switch") == true || it.className?.contains("Toggle") == true) }
+
+    /** On or off, from the power control. */
+    fun powerState(n: AccessibilityNodeInfo): Boolean? {
+        if (n.isCheckable) return n.isChecked
+        val d = (n.contentDescription ?: n.stateDescription ?: n.text ?: "").toString().lowercase()
+        return when {
+            Regex("\\b(on|turned on|running)$").containsMatchIn(d) -> true
+            Regex("\\b(off|turned off|stopped)$").containsMatchIn(d) -> false
+            else -> null
+        }
+    }
+
+    /** The heat (or cool) mode button. */
+    fun modeButton(root: AccessibilityNodeInfo, mode: String): AccessibilityNodeInfo? {
+        val w = if (mode == "heat") Regex("^heat(ing)?$|\\bheat\\b|mode_?heat") else Regex("^cool(ing)?$|\\bcool\\b|mode_?cool")
+        return JarvisHands.nodes(root).firstOrNull { n -> w.containsMatchIn(label(n).trim()) }
+    }
 }

@@ -154,6 +154,10 @@ back to One UI Home the same way at any time.
     "add a countdown to holiday on 3 March", "I'm working Monday 7 till 3" (saved, synced to the calendar),
     "I'm off on Friday", "tick off buy milk". Also "which lights are on?" (reads Tapo) and "what's my
     screen time?".
+  - **Heating (Air+)**: "turn on the heating" (or "I'm cold"), "heating off", "turn on the air con", "set it to
+    28 degrees", "warmer", "turn the heat down two", and "and 24" right after. Hands open Air+, press power,
+    the mode and + / − until it reads your number, then come back. "Learn the heating in Air+" if it can't
+    find the buttons.
   - **Routines**: "good night" (do not disturb, an alarm for your next shift, tomorrow's plan),
     "good morning" (the briefing), "leaving work", "focus mode", and your own in ⚙ → Routines.
   - **Memory**: "remember my locker code is 4412" / "what's my locker code?"; "remember Tom's

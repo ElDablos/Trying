@@ -101,6 +101,10 @@ object JarvisParser {
         /** "Which lights are on?": he looks in Tapo. */
         object LightsStatus : Command()
         object ScreenTime : Command()
+        /** The heating or air con in Air+: on or off, and heat or cool. */
+        data class Climate(val on: Boolean?, val mode: String? = null) : Command()
+        /** "Set it to 28 degrees"; [by] for "warmer"/"two degrees down". */
+        data class SetTemp(val degrees: Double?, val by: Double = 0.0) : Command()
         data class Unknown(val text: String) : Command()
     }
 
@@ -165,6 +169,26 @@ object JarvisParser {
         Regex("^(press|tap|hit|click) (the )?(.+?) (button )?(in|on) (the )?(.+?)( app)?$").find(t)?.let { m ->
             return Command.Press(orig(m.groupValues[3]), m.groupValues[7].clean())
         }
+
+        // Heating and air con: "turn on the heating", "set it to 28 degrees", "warmer", "turn the heat down two".
+        val climateWords = has("heating", "heater", "heat", "air con", "aircon", "air conditioning", "ac", "thermostat", "air+", "air plus", "temperature", "temp")
+        Regex("\\b(\\d{1,2}(?:[.,]5)?) ?(degrees|degree|°c?|deg|celsius)\\b").find(t)?.takeIf { climateWords || Regex("^(set|make|change|put|turn)").containsMatchIn(t) }?.let { m ->
+            if (!has("weather", "outside", "forecast")) return Command.SetTemp(m.groupValues[1].replace(',', '.').toDouble())
+        }
+        if (climateWords && !has("weather", "outside", "forecast")) {
+            Regex("\\b(to|at) (\\d{1,2}(?:[.,]5)?)\\b").find(t)?.let { return Command.SetTemp(it.groupValues[2].replace(',', '.').toDouble()) }
+            val step = Regex("\\b(\\d|one|two|three|a degree|a bit)\\b").find(t)?.value?.let { NUMS[it] ?: it.toIntOrNull() ?: 1 }?.toDouble() ?: 1.0
+            if (has("up", "warmer", "higher", "raise", "increase", "hotter")) return Command.SetTemp(null, step)
+            if (has("down", "cooler", "lower", "decrease", "colder")) return Command.SetTemp(null, -step)
+            val mode = if (has("air con", "aircon", "air conditioning", "ac", "cool", "cooling")) "cool" else if (has("heating", "heater", "heat")) "heat" else null
+            if (has("on", "start", "off", "stop", "turn", "switch") || Regex("^(heating|heater|air con)").containsMatchIn(t)) {
+                return Command.Climate(if (has("off", "stop")) false else true, mode)
+            }
+        }
+        if (Regex("^(a bit |a little |slightly )?(warmer|hotter)$").matches(t)) return Command.SetTemp(null, 1.0)
+        if (Regex("^(a bit |a little |slightly )?(cooler|colder)$").matches(t)) return Command.SetTemp(null, -1.0)
+        if (Regex("^(i'm|im|i am|it's|its) (cold|freezing|chilly)").containsMatchIn(t)) return Command.Climate(true, "heat")
+        if (Regex("^(i'm|im|i am|it's|its) (too )?(hot|boiling|roasting)").containsMatchIn(t) && !has("weather")) return Command.SetTemp(null, -1.0)
 
         // Follow-ups: "and friday?", "what about tomorrow", "make it 6:30", "move it to monday".
         Regex("^(and|what about|how about|and what about|same for|and for)\\s+(.+)$").find(t)?.let { m ->

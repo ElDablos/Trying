@@ -303,6 +303,7 @@ class Jarvis(private val context: Context, private val host: Host) {
             is Command.Weather, is Command.Shift, is Command.Agenda, is Command.ShiftWeek ->
                 if (Regex("\\bnext week\\b").containsMatchIn(lower)) Command.FollowUp(null, nextWeek = true) to null else date?.let { Command.FollowUp(it) to null }
             is Command.Remember -> Regex("^(?:my |the )?(.+?) (?:is|are) (.+)$", RegexOption.IGNORE_CASE).find(rest)?.let { Command.Remember(JarvisParser.key(it.groupValues[1]), it.groupValues[2]) to null }
+            is Command.Climate, is Command.SetTemp -> Regex("(\\d{1,2}(?:[.,]5)?)").find(lower)?.let { Command.SetTemp(it.groupValues[1].replace(',', '.').toDouble()) to null }
             is Command.Lights, is Command.Switch -> {
                 val on = (l as? Command.Lights)?.on ?: (l as? Command.Switch)?.on ?: true
                 Regex("^(?:the |my )?(.+)$").find(lower)?.let { Command.Switch(it.groupValues[1].trim(), on) to null }
@@ -429,6 +430,8 @@ class Jarvis(private val context: Context, private val host: Host) {
         is Command.RemoveShift -> setShift(cmd.date, null)
         Command.LightsStatus -> lightsStatus()
         Command.ScreenTime -> screenTime()
+        is Command.Climate -> climate(cmd.on, cmd.mode)
+        is Command.SetTemp -> setTemp(cmd.degrees, cmd.by)
         is Command.Correct -> correct(cmd.name)
         Command.ReadNotes -> readNotes()
         Command.ClearNotes -> {
@@ -1242,6 +1245,75 @@ class Jarvis(private val context: Context, private val host: Host) {
             }
         })
     }
+
+    /** Air+ (or whatever's learnt as "heating"): the app with the heater in it. */
+    private fun airApp(): AppEntry? = AppCatalog.apps().firstOrNull { it.label.equals("Air+", true) || it.label.equals("Air Plus", true) }
+        ?: AppCatalog.apps().firstOrNull { it.label.lowercase().replace(" ", "").startsWith("air+") || it.label.lowercase().startsWith("air plus") }
+        ?: findApp("air plus")
+
+    private fun climate(on: Boolean?, mode: String?): Reply {
+        lastDevice = "heating"
+        val what = if (mode == "cool") "air con" else "heating"
+        // Something taught beats a guess: "learn the heating in Air+".
+        JarvisHands.skill(context, what)?.let { skill -> return device(skill.name, on, light = false) }
+        val app = airApp() ?: return Reply("I can't find the Air+ app on the phone, sir.", failed = true)
+        if (!JarvisHands.enabled(context)) return needHands("the $what", Action("OPEN AIR+", run = { host.launch(app.component) }))
+        val want = on ?: true
+        push("The $what ${if (want) "off" else "on"} again") {
+            climateJob(app, !want, null)
+            "Switching it back."
+        }
+        return Reply(say("Certainly, sir.", if (want) "Warming things up." else "Powering down.", "OK."), afterSpeech = true, then = { climateJob(app, want, if (want) mode else null) },
+            card = Card(if (mode == "cool") "❄" else "♨", "HANDS · AIR+", if (want) "ON" else "OFF", if (want && mode != null) "${mode.uppercase()} mode" else what, tone = if (mode == "cool") Tone.BLUE else Tone.HOT),
+            actions = listOf(Action("SET 22°", "set it to 22 degrees"), Action("TEACH ME", "learn the $what in ${app.label}")))
+    }
+
+    /** In Air+: the power to [on], then the [mode] button if asked. */
+    private fun climateJob(app: AppEntry, on: Boolean, mode: String?) {
+        var powered = false
+        JarvisHands.custom(app.component.packageName, null, "I couldn't find the power button in ${app.label}, sir. Show me once: say \"learn the heating in ${app.label}\".") { root, tries ->
+            if (!powered) {
+                val p = JarvisReaders.powerButton(root) ?: return@custom if (tries < 5) null else "I couldn't find the power button in ${app.label}, sir. Show me once: say \"learn the heating in ${app.label}\"."
+                val state = JarvisReaders.powerState(p)
+                if (state != on) JarvisHands.press(p)
+                powered = true
+                if (!on || mode == null) return@custom if (state == on) "It's already ${if (on) "on" else "off"}, sir." else "Done, sir. The heating is ${if (on) "on" else "off"}."
+                return@custom null
+            }
+            val m = JarvisReaders.modeButton(root, mode ?: "heat")
+            if (m != null) JarvisHands.press(m)
+            "Done, sir. The ${if (mode == "cool") "air con" else "heating"} is on" + (if (m != null) ", in ${mode} mode." else ".")
+        }
+    }
+
+    private fun setTemp(degrees: Double?, by: Double): Reply {
+        lastDevice = "heating"
+        val app = airApp() ?: return Reply("I can't find the Air+ app on the phone, sir.", failed = true)
+        if (!JarvisHands.enabled(context)) return needHands("the temperature", Action("OPEN AIR+", run = { host.launch(app.component) }))
+        if (degrees != null && degrees !in 10.0..32.0) return Reply("${fmtTemp(degrees)} degrees? I'd rather not, sir. Somewhere between 10 and 32.")
+        var target = degrees
+        var start: Double? = null
+        var presses = 0
+        val job = {
+            JarvisHands.custom(app.component.packageName, null, "I couldn't find the temperature in ${app.label}, sir.") { root, tries ->
+                val (now, _) = JarvisReaders.setTemperature(root) ?: return@custom if (tries < 5) null else "I couldn't see the temperature in ${app.label}, sir. Is the heater on?"
+                if (start == null) start = now
+                val goal = target ?: (now + by).also { target = it }
+                if (kotlin.math.abs(now - goal) < .25) return@custom "Done, sir. It's set to ${fmtTemp(goal)} degrees" + (start?.takeIf { kotlin.math.abs(it - goal) >= .25 }?.let { ", up from ${fmtTemp(it)}".replace("up from", if (goal > it) "up from" else "down from") } ?: "") + "."
+                if (presses > 40) return@custom "I've got it to ${fmtTemp(now)} degrees, sir; it won't go further."
+                val b = JarvisReaders.tempButton(root, goal > now) ?: return@custom "I couldn't find the + and − buttons in ${app.label}, sir."
+                JarvisHands.press(b)
+                presses++
+                null
+            }
+        }
+        val where = degrees?.let { "${fmtTemp(it)}°" } ?: if (by > 0) "+${fmtTemp(by)}°" else "${fmtTemp(by)}°"
+        return Reply(say("Certainly, sir.", if ((degrees ?: 20.0 + by) >= 25) "Tropical. Coming up." else "On it.", "OK."), afterSpeech = true, then = { job() },
+            card = Card("♨", "HANDS · AIR+", where, if (degrees != null) "setting the temperature" else if (by > 0) "a little warmer" else "a little cooler", tone = Tone.HOT),
+            actions = listOf(Action("WARMER", "warmer"), Action("COOLER", "cooler")))
+    }
+
+    private fun fmtTemp(d: Double) = if (d % 1.0 == 0.0) d.toInt().toString() else "%.1f".format(Locale.ROOT, d)
 
     private fun screenTime(): Reply {
         val usage = DeckData.usage(context)

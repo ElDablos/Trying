@@ -227,7 +227,7 @@ back to One UI Home the same way at any time.
 - The clock and date update live. Weather and steps refresh every 15 minutes, the most often Android allows.
   Opening the Crimson Widget app also refreshes them.
 - Samsung Health sends steps to Health Connect in batches, so the count can be a few minutes behind the Samsung Health app.
-- The Buds row uses the same direct Bluetooth connection as the Buds Battery app, so don't run both at once.
+- The Buds row talks to the buds over Bluetooth directly. If it stays on "Connecting…", force-stop the Galaxy Wearable app (it can hold the link) and tap the row.
   If the row says "tap to connect" and tapping doesn't help, the Galaxy Wearable app may be holding the
   connection: close it and tap again.
 - Tapping a gap in the widget does nothing, so a near-miss won't open anything.

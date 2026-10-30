@@ -25,15 +25,9 @@ jobs:
 
       - name: Rename APKs
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk BudsBattery.apk
           cp dashboard/build/outputs/apk/debug/dashboard-debug.apk CrimsonWidget.apk
           cp icons/build/outputs/apk/debug/icons-debug.apk CrimsonIcons.apk
           cp live/build/outputs/apk/debug/live-debug.apk CrimsonLive.apk
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: BudsBattery-apk
-          path: BudsBattery.apk
 
       - uses: actions/upload-artifact@v4
         with:
@@ -59,7 +53,6 @@ jobs:
           target_commitish: ${{ github.sha }}
           prerelease: true
           files: |
-            BudsBattery.apk
             CrimsonWidget.apk
             CrimsonIcons.apk
             CrimsonLive.apk

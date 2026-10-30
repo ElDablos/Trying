@@ -14,8 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "BudsBattery"
-include(":app")
+rootProject.name = "Crimson"
 include(":dashboard")
 include(":icons")
 include(":live")

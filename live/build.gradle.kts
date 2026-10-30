@@ -18,7 +18,7 @@ android {
     signingConfigs {
         // Same fixed debug key as the other apps so new builds install over old ones.
         getByName("debug") {
-            storeFile = rootProject.file("app/debug.keystore")
+            storeFile = rootProject.file("keys/debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"

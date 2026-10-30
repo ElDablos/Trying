@@ -19,9 +19,9 @@ android {
     }
 
     signingConfigs {
-        // Same fixed debug key as the Buds app so new builds install over old ones.
+        // A fixed debug key (keys/debug.keystore) so new builds install over old ones.
         getByName("debug") {
-            storeFile = rootProject.file("app/debug.keystore")
+            storeFile = rootProject.file("keys/debug.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"

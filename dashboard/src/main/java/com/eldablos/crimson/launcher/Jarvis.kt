@@ -1941,66 +1941,105 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             actions = listOf(Action("TEACH ME", "learn the $label", primary = true)), failed = true)
     }
 
-    /** Tapo's home screen: the light's own power button, pressed only if it isn't already as asked. */
+    /**
+     * The light's power, pressed only if it isn't already as asked: on its own page ("Power, On,") if Tapo's
+     * already there, otherwise the round button on its card on Tapo's home screen.
+     */
     private fun tapoPower(name: String?, on: Boolean?): Boolean {
         var backs = 0
+        var pressed = false
         return JarvisHands.custom(TAPO, null, "I couldn't find the light in Tapo, sir. Show me once: say \"learn the light\".") { root, tries ->
-        // Left on a light's own page (or anywhere else): back out to the list, where it says what's on.
-        if (JarvisReaders.tapoLightPage(root)) {
-            // Every other look, so the page has gone before he'd press back again.
-            if (tries % 2 == 1 && backs < 3) { backs++; JarvisHands.back() }
-            return@custom if (tries < 12) null else "I couldn't get back to Tapo's list of lights, sir."
-        }
-        val list = JarvisReaders.lights(root)
-        val l = JarvisReaders.light(list, name) ?: run {
-            if ((tries == 3 || tries == 6) && backs < 3) { backs++; JarvisHands.back() }
-            return@custom if (tries < 9) null else "I couldn't see any lights in Tapo, sir."
-        }
-        if (on != null && l.on == on) return@custom "${l.name} is already ${if (on) "on" else "off"}, sir."
-        val p = l.power ?: return@custom "I couldn't find ${l.name}'s power button, sir."
-        JarvisHands.press(p)
-        when (on) {
-            true -> "Done, sir. ${l.name} is on."
-            false -> "Done. ${l.name} is off."
-            null -> "Done, sir. ${l.name} is ${if (l.on == true) "off" else "on"}."
-        }
+            if (pressed) return@custom null
+            if (JarvisReaders.tapoLightPage(root)) {
+                val (state, button) = JarvisReaders.tapoPagePower(root)
+                val light = JarvisReaders.tapoPageName(root) ?: "The light"
+                if (button != null && state != null) {
+                    if (on != null && state == on) return@custom "$light is already ${if (on) "on" else "off"}, sir."
+                    JarvisHands.press(button)
+                    pressed = true
+                    return@custom if (state) "Done. $light is off." else "Done, sir. $light is on."
+                }
+                // Can't tell from here: back to the list, where it says.
+                if (tries % 2 == 1 && backs < 2) { backs++; JarvisHands.back() }
+                return@custom if (tries < 12) null else "I couldn't work the light's page, sir."
+            }
+            val l = JarvisReaders.light(JarvisReaders.lights(root), name) ?: run {
+                if ((tries == 3 || tries == 6) && backs < 3) { backs++; JarvisHands.back() }
+                return@custom if (tries < 9) null else "I couldn't see any lights in Tapo, sir."
+            }
+            if (on != null && l.on == on) return@custom "${l.name} is already ${if (on) "on" else "off"}, sir."
+            val p = l.power ?: return@custom "I couldn't find ${l.name}'s power button, sir."
+            JarvisHands.press(p)
+            pressed = true
+            when (on) {
+                true -> "Done, sir. ${l.name} is on."
+                false -> "Done. ${l.name} is off."
+                null -> "Done, sir. ${l.name} is ${if (l.on == true) "off" else "on"}."
+            }
         }
     }
 
-    /** On the light's page in Tapo: brightness (to a level, or brighter/dimmer) or colour (a named preset, or the next). */
+    /**
+     * On the light's page in Tapo: brightness (to a level, or brighter/dimmer, by dragging the bar) or colour
+     * (the preset bubble for a colour you name, or the next one round). From Tapo's home screen he taps the
+     * light's card first, never the "My home" menu.
+     */
     private fun lightControl(kind: String, percent: Int?, by: Int, colour: String?): Reply {
         val tapo = AppCatalog.apps().firstOrNull { it.component.packageName == TAPO } ?: return Reply("I can't find the Tapo app, sir.", failed = true)
         if (!handsReady()) return needHands("the lights", Action("OPEN TAPO", run = { host.launch(tapo.component) }))
         val name = lastDevice?.takeIf { Regex("light|lamp|bulb|room").containsMatchIn(it) }
         lastDevice = name ?: "light"
         val prefs = context.getSharedPreferences("jarvis_hands", Context.MODE_PRIVATE)
-        var opened = false
+        var opened = 0
+        var poweredOn = false
+        var cool = 0
         val job = {
             JarvisEar.start(context)
             JarvisHands.custom(TAPO, null, "I couldn't open the light in Tapo, sir.", timeout = 20_000, linger = true) { root, tries ->
+                if (cool > 0) {
+                    cool--
+                    return@custom null
+                }
                 if (!JarvisReaders.tapoLightPage(root)) {
-                    if (opened && tries < 12) return@custom null
                     val l = JarvisReaders.light(JarvisReaders.lights(root), name) ?: run {
                         // Somewhere else in Tapo: back out towards the list of lights.
                         if (tries == 3 || tries == 6) JarvisHands.back()
-                        return@custom if (tries < 9) null else "I couldn't see the light in Tapo, sir."
+                        return@custom if (tries < 10) null else "I couldn't see the light in Tapo, sir."
                     }
-                    if (l.on == false) l.power?.let { JarvisHands.press(it) }
-                    JarvisHands.press(l.card)
-                    opened = true
+                    // Its card, once (and again if the page still hasn't opened after a few looks).
+                    if (opened == 0 || (opened < 2 && tries > 6)) {
+                        JarvisHands.press(l.card)
+                        opened++
+                        cool = 1
+                    }
+                    return@custom if (tries < 14) null else "I couldn't open ${l.name}'s page, sir."
+                }
+                JarvisReaders.tapoPageName(root)?.let { prefs.edit().putString("tapo_light", it).apply() }
+                // Off: on first, then the colour or brightness.
+                val (isOn, power) = JarvisReaders.tapoPagePower(root)
+                if (isOn == false && !poweredOn && power != null) {
+                    JarvisHands.press(power)
+                    poweredOn = true
+                    cool = 2
                     return@custom null
                 }
                 if (kind == "brightness") {
                     val (now, _) = JarvisReaders.brightness(root)
                     val goal = (percent ?: ((now ?: 50) + by)).coerceIn(1, 100)
-                    if (!JarvisReaders.setBrightness(root, goal)) return@custom "I couldn't move the brightness slider, sir."
+                    if (now == goal) return@custom "It's already at $goal percent, sir."
+                    if (!JarvisReaders.setBrightness(root, goal)) return@custom "I couldn't move the brightness bar, sir."
                     prefs.edit().putInt("brightness", goal).apply()
-                    "Done, sir. Brightness at $goal percent" + (now?.takeIf { it != goal }?.let { ", from $it." } ?: ".")
+                    "Done, sir. Brightness at $goal percent" + (now?.let { ", from $it." } ?: ".")
                 } else {
-                    val index = colour?.let { JarvisReaders.presetFor(it) } ?: ((prefs.getInt("preset", 1) + 1) % 6)
-                    if (!JarvisReaders.tapPreset(root, index)) return@custom "I couldn't find the colour presets, sir."
-                    prefs.edit().putInt("preset", index).apply()
-                    if (colour != null) "Done, sir. ${colour.replaceFirstChar { it.uppercase() }} it is." else "Next colour, sir."
+                    val recent = System.currentTimeMillis() - prefs.getLong("preset_at", 0) < 2 * 3600_000L
+                    val picked = JarvisReaders.choosePreset(root, colour, if (recent) prefs.getInt("preset", -1) else -1)
+                        ?: return@custom if (tries < 8) null else "I couldn't find your colour presets, sir."
+                    if (picked.first < 0) {
+                        val have = JarvisReaders.presets(root).map { JarvisReaders.presetName(it.second) }.filter { it != "auto" }
+                        return@custom "You haven't got a $colour preset, sir. You've got ${have.dropLast(1).joinToString(", ")} and ${have.lastOrNull() ?: ""}."
+                    }
+                    prefs.edit().putInt("preset", picked.first).putLong("preset_at", System.currentTimeMillis()).apply()
+                    if (colour != null) "Done, sir. ${picked.second.replaceFirstChar { it.uppercase() }} it is." else "There you are, sir: ${picked.second}."
                 }
             }
         }

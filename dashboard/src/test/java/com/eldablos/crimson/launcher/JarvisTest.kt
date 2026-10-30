@@ -328,6 +328,14 @@ class JarvisTest {
     }
 
     @Test
+    fun tapoPresetNames() {
+        assertEquals("blue", JarvisReaders.presetName("Preset 2, brightness 100%, dark Blue, "))
+        assertEquals("bright green", JarvisReaders.presetName("Preset 4, brightness 100%, dark Bright Green, "))
+        assertEquals("warm white", JarvisReaders.presetName("Preset 1, brightness 50%, White Light 2700 K"))
+        assertEquals("auto", JarvisReaders.presetName("Auto Mode"))
+    }
+
+    @Test
     fun restartAndSystemsCheck() {
         assertEquals(Command.Reboot, p("Restart yourself"))
         assertEquals(Command.Reboot, p("Restart Jarvis"))

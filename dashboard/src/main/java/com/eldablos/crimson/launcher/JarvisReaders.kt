@@ -275,27 +275,41 @@ object JarvisReaders {
 
     class Light(val card: AccessibilityNodeInfo, val power: AccessibilityNodeInfo?, val name: String, val on: Boolean?)
 
-    /** The light cards on Tapo's home screen. */
+    private fun idOf(n: AccessibilityNodeInfo) = n.viewIdResourceName?.substringAfter('/').orEmpty()
+    private fun descOf(n: AccessibilityNodeInfo) = n.contentDescription?.toString()?.trim().orEmpty()
+
+    private val STATUS = Regex("^(\\d{1,3}%|on|off|offline)$", RegexOption.IGNORE_CASE)
+    private val NOT_A_LIGHT = setOf("my home", "favorites", "all devices", "home settings", "lights", "home", "cameras", "vacuums", "smart", "me")
+
+    /**
+     * The light cards on Tapo's home screen: a tappable card holding the light's name ("Vee Room"), its
+     * room, its brightness ("100%") while it's on, and a round power button. Not the "My home" menu.
+     */
     fun lights(root: AccessibilityNodeInfo): List<Light> {
-        val out = ArrayList<Light>()
-        val seen = HashSet<AccessibilityNodeInfo>()
-        for (n in JarvisHands.nodes(root)) {
-            if (!n.isClickable || n in seen) continue
-            val inside = JarvisHands.nodes(n).drop(1)
-            val buttons = inside.filter { it.isClickable }
-            val texts = JarvisHands.texts(n)
-            if (buttons.isEmpty() || texts.size < 2 || inside.size > 40) continue
-            val name = texts.firstOrNull { t -> t.length in 2..30 && !Regex("^(\\d+%|on|off|offline)$", RegexOption.IGNORE_CASE).matches(t) } ?: continue
-            val power = buttons.minByOrNull { bounds(it).width() * bounds(it).height() }
-            val on = when {
-                texts.any { Regex("^\\d+%$").matches(it) } -> true
-                texts.any { Regex("^(off|offline)$", RegexOption.IGNORE_CASE).matches(it) } -> false
-                else -> power?.let { if (it.isCheckable) it.isChecked else null }
+        fun scan(needStatus: Boolean): List<Light> {
+            val out = ArrayList<Light>()
+            val seen = HashSet<AccessibilityNodeInfo>()
+            for (n in JarvisHands.nodes(root)) {
+                if (!n.isClickable || n in seen) continue
+                val inside = JarvisHands.nodes(n).drop(1)
+                val buttons = inside.filter { it.isClickable }
+                val texts = JarvisHands.texts(n)
+                if (buttons.isEmpty() || texts.size < 2 || inside.size > 40) continue
+                if (texts.any { it.lowercase() in NOT_A_LIGHT }) continue
+                if (needStatus && texts.none { STATUS.matches(it) }) continue
+                val name = texts.firstOrNull { t -> t.length in 2..30 && !STATUS.matches(t) } ?: continue
+                val power = buttons.minByOrNull { bounds(it).width() * bounds(it).height() }
+                val on = when {
+                    texts.any { Regex("^\\d+%$").matches(it) } -> true
+                    texts.any { Regex("^(off|offline)$", RegexOption.IGNORE_CASE).matches(it) } -> false
+                    else -> power?.let { if (it.isCheckable) it.isChecked else null }
+                }
+                seen += n
+                out += Light(n, power, name, on)
             }
-            seen += n
-            out += Light(n, power, name, on)
+            return out
         }
-        return out
+        return scan(needStatus = true).ifEmpty { scan(needStatus = false) }
     }
 
     /** The light you mean: by its name or room ("bedroom light" finds Vee Room in the Bedroom), or the only one. */
@@ -306,83 +320,113 @@ object JarvisReaders {
         return list.firstOrNull { l -> w.all { word -> JarvisHands.texts(l.card).any { it.lowercase().contains(word) } } } ?: list.firstOrNull()
     }
 
-    fun tapoLightPage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { says(it, "Brightness") }
+    // A light's own page (from Tapo's own labels): "Power, On," on the power row, the colour bubbles
+    // (color_point_view: "Auto Mode", "Preset 1, brightness 50%, White Light 2700 K", "Preset 2, …, dark
+    // Blue"…), "Brightness, 100%" on the brightness bar, and "Color Picker, dark Violet" for the colour now.
 
-    /** The brightness on the light's page, 0–100, and the slider to set it with. */
-    fun brightness(root: AccessibilityNodeInfo): Pair<Int?, AccessibilityNodeInfo?> {
-        val all = JarvisHands.nodes(root)
-        val label = all.firstOrNull { says(it, "Brightness") } ?: return null to null
-        val lb = bounds(label)
-        val pct = all.firstOrNull { n -> Regex("^\\d{1,3}%$").matches(textOf(n)) && kotlin.math.abs(bounds(n).centerY() - lb.centerY()) < lb.height() }
-            ?.let { textOf(it).trimEnd('%').toIntOrNull() }
-        val slider = all.firstOrNull { it.rangeInfo != null }
-            ?: all.firstOrNull { it.className?.contains("SeekBar") == true || it.className?.contains("Slider") == true }
-            ?: all.filter { n -> bounds(n).let { b -> b.top > lb.bottom && b.top < lb.bottom + lb.height() * 4 && b.width() > lb.width() * 3 && b.height() < lb.height() * 4 } }.minByOrNull { bounds(it).height() }
-        return pct to slider
+    fun tapoLightPage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any {
+        idOf(it) in setOf("brightness_seek_bar", "cl_power", "color_view", "tv_brightness_title", "tv_device_name") || says(it, "Brightness")
     }
 
-    /** Sets the brightness: straight onto the slider if it takes a value, otherwise a tap at that point along it. */
+    /** The light's name on its page ("Vee Room"). */
+    fun tapoPageName(root: AccessibilityNodeInfo): String? = JarvisHands.nodes(root).firstOrNull { idOf(it) == "tv_device_name" }?.let { textOf(it).ifEmpty { null } }
+
+    /** On the light's page: whether it's on (from "Power, On,") and the button that switches it. */
+    fun tapoPagePower(root: AccessibilityNodeInfo): Pair<Boolean?, AccessibilityNodeInfo?> {
+        val all = JarvisHands.nodes(root)
+        val row = all.firstOrNull { idOf(it) == "cl_power" } ?: all.firstOrNull { descOf(it).startsWith("Power,", true) }
+        val on = row?.let { r ->
+            val d = descOf(r).lowercase()
+            when {
+                Regex("\\bon\\b").containsMatchIn(d.removePrefix("power")) -> true
+                Regex("\\boff\\b").containsMatchIn(d) -> false
+                r.isCheckable -> r.isChecked
+                else -> null
+            }
+        }
+        val button = all.firstOrNull { idOf(it) == "ib_power" } ?: row
+        return on to button
+    }
+
+    /** The brightness on the light's page, 0–100, and the bar to set it on. */
+    fun brightness(root: AccessibilityNodeInfo): Pair<Int?, android.graphics.Rect?> {
+        val all = JarvisHands.nodes(root)
+        val seek = all.firstOrNull { idOf(it) == "brightness_seek_bar" } ?: all.firstOrNull { descOf(it).startsWith("Brightness,", true) }
+        val pct = (seek?.let { Regex("(\\d{1,3})%").find(descOf(it))?.groupValues?.get(1)?.toIntOrNull() }
+            ?: all.firstOrNull { idOf(it) == "tv_brightness_data" }?.let { textOf(it).trimEnd('%').toIntOrNull() })
+        // The bar itself: Tapo's "seekbar" view inside, or the lower part of the brightness block.
+        val bar = all.firstOrNull { idOf(it) == "seekbar" }?.let { bounds(it) }
+            ?: seek?.let { bounds(it) }?.let { b -> android.graphics.Rect(b.left, b.top + b.height() / 2, b.right, b.bottom) }
+        return pct to bar
+    }
+
+    /** Sets the brightness: straight onto a slider that takes a value, otherwise a finger drag along the bar. */
     fun setBrightness(root: AccessibilityNodeInfo, pct: Int): Boolean {
-        val (_, slider) = brightness(root)
         val p = pct.coerceIn(1, 100)
-        if (slider?.rangeInfo != null) {
-            val r = slider.rangeInfo
+        JarvisHands.nodes(root).firstOrNull { it.rangeInfo != null && (idOf(it).contains("bright") || descOf(it).startsWith("Brightness", true)) }?.let { s ->
+            val r = s.rangeInfo
             val v = if (r.max <= 1f) p / 100f else r.min + (r.max - r.min) * p / 100f
-            if (slider.performAction(android.R.id.accessibilityActionSetProgress, android.os.Bundle().apply { putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, v) })) return true
+            if (s.performAction(android.R.id.accessibilityActionSetProgress, android.os.Bundle().apply { putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, v) })) return true
         }
-        val b = slider?.let { bounds(it) } ?: run {
-            // No slider to be seen: it's the bar under the "Brightness" label, from the label to the percentage.
-            val all = JarvisHands.nodes(root)
-            val label = all.firstOrNull { says(it, "Brightness") } ?: return false
-            val lb = bounds(label)
-            val right = all.firstOrNull { Regex("^\\d{1,3}%$").matches(textOf(it)) }?.let { bounds(it).right } ?: (lb.left + lb.width() * 6)
-            android.graphics.Rect(lb.left, lb.bottom + lb.height(), right, lb.bottom + lb.height() * 3)
-        }
-        val x = b.left + b.width() * (p.coerceIn(3, 97) / 100f)
-        return JarvisHands.tapAt(x, b.exactCenterY())
+        val (now, bar) = brightness(root)
+        val b = bar ?: return false
+        val y = b.exactCenterY()
+        val to = b.left + b.width() * (p.coerceIn(1, 100) / 100f)
+        val from = b.left + b.width() * ((now ?: 50).coerceIn(1, 100) / 100f)
+        // A drag from where it is now: these bars follow your finger rather than jumping to a tap.
+        return JarvisHands.swipe(from.coerceIn(b.left + 4f, b.right - 4f), y, to.coerceIn(b.left + 4f, b.right - 4f), y, 350)
     }
 
-    /** The colour dots under "My Presets", left to right. */
-    fun presets(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
-        val all = JarvisHands.nodes(root)
-        val label = all.firstOrNull { says(it, "My Presets") } ?: return emptyList()
-        val lb = bounds(label)
-        val below = all.firstOrNull { says(it, "Brightness") }?.let { bounds(it).top } ?: (lb.bottom + lb.height() * 6)
-        return all.filter { n -> n.isClickable && bounds(n).let { b -> b.top > lb.bottom && b.bottom < below && b.width() < lb.width() * 2 } }
-            .distinctBy { bounds(it).left / 10 }.sortedBy { bounds(it).left }
-    }
+    /** The colour bubbles under "My Presets", left to right, with what each one is. */
+    fun presets(root: AccessibilityNodeInfo): List<Pair<AccessibilityNodeInfo, String>> =
+        JarvisHands.nodes(root).filter { idOf(it) == "color_point_view" }.sortedBy { bounds(it).left }.map { it to descOf(it) }
 
-    /** Taps preset [index], or where it should be if the dots don't describe themselves. */
-    fun tapPreset(root: AccessibilityNodeInfo, index: Int): Boolean {
+    /** The colour it's on now ("dark Violet"), from the colour picker's label. */
+    fun currentColour(root: AccessibilityNodeInfo): String? =
+        JarvisHands.nodes(root).firstNotNullOfOrNull { n -> descOf(n).takeIf { it.startsWith("Color Picker,", true) }?.substringAfter(',')?.trim()?.ifEmpty { null } }
+
+    /** A colour you'd name for a light ("blue", "warm white", "purple"…), or null if it isn't one. */
+    fun presetFor(colour: String): Int? =
+        if (Regex("\\b(auto|warm|white|yellow|cream|normal|natural|blue|red|pink|green|purple|violet|magenta|lilac|orange|cyan|teal)\\b").containsMatchIn(colour)) 0 else null
+
+    /** Words for a colour as Tapo names its presets. */
+    private fun colourWords(colour: String): Regex = Regex(when {
+        Regex("purple|violet|magenta|lilac").containsMatchIn(colour) -> "violet|purple|magenta"
+        Regex("warm|white|yellow|cream|normal|natural").containsMatchIn(colour) -> "white"
+        Regex("pink").containsMatchIn(colour) -> "pink|red"
+        else -> Regex.escape(colour.trim().substringAfterLast(' '))
+    }, RegexOption.IGNORE_CASE)
+
+    /**
+     * Picks a preset: the one for [colour], or (null) the next after the colour it's on now, skipping Auto.
+     * Taps it and says which, or null when there aren't any bubbles to be seen.
+     */
+    fun choosePreset(root: AccessibilityNodeInfo, colour: String?, lastIndex: Int): Pair<Int, String>? {
         val dots = presets(root)
-        if (dots.isNotEmpty()) return JarvisHands.press(dots[index.mod(dots.size)])
-        val all = JarvisHands.nodes(root)
-        val label = all.firstOrNull { says(it, "My Presets") } ?: return false
-        val lb = bounds(label)
-        val w = bounds(root).width().toFloat()
-        // The dots don't describe themselves (Tapo draws them), so tap where they sit: a row across the
-        // card, half-way between the label and the card's bottom edge; on a 412dp-wide screen the first
-        // is 12% of the way across and each next one 15.7% further.
-        var card: AccessibilityNodeInfo? = label.parent
-        var cardBottom: Int? = null
-        repeat(4) {
-            val c = card ?: return@repeat
-            val b = bounds(c)
-            if (cardBottom == null && b.height() > lb.height() * 3 && b.top <= lb.top && b.width() < w * .98f) cardBottom = b.bottom
-            card = c.parent
+        if (dots.isEmpty()) return null
+        val auto = dots.indexOfFirst { it.second.contains("auto", true) }
+        val index = if (colour != null) {
+            if (Regex("^auto").containsMatchIn(colour) && auto >= 0) auto
+            else dots.indexOfFirst { colourWords(colour).containsMatchIn(it.second) }.takeIf { it >= 0 } ?: return -1 to ""
+        } else {
+            val choices = dots.indices.filter { it != auto }
+            if (choices.isEmpty()) return null
+            // Where it is now: the one he picked last (if recent), else what the colour picker says.
+            val now = lastIndex.takeIf { it >= 0 }
+                ?: currentColour(root)?.let { c -> dots.indexOfFirst { d -> d.second.contains(c.substringAfterLast(' '), true) } }?.takeIf { it >= 0 } ?: 0
+            choices.firstOrNull { it > now } ?: choices.first()
         }
-        val y = cardBottom?.let { (lb.bottom + it) / 2f } ?: (lb.bottom + lb.height() * 2.6f)
-        return JarvisHands.tapAt(w * (.12f + .157f * index.mod(6)), y)
+        JarvisHands.press(dots[index].first)
+        return index to presetName(dots[index].second)
     }
 
-    /** Which preset a colour name is, in Tapo's order: auto, warm white, blue, red, green, purple. */
-    fun presetFor(colour: String): Int? = when {
-        Regex("auto|^a$").containsMatchIn(colour) -> 0
-        Regex("warm|white|yellow|cream|normal|natural").containsMatchIn(colour) -> 1
-        Regex("blue").containsMatchIn(colour) -> 2
-        Regex("red|pink").containsMatchIn(colour) -> 3
-        Regex("green").containsMatchIn(colour) -> 4
-        Regex("purple|violet|magenta|lilac").containsMatchIn(colour) -> 5
-        else -> null
+    /** "Preset 2, brightness 100%, dark Blue," → "blue"; "…White Light 2700 K" → "warm white". */
+    fun presetName(desc: String): String {
+        val d = desc.lowercase()
+        return when {
+            d.contains("auto") -> "auto"
+            d.contains("white") -> Regex("(\\d{4}) ?k").find(d)?.groupValues?.get(1)?.toIntOrNull()?.let { if (it < 4000) "warm white" else "cool white" } ?: "white"
+            else -> d.split(',').map { it.trim() }.lastOrNull { it.isNotEmpty() && !it.startsWith("preset") && !it.startsWith("brightness") }?.removePrefix("dark ")?.removePrefix("light ") ?: "the next colour"
+        }
     }
 }

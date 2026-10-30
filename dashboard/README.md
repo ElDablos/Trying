@@ -130,7 +130,7 @@ back to One UI Home the same way at any time.
   letter rail). **Player stats** shows your level and rank, the week's playtime by day, top games and
   achievements. Tapping a game only selects it. The GAMES node opens it too. **⋮** next to Launch, or
   holding a game tile, offers Launch, Remove from Arcade, App info and **Uninstall**.
-- **Jarvis**: your assistant, on the **JARVIS** button under the music bar (hold it to type), ◉ JARVIS on
+- **Jarvis**: your assistant, on the arc-reactor **orb** under the music bar (hold it to type), ◉ JARVIS on
   the briefing, or his own **Jarvis** icon (set the side key's double press to open it). Talk or type,
   and he answers out loud, typed out, with a HUD card and buttons:
   - **Your day**: "brief me", "continue from the news", "am I working tomorrow?" *and Friday?*, "what's on
@@ -138,8 +138,13 @@ back to One UI Home the same way at any time.
   - **Doing things**: calendar events and notes, alarms ("set an alarm for my next shift"), timers,
     torch, volume, do not disturb, music, focus, habits; "call Mum" (he checks first), "WhatsApp Tom
     saying I'm on my way" (opens the chat with it typed), "text her instead", "open Spotify".
-  - **Follow-ups and undo**: he keeps the thread ("make it 6:30", "move it to Friday", "call her"),
-    and **↺ Undo** (or "undo that") takes back what he just did.
+  - **Notes first**: "make a note", "add …", "remind me …" go on the deck's notes (with a *To calendar*
+    button when there's a day or time in it); the calendar only when you say "…to my calendar",
+    "book" or "schedule".
+  - **Follow-ups, add-ons and undo**: he keeps the thread ("make it 6:30", "move it to Friday", "call
+    her", "and Friday?"), adds on ("and eggs" onto the note, "and one at 7:30", "and set a timer…",
+    "add that to my notes", "send that to Tom"), messages wait as drafts you can add to ("and say I'll
+    bring dessert") before "send it", and **↺ Undo** (or "undo that") takes back what he just did.
   - **Hands**: switch on *Jarvis Hands* in Accessibility and he works other apps: "turn on the bedroom
     light" opens Tapo, taps its switch and comes back. "Learn the fan in SmartThings" and he watches you
     do it once, then does it himself. Idle (watching no app) until asked.

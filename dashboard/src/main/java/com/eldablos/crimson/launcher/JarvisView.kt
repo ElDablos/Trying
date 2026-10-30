@@ -92,11 +92,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         if (solid) setTextColor(Theme.on(color))
         gravity = Gravity.CENTER
         setPadding(dp(13f), dp(8f), dp(13f), dp(8f))
-        background = GradientDrawable().apply {
-            cornerRadius = 16 * u
-            if (solid) setColor(color) else setColor(Hud.alpha(Hud.tint(0xFF120807.toInt()), .92f))
-            setStroke(dp(1f), Hud.alpha(color, if (solid) 1f else .6f))
-        }
+        background = Cut(if (solid) color else Hud.alpha(Hud.tint(0xFF060A0C.toInt()), .9f), Hud.alpha(color, if (solid) 1f else .6f), 6 * u)
         setOnClickListener {
             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             act()
@@ -104,21 +100,29 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     }
 
     init {
-        background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(
-            Hud.alpha(Hud.tint(0xFF120406.toInt()), .97f), Hud.alpha(Hud.tint(0xFF050203.toInt()), .97f), Hud.alpha(Hud.tint(0xFF0A0405.toInt()), .98f),
-        ))
+        setBackgroundColor(Hud.alpha(Hud.tint(0xFF030406.toInt()), .97f))
         isClickable = true
-        addView(Backdrop(), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(Frame(), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         addView(column, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
         // Title, personality, settings and close.
         val top = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        top.addView(TextView(context).apply { text = "◆ J.A.R.V.I.S"; mono(this, 11f, Hud.GOLD, .28f) })
+        val titles = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        titles.addView(TextView(context).apply {
+            text = "J.A.R.V.I.S"
+            typeface = Hud.MONO_BOLD
+            setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(14f) * u)
+            letterSpacing = .32f
+            setTextColor(Color.WHITE)
+            setShadowLayer(8 * u, 0f, 0f, Hud.HOT)
+        })
+        titles.addView(TextView(context).apply { text = "JUST A RATHER VERY INTELLIGENT SYSTEM"; mono(this, 5f, Hud.HOT, .16f); alpha = .75f })
+        top.addView(titles)
         personaTag.apply {
             mono(this, 6.5f, Hud.GOLD, .2f)
             setPadding(dp(7f), dp(3f), dp(7f), dp(3f))
-            background = GradientDrawable().apply { cornerRadius = 8 * u; setStroke(dp(1f), Hud.alpha(Hud.GOLD, .45f)) }
+            background = Cut(Hud.alpha(Hud.GOLD, .08f), Hud.alpha(Hud.GOLD, .55f), 4 * u)
             setOnClickListener { openSheet(Jarvis.Sheet.SETTINGS) }
         }
         top.addView(personaTag, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(10f) })
@@ -134,9 +138,10 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         column.addView(top, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(44f)).apply { setMargins(dp(18f), dp(36f), dp(12f), 0) })
 
         // The core: tap it to talk, or to cut him off.
-        column.addView(core, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(176f)))
+        column.addView(core, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(258f)).apply { topMargin = dp(22f) })
         core.setOnClickListener { if (state == State.LISTENING) stopListening() else listen() }
-        mono(status, 8f, Hud.GOLD, .34f)
+        mono(status, 8f, Hud.HOT, .34f)
+        status.setShadowLayer(6 * u, 0f, 0f, Hud.HOT)
         status.gravity = Gravity.CENTER
         column.addView(status, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
         heard.apply {
@@ -163,19 +168,15 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         // Type or talk.
         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         input.apply {
-            hint = "Ask Jarvis…"
+            hint = "›  Speak or type a command"
             setHintTextColor(Theme.readable(Hud.DUST))
             setTextColor(Hud.BONE)
             setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(14f) * u)
             isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEND
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            background = GradientDrawable().apply {
-                cornerRadius = 12 * u
-                setColor(Hud.alpha(Hud.tint(0xFF0A0305.toInt()), .95f))
-                setStroke(dp(1.2f), Hud.alpha(Hud.GOLD, .55f))
-            }
-            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
+            background = Cut(Hud.alpha(Hud.tint(0xFF05090C.toInt()), .95f), Hud.alpha(Hud.HOT, .6f), 10 * u, tick = true)
+            setPadding(dp(14f), dp(11f), dp(14f), dp(11f))
             setOnEditorActionListener { _, a, _ -> if (a == EditorInfo.IME_ACTION_SEND) { send(); true } else false }
         }
         row.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -183,15 +184,12 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             text = label
             gravity = Gravity.CENTER
             setTextSize(TypedValue.COMPLEX_UNIT_PX, 16 * u)
-            setTextColor(if (solid) Theme.on(Hud.GOLD) else Hud.GOLD)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                if (solid) setColor(Hud.GOLD) else setStroke(dp(1.4f), Hud.GOLD)
-            }
+            setTextColor(if (solid) Theme.on(Hud.HOT) else Hud.HOT)
+            background = Hex(if (solid) Hud.HOT else Hud.alpha(Hud.HOT, .08f), Hud.HOT, solid)
             setOnClickListener { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); act() }
         }
-        row.addView(round("🎙", false) { if (state == State.LISTENING) stopListening() else listen() }, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { leftMargin = dp(8f) })
-        row.addView(round("➤", true) { send() }, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { leftMargin = dp(6f) })
+        row.addView(round("◉", false) { if (state == State.LISTENING) stopListening() else listen() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(8f) })
+        row.addView(round("➤", true) { send() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(6f) })
         column.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(14f), dp(10f), dp(14f), dp(26f)) })
 
         sheet.visibility = GONE
@@ -428,21 +426,18 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         val v = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(12.5f) * u)
             setTextColor(if (mine) Hud.BONE else Color.WHITE)
-            typeface = Hud.SANS
+            typeface = if (mine) Hud.SANS else Hud.MEDIUM
             setLineSpacing(3 * u, 1f)
-            setPadding(dp(12f), dp(9f), dp(12f), dp(9f))
-            background = GradientDrawable().apply {
-                cornerRadii = if (mine) floatArrayOf(14 * u, 14 * u, 3 * u, 3 * u, 14 * u, 14 * u, 14 * u, 14 * u)
-                else floatArrayOf(3 * u, 3 * u, 14 * u, 14 * u, 14 * u, 14 * u, 14 * u, 14 * u)
-                setColor(if (mine) Hud.alpha(Hud.DEEP, .55f) else Hud.alpha(Hud.tint(0xFF1A1206.toInt()), .9f))
-                setStroke(dp(1f), if (mine) Hud.alpha(Hud.HOT, .5f) else Hud.alpha(Hud.GOLD, .5f))
-            }
+            // His lines are transmissions: a cut panel with a lit edge. Yours are quieter, mirrored.
+            setPadding(dp(if (mine) 12f else 16f), dp(10f), dp(12f), dp(10f))
+            background = if (mine) Cut(Hud.alpha(Hud.BONE, .05f), Hud.alpha(Hud.BONE, .28f), 8 * u, mirrored = true)
+            else Cut(Hud.alpha(Hud.HOT, .1f), Hud.alpha(Hud.HOT, .55f), 10 * u, bar = true, tick = true)
             alpha = 0f
             translationY = 10 * u
         }
         val label = TextView(context).apply {
-            this.text = if (mine) "YOU" else "◆ JARVIS"
-            mono(this, 6.5f, if (mine) Hud.DUST else Hud.GOLD, .2f)
+            this.text = if (mine) "YOU  ›" else "◆ JARVIS  ·  " + java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+            mono(this, 6.5f, if (mine) Hud.DUST else Hud.HOT, .2f)
             gravity = if (mine) Gravity.END else Gravity.START
         }
         val wrap = LinearLayout(context).apply {
@@ -450,7 +445,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             gravity = if (mine) Gravity.END else Gravity.START
             addView(label, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             addView(v, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                if (mine) leftMargin = dp(60f) else rightMargin = dp(36f)
+                if (mine) leftMargin = dp(60f) else rightMargin = dp(24f)
                 topMargin = dp(3f)
             })
         }
@@ -512,8 +507,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
 
     private fun setState(s: State) {
         state = s
-        status.text = s.label
-        status.setTextColor(Theme.readable(if (s == State.LISTENING) Hud.HOT else Hud.GOLD))
+        status.text = "[  ${s.label}  ]"
+        status.setTextColor(if (s == State.LISTENING) Color.WHITE else Theme.readable(if (s == State.THINKING) Hud.GOLD else Hud.HOT))
         if (s != State.LISTENING) level = 0f
         core.invalidate()
     }
@@ -531,11 +526,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18f), dp(14f), dp(18f), dp(22f))
-            background = GradientDrawable().apply {
-                cornerRadii = floatArrayOf(22 * u, 22 * u, 22 * u, 22 * u, 0f, 0f, 0f, 0f)
-                setColor(Hud.alpha(Hud.tint(0xFF0E0507.toInt()), .99f))
-                setStroke(dp(1f), Hud.alpha(Hud.GOLD, .4f))
-            }
+            background = Cut(Hud.alpha(Hud.tint(0xFF05080B.toInt()), .99f), Hud.alpha(Hud.HOT, .6f), 22 * u, tick = true)
             isClickable = true
         }
         panel.addView(View(context).apply {
@@ -771,23 +762,195 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
 
     // --- Drawn parts ---
 
-    /** A faint HUD grid and corner brackets behind everything; drawn once. */
-    private inner class Backdrop : View(context) {
-        override fun onDraw(canvas: Canvas) {
-            val grid = Hud.stroke(Hud.alpha(Hud.CRIMSON, .05f), 1f)
-            val step = 24 * u
-            var x = 0f
-            while (x < width) { canvas.drawLine(x, 0f, x, height.toFloat(), grid); x += step }
+    /**
+     * The HUD around everything, alive while he's open: a hex lattice, a glow behind the reactor, live
+     * readouts (status, time, battery), scales down both edges with markers drifting, a column of data
+     * scrolling past and corner brackets. 20 frames a second, only while shown.
+     */
+    private inner class Frame : View(context) {
+        private var hex: android.graphics.Path? = null
+        private val bm = context.getSystemService(android.os.BatteryManager::class.java)
+        private val clock = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
+        private val stream = List(28) { i -> "%04X  %02X %02X %02X".format((i * 2654435761L % 65536).toInt(), (i * 37 + 11) % 256, (i * 91 + 7) % 256, (i * 53 + 3) % 256) }
+
+        private fun lattice(w: Int, h: Int): android.graphics.Path {
+            val p = android.graphics.Path()
+            val r = 14 * u
+            val dx = r * 1.732f
+            var row = 0
             var y = 0f
-            while (y < height) { canvas.drawLine(0f, y, width.toFloat(), y, grid); y += step }
-            val b = Hud.stroke(Hud.alpha(Hud.GOLD, .35f), 1.4f * u)
-            val l = 18 * u
-            val m = 10 * u
-            for ((cx, cy, sx, sy) in listOf(floatArrayOf(m, 30 * u, 1f, 1f), floatArrayOf(width - m, 30 * u, -1f, 1f), floatArrayOf(m, height - m, 1f, -1f), floatArrayOf(width - m, height - m, -1f, -1f))) {
-                canvas.drawLine(cx, cy, cx + l * sx, cy, b)
-                canvas.drawLine(cx, cy, cx, cy + l * sy, b)
+            while (y < h + r) {
+                var x = if (row % 2 == 0) 0f else dx / 2
+                while (x < w + dx) {
+                    for (k in 0 until 6) {
+                        val a = Math.toRadians((60 * k + 30).toDouble())
+                        val px = x + r * cos(a).toFloat()
+                        val py = y + r * sin(a).toFloat()
+                        if (k == 0) p.moveTo(px, py) else p.lineTo(px, py)
+                    }
+                    p.close()
+                    x += dx
+                }
+                y += r * 1.5f
+                row++
+            }
+            return p
+        }
+
+        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+            hex = lattice(w, h)
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val t = SystemClock.uptimeMillis() / 1000f
+            val w = width.toFloat()
+            val h = height.toFloat()
+            val holo = Hud.HOT
+            val coreY = core.top + core.height / 2f
+            // Glow behind the reactor, and the lattice fading out from it.
+            canvas.drawCircle(w / 2, coreY, h * .55f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = RadialGradient(w / 2, coreY, h * .55f, Hud.alpha(holo, .16f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            })
+            hex?.let { canvas.drawPath(it, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = .7f * u
+                shader = RadialGradient(w / 2, coreY, h * .6f, Hud.alpha(holo, .12f), Hud.alpha(holo, .015f), Shader.TileMode.CLAMP)
+            }) }
+            // A slow scan line sweeping down the whole screen.
+            val sy = (t * 90 * u) % (h + 200 * u) - 100 * u
+            canvas.drawRect(0f, sy - 60 * u, w, sy, Paint().apply {
+                shader = LinearGradient(0f, sy - 60 * u, 0f, sy, Color.TRANSPARENT, Hud.alpha(holo, .06f), Shader.TileMode.CLAMP)
+            })
+            // Readouts under the title bar.
+            val ry = 96 * u
+            val small = Hud.text(6.5f * u, Hud.alpha(holo, .85f), Hud.MONO, .14f)
+            val blink = if ((t * 2).toInt() % 2 == 0) 1f else .25f
+            canvas.drawCircle(20 * u, ry - 2.5f * u, 2.5f * u, Hud.glow(Hud.fill(Hud.alpha(Hud.tint(0xFF3DDC84.toInt()), blink)), 4 * u))
+            canvas.drawText("SYSTEMS ONLINE  ·  LOCAL CORE  ·  ${JarvisMemory.persona(context).label}", 28 * u, ry, small)
+            val level = bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 0
+            small.textAlign = Paint.Align.RIGHT
+            canvas.drawText("${java.time.LocalTime.now().format(clock)}  ·  PWR $level%", w - 18 * u, ry, small)
+            canvas.drawLine(18 * u, ry + 6 * u, w - 18 * u, ry + 6 * u, Paint().apply {
+                strokeWidth = u
+                shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(Color.TRANSPARENT, Hud.alpha(holo, .5f), Hud.alpha(holo, .5f), Color.TRANSPARENT), floatArrayOf(0f, .2f, .8f, 1f), Shader.TileMode.CLAMP)
+            })
+            // Scales down both edges, with a marker drifting on each.
+            // Only beside the reactor, so they never cross the conversation.
+            val top = core.top + 10 * u
+            val bottom = core.bottom - 20 * u
+            val scale = Hud.stroke(Hud.alpha(holo, .35f), .8f * u)
+            for (side in 0..1) {
+                val x = if (side == 0) 7 * u else w - 7 * u
+                val dir = if (side == 0) 1 else -1
+                canvas.drawLine(x, top, x, bottom, scale)
+                var y = top
+                var k = 0
+                while (y <= bottom) {
+                    canvas.drawLine(x, y, x + dir * (if (k % 5 == 0) 7f else 3.5f) * u, y, scale)
+                    y += 9 * u
+                    k++
+                }
+                val my = top + (bottom - top) * (.5f + .45f * sin(t * (if (side == 0) .7f else .53f) + side).toFloat())
+                val tri = android.graphics.Path().apply {
+                    moveTo(x + dir * 9 * u, my)
+                    lineTo(x + dir * 15 * u, my - 4 * u)
+                    lineTo(x + dir * 15 * u, my + 4 * u)
+                    close()
+                }
+                canvas.drawPath(tri, Hud.glow(Hud.fill(holo), 4 * u))
+                val label = Hud.text(5.5f * u, Hud.alpha(holo, .8f), Hud.MONO, align = if (side == 0) Paint.Align.LEFT else Paint.Align.RIGHT)
+                canvas.drawText("%03d".format(((my - top) / (bottom - top) * 360).toInt()), x + dir * 18 * u, my + 2 * u, label)
+            }
+            // Data scrolling up the left of the reactor.
+            val dataPaint = Hud.text(5.5f * u, Hud.alpha(holo, .22f), Hud.MONO, .05f)
+            val lineH = 9 * u
+            val off = (t * 14 * u) % lineH
+            val first = (t * 14 * u / lineH).toInt()
+            for (i in 0 until 12) {
+                val y = core.top + 20 * u + i * lineH - off
+                if (y < core.top + 8 * u || y > core.bottom - 30 * u) continue
+                canvas.drawText(stream[(first + i) % stream.size], 22 * u, y, dataPaint)
+            }
+            dataPaint.textAlign = Paint.Align.RIGHT
+            for (i in 0 until 12) {
+                val y = core.top + 20 * u + i * lineH - off
+                if (y < core.top + 8 * u || y > core.bottom - 30 * u) continue
+                canvas.drawText(stream[(first + i + 13) % stream.size], w - 22 * u, y, dataPaint)
+            }
+            // Corner brackets.
+            val b = Hud.glow(Hud.stroke(Hud.alpha(holo, .7f), 1.4f * u), 4 * u, holo)
+            val l = 20 * u
+            val m = 8 * u
+            for ((cx, cy, dx, dy) in listOf(floatArrayOf(m, 30 * u, 1f, 1f), floatArrayOf(w - m, 30 * u, -1f, 1f), floatArrayOf(m, h - m, 1f, -1f), floatArrayOf(w - m, h - m, -1f, -1f))) {
+                canvas.drawLine(cx, cy, cx + l * dx, cy, b)
+                canvas.drawLine(cx, cy, cx, cy + l * dy, b)
+            }
+            if (isShown) postInvalidateDelayed(50)
+        }
+    }
+
+    /** A panel with two corners cut off (top-left and bottom-right, or mirrored), a lit edge, and optionally a bar down its side and a tick. */
+    private inner class Cut(
+        private val fill: Int,
+        private val edge: Int,
+        private val c: Float,
+        private val mirrored: Boolean = false,
+        private val bar: Boolean = false,
+        private val tick: Boolean = false,
+    ) : android.graphics.drawable.Drawable() {
+        private val path = android.graphics.Path()
+
+        override fun draw(canvas: Canvas) {
+            val r = RectF(bounds).apply { inset(u * .6f, u * .6f) }
+            path.reset()
+            if (!mirrored) {
+                path.moveTo(r.left + c, r.top); path.lineTo(r.right, r.top); path.lineTo(r.right, r.bottom - c)
+                path.lineTo(r.right - c, r.bottom); path.lineTo(r.left, r.bottom); path.lineTo(r.left, r.top + c)
+            } else {
+                path.moveTo(r.left, r.top); path.lineTo(r.right - c, r.top); path.lineTo(r.right, r.top + c)
+                path.lineTo(r.right, r.bottom); path.lineTo(r.left + c, r.bottom); path.lineTo(r.left, r.bottom - c)
+            }
+            path.close()
+            canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill })
+            canvas.drawPath(path, Hud.stroke(edge, u))
+            val solid = Hud.alpha(edge, 1f)
+            if (bar) canvas.drawRect(r.left, r.top + c + 2 * u, r.left + 2.2f * u, r.bottom - 4 * u, Hud.glow(Hud.fill(solid), 5 * u, solid))
+            if (tick) {
+                val tp = Hud.glow(Hud.stroke(solid, 2f * u), 5 * u, solid)
+                canvas.drawLine(r.left + c + 4 * u, r.top, r.left + c + 22 * u, r.top, tp)
+                canvas.drawLine(r.right - c - 22 * u, r.bottom, r.right - c - 4 * u, r.bottom, tp)
             }
         }
+
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+    }
+
+    /** A hexagonal button. */
+    private inner class Hex(private val fill: Int, private val edge: Int, private val glow: Boolean) : android.graphics.drawable.Drawable() {
+        override fun draw(canvas: Canvas) {
+            val r = RectF(bounds)
+            val cx = r.centerX()
+            val cy = r.centerY()
+            val rad = minOf(r.width(), r.height()) / 2f - 2 * u
+            val p = android.graphics.Path()
+            for (k in 0 until 6) {
+                val a = Math.toRadians((60 * k - 90).toDouble())
+                val x = cx + rad * cos(a).toFloat()
+                val y = cy + rad * sin(a).toFloat()
+                if (k == 0) p.moveTo(x, y) else p.lineTo(x, y)
+            }
+            p.close()
+            canvas.drawPath(p, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill; if (glow) setShadowLayer(8 * u, 0f, 0f, edge) })
+            canvas.drawPath(p, Hud.stroke(edge, 1.4f * u))
+        }
+
+        override fun setAlpha(alpha: Int) {}
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
     }
 
     /** One of his answers as a HUD card: a header, a big figure, a line under it and rows, landing in turn. */
@@ -881,63 +1044,159 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         }
     }
 
-    /** The arc-reactor core: rings turning, glowing brighter as he listens to you or talks. */
+    /**
+     * The arc reactor. From the outside in: a bearing ring marked every 30°, a ring of 72 ticks, heavy
+     * segmented bands turning against each other, a radar sweep, a dashed ring (your voice, when he's
+     * listening), ten glowing coils like the real thing, a hexagonal plate and the white-hot core. Four
+     * readouts sit round it, and a waveform runs under it. Brighter and faster as he listens, thinks and talks.
+     */
     private inner class Core : View(context) {
         private val start = SystemClock.uptimeMillis()
+        private val wave = FloatArray(48)
 
         override fun onDraw(canvas: Canvas) {
             val t = (SystemClock.uptimeMillis() - start) / 1000f
             val cx = width / 2f
-            val cy = height / 2f
+            val cy = 120 * u
+            val holo = Hud.HOT
             val gold = Hud.GOLD
-            val hot = Hud.HOT
             val energy = when (state) {
-                State.LISTENING -> .5f + level * .5f
+                State.LISTENING -> .55f + level * .45f
                 State.SPEAKING -> .6f + .4f * abs(sin(t * 7.0).toFloat() * cos(t * 2.3).toFloat())
-                State.THINKING -> .55f + .2f * sin(t * 4.0).toFloat()
+                State.THINKING -> .6f + .2f * sin(t * 5.0).toFloat()
                 State.IDLE -> .35f + .1f * sin(t * 1.6).toFloat()
             }
-            val color = if (state == State.LISTENING) hot else gold
-            val r = 46 * u
-            // Glow behind.
-            canvas.drawCircle(cx, cy, r * 1.7f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = RadialGradient(cx, cy, r * 1.7f, Hud.alpha(color, .35f * energy), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            val speed = 1f + energy * (if (state == State.THINKING) 2.5f else 1f)
+            val r = 70 * u
+            fun ring(rad: Float) = RectF(cx - rad, cy - rad, cx + rad, cy + rad)
+            fun px(rad: Float, deg: Double) = cx + rad * cos(Math.toRadians(deg)).toFloat()
+            fun py(rad: Float, deg: Double) = cy + rad * sin(Math.toRadians(deg)).toFloat()
+
+            // Glow.
+            canvas.drawCircle(cx, cy, r * 1.5f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = RadialGradient(cx, cy, r * 1.5f, Hud.alpha(holo, .3f * energy), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             })
-            // Outer ticks, turning slowly.
-            val tick = Hud.stroke(Hud.alpha(color, .5f), u)
-            for (k in 0 until 60) {
-                val a = Math.toRadians((k * 6 + t * 8).toDouble())
-                val inner = r + (if (k % 5 == 0) 10f else 14f) * u
-                val outer = r + 18 * u
-                canvas.drawLine(cx + inner * cos(a).toFloat(), cy + inner * sin(a).toFloat(), cx + outer * cos(a).toFloat(), cy + outer * sin(a).toFloat(), tick)
+            // Bearing ring, marked every 30°, turning slowly.
+            val bearing = r + 32 * u
+            canvas.drawCircle(cx, cy, bearing, Hud.stroke(Hud.alpha(holo, .25f), .8f * u))
+            val deg = Hud.text(5.5f * u, Hud.alpha(holo, .7f), Hud.MONO, align = Paint.Align.CENTER)
+            for (k in 0 until 12) {
+                val a = k * 30.0 + t * 3
+                canvas.drawText("%03d".format(k * 30), px(bearing + 7 * u, a), py(bearing + 7 * u, a) + 2 * u, deg)
+                canvas.drawLine(px(bearing - 3 * u, a), py(bearing - 3 * u, a), px(bearing + 1 * u, a), py(bearing + 1 * u, a), Hud.stroke(Hud.alpha(holo, .7f), u))
             }
-            // Three rings of arcs, each turning its own way.
-            for (ring in 0 until 3) {
-                val rr = r - ring * 13 * u
-                val box = RectF(cx - rr, cy - rr, cx + rr, cy + rr)
-                val p = Hud.glow(Hud.stroke(Hud.alpha(color, .55f + .45f * energy), (3 - ring) * 1.3f * u), 8 * u * energy, color)
-                val spin = t * (if (ring % 2 == 0) 40f else -60f) * (1 + energy)
-                for (s in 0 until 3) canvas.drawArc(box, spin + s * 120f, 70f + 20f * energy, false, p)
+            // Ticks.
+            val minor = Hud.stroke(Hud.alpha(holo, .4f), .8f * u)
+            val major = Hud.glow(Hud.stroke(Hud.alpha(holo, .95f), 1.4f * u), 3 * u, holo)
+            for (k in 0 until 72) {
+                val a = k * 5.0 - t * 6 * speed
+                val long = k % 6 == 0
+                val r0 = r + (if (long) 17f else 20f) * u
+                canvas.drawLine(px(r0, a), py(r0, a), px(r + 25 * u, a), py(r + 25 * u, a), if (long) major else minor)
             }
-            // Thinking: a bright comet circling.
+            // Segmented bands, turning against each other.
+            val band = Hud.glow(Hud.stroke(Hud.alpha(holo, .55f + .45f * energy), 5 * u), 9 * u * energy, holo)
+            for (k in 0 until 6) canvas.drawArc(ring(r + 9 * u), t * 22 * speed + k * 60f, 38f, false, band)
+            val thin = Hud.glow(Hud.stroke(Hud.alpha(gold, .8f), 1.6f * u), 4 * u, gold)
+            for (k in 0 until 3) canvas.drawArc(ring(r + 3 * u), -t * 35 * speed + k * 120f, 70f, false, thin)
+            // Radar sweep.
+            canvas.save()
+            canvas.rotate(t * 80 * speed, cx, cy)
+            canvas.drawCircle(cx, cy, r, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = android.graphics.SweepGradient(cx, cy, intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Hud.alpha(holo, .1f + .25f * energy)), floatArrayOf(0f, .8f, 1f))
+            })
+            canvas.restore()
+            // The dashed ring; your voice as a living ring when he's listening.
+            val voiceR = r - 6 * u
+            if (state == State.LISTENING) {
+                val path = android.graphics.Path()
+                for (k in 0..96) {
+                    val a = k * 3.75
+                    val n = sin(k * .7 + t * 9).toFloat() * .6f + sin(k * 1.9 - t * 6).toFloat() * .4f
+                    val rr = voiceR + n * level * 12 * u
+                    if (k == 0) path.moveTo(px(rr, a), py(rr, a)) else path.lineTo(px(rr, a), py(rr, a))
+                }
+                path.close()
+                canvas.drawPath(path, Hud.glow(Hud.stroke(Color.WHITE, 1.6f * u), 8 * u, holo))
+            } else {
+                canvas.save()
+                canvas.rotate(t * 30 * speed, cx, cy)
+                canvas.drawCircle(cx, cy, voiceR, Hud.stroke(Hud.alpha(holo, .6f), 1.2f * u, floatArrayOf(6 * u, 5 * u)))
+                canvas.restore()
+            }
+            // Ten coils, like the reactor's.
+            val coil = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Hud.alpha(holo, .25f + .5f * energy); setShadowLayer(6 * u * energy, 0f, 0f, holo) }
+            val r1 = r - 32 * u
+            val r2 = r - 16 * u
+            for (k in 0 until 10) {
+                val a0 = k * 36.0 + 4
+                val a1 = a0 + 26
+                val p = android.graphics.Path().apply {
+                    moveTo(px(r1, a0), py(r1, a0)); lineTo(px(r2, a0 - 2), py(r2, a0 - 2)); lineTo(px(r2, a1 + 2), py(r2, a1 + 2)); lineTo(px(r1, a1), py(r1, a1)); close()
+                }
+                canvas.drawPath(p, coil)
+                canvas.drawPath(p, Hud.stroke(Hud.alpha(Color.WHITE, .35f), .7f * u))
+            }
+            canvas.drawCircle(cx, cy, r1 - 3 * u, Hud.stroke(Hud.alpha(holo, .8f), 1.4f * u))
+            // Hexagonal plate.
+            val hexP = android.graphics.Path()
+            val hr = r1 - 9 * u
+            for (k in 0 until 6) {
+                val a = k * 60.0 - t * 12
+                if (k == 0) hexP.moveTo(px(hr, a), py(hr, a)) else hexP.lineTo(px(hr, a), py(hr, a))
+            }
+            hexP.close()
+            canvas.drawPath(hexP, Hud.glow(Hud.stroke(Hud.alpha(gold, .7f), 1.2f * u), 4 * u, gold))
+            // Thinking: a comet round the outside.
             if (state == State.THINKING) {
-                val a = Math.toRadians((t * 300).toDouble())
-                canvas.drawCircle(cx + (r + 6 * u) * cos(a).toFloat(), cy + (r + 6 * u) * sin(a).toFloat(), 3 * u, Hud.glow(Hud.fill(Color.WHITE), 8 * u, gold))
+                val a = t * 320.0
+                canvas.drawCircle(px(r + 9 * u, a), py(r + 9 * u, a), 3.2f * u, Hud.glow(Hud.fill(Color.WHITE), 10 * u, gold))
+            }
+            // Speaking: rings pulse out.
+            if (state == State.SPEAKING) {
+                val f = (t * 1.6f) % 1f
+                canvas.drawCircle(cx, cy, r1 + f * 50 * u, Hud.stroke(Hud.alpha(holo, (1 - f) * .7f), 2 * u))
             }
             // The core.
-            val cr = 22 * u * (1 + .15f * energy)
-            canvas.drawCircle(cx, cy, cr * 1.4f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = RadialGradient(cx, cy, cr * 1.4f, intArrayOf(Color.WHITE, color, Color.TRANSPARENT), floatArrayOf(0f, .45f, 1f), Shader.TileMode.CLAMP)
+            val cr = 20 * u * (1 + .18f * energy)
+            canvas.drawCircle(cx, cy, cr * 1.5f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = RadialGradient(cx, cy, cr * 1.5f, intArrayOf(Color.WHITE, Color.WHITE, holo, Color.TRANSPARENT), floatArrayOf(0f, .25f, .55f, 1f), Shader.TileMode.CLAMP)
             })
-            if (state == State.LISTENING) {
-                // Your voice as a ring of bars.
-                val bars = Hud.stroke(Hud.alpha(hot, .9f), 2 * u)
-                for (k in 0 until 40) {
-                    val a = Math.toRadians(k * 9.0)
-                    val len = (4 + 16 * level * (.5f + .5f * sin(t * 12 + k).toFloat())) * u
-                    val r0 = r + 22 * u
-                    canvas.drawLine(cx + r0 * cos(a).toFloat(), cy + r0 * sin(a).toFloat(), cx + (r0 + len) * cos(a).toFloat(), cy + (r0 + len) * sin(a).toFloat(), bars)
+            // Readouts round it.
+            val lab = Hud.text(5.5f * u, Hud.alpha(holo, .65f), Hud.MONO, .14f)
+            val v = Hud.text(9f * u, Color.WHITE, Hud.MONO_BOLD, .06f)
+            val lx = cx - r - 62 * u
+            val rx = cx + r + 62 * u
+            fun readout(x: Float, y: Float, label: String, value: String, right: Boolean) {
+                lab.textAlign = if (right) Paint.Align.RIGHT else Paint.Align.LEFT
+                v.textAlign = lab.textAlign
+                canvas.drawText(label, x, y, lab)
+                canvas.drawText(value, x, y + 12 * u, v)
+                val bx = if (right) x - 34 * u else x
+                canvas.drawLine(bx, y + 16 * u, bx + 34 * u, y + 16 * u, Hud.stroke(Hud.alpha(holo, .4f), u))
+            }
+            readout(lx, cy - 94 * u, "VOX", "%.2f".format(java.util.Locale.ROOT, if (state == State.LISTENING) level else energy * .3f), false)
+            readout(lx, cy + 70 * u, "MODE", when (state) { State.IDLE -> "IDLE"; State.LISTENING -> "LISTEN"; State.THINKING -> "PROC"; State.SPEAKING -> "VOICE" }, false)
+            readout(rx, cy - 94 * u, "MEM", "%03d".format(JarvisMemory.facts(context).size + JarvisMemory.phrases(context).size), true)
+            readout(rx, cy + 70 * u, "LINK", if (JarvisHands.instance != null) "HANDS" else "LOCAL", true)
+            // Waveform under it.
+            val wy = height - 11 * u
+            val ww = width * .56f
+            val wx = cx - ww / 2
+            for (i in wave.indices) {
+                val target = when (state) {
+                    State.LISTENING -> level * (.3f + .7f * abs(sin(t * 11 + i * .6).toFloat()))
+                    State.SPEAKING -> .25f + .55f * abs(sin(t * 8 + i * .45).toFloat() * cos(t * 3 + i * .2).toFloat())
+                    State.THINKING -> .12f + .1f * abs(sin(t * 6 + i * .3).toFloat())
+                    State.IDLE -> .04f + .03f * abs(sin(t * 2 + i * .5).toFloat())
                 }
+                wave[i] += (target - wave[i]) * .35f
+            }
+            val bw = ww / wave.size
+            val bar = Hud.glow(Hud.fill(Hud.alpha(holo, .85f)), 3 * u, holo)
+            for (i in wave.indices) {
+                val bh = (1f + wave[i] * 8) * u
+                canvas.drawRect(wx + i * bw + bw * .2f, wy - bh, wx + (i + 1) * bw - bw * .2f, wy + bh, bar)
             }
             if (isShown) postInvalidateDelayed(33)
         }

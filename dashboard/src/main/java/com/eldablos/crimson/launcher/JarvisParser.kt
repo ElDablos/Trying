@@ -86,6 +86,21 @@ object JarvisParser {
         data class Correct(val name: String) : Command()
         object Routines : Command()
         object NewRoutine : Command()
+        /** "Turn off my 6am alarm", "turn on all my alarms": a [time] of null means every one. */
+        data class AlarmSwitch(val time: LocalTime?, val on: Boolean) : Command()
+        /** "Move my 6am alarm to 6:30": [from] null is the next one. */
+        data class MoveAlarm(val from: LocalTime?, val to: LocalTime) : Command()
+        data class AddHabit(val name: String, val tick: Boolean) : Command()
+        data class RemoveHabit(val name: String) : Command()
+        data class Untick(val name: String) : Command()
+        object Habits : Command()
+        data class AddCountdown(val name: String, val date: LocalDate) : Command()
+        data class RemoveCountdown(val name: String) : Command()
+        data class AddShift(val date: LocalDate, val start: LocalTime, val end: LocalTime) : Command()
+        data class RemoveShift(val date: LocalDate) : Command()
+        /** "Which lights are on?": he looks in Tapo. */
+        object LightsStatus : Command()
+        object ScreenTime : Command()
         data class Unknown(val text: String) : Command()
     }
 
@@ -246,6 +261,20 @@ object JarvisParser {
             return Command.Timer(m.groupValues[1].toInt() * unitSeconds(m.groupValues[2]))
         }
         if (has("alarm", "wake me") && has("shift", "work", "my shift")) return Command.ShiftAlarm
+        // Your alarms by name: "move my 6am alarm to 6:30", "turn off my 7 o'clock alarm", "all my alarms off".
+        if (has("alarm", "alarms")) {
+            Regex("^(move|change|push|shift|switch|set) (my |the )?(.*?)alarm( at| for)? ?(.*?) (to|until|till|back to|forward to) (.+)$").find(t)?.let { m ->
+                val to = anyTime(m.groupValues[7])
+                if (to != null) return Command.MoveAlarm(anyTime(m.groupValues[3] + " " + m.groupValues[5]), to)
+            }
+            val off = has("off", "disable", "cancel", "delete", "stop", "remove")
+            val on = has("on", "enable", "back on")
+            if ((off || on) && !Regex("^(set|wake)").containsMatchIn(t)) {
+                if (has("all", "every", "all my", "all the")) return Command.AlarmSwitch(null, !off)
+                anyTime(t)?.let { return Command.AlarmSwitch(it, !off) }
+            }
+            if (Regex("\\b(what|which|list|show|read|tell me|how many)\\b").containsMatchIn(t) && has("alarms", "alarm")) return Command.Alarms(null)
+        }
         if (Regex("\\b(my|the|all|all my|all the) alarms\\b|\\b(next|my) alarm\\b|^alarms?$|when's my alarm|what time('s| is) my alarm").containsMatchIn(t) && whenIn(t, today).second == null) {
             return Command.Alarms(if (has("off", "disable", "cancel")) false else if (has("on", "enable")) true else null)
         }
@@ -275,6 +304,8 @@ object JarvisParser {
                 else -> Vol.UP
             },
         )
+        if (has("light", "lights", "lamp", "bulb") && Regex("^(which|what|are|is|any)\\b").containsMatchIn(t) && !has("turn", "switch")) return Command.LightsStatus
+        if (has("screen time", "screentime", "most used", "on my phone today", "time on my phone", "used my phone")) return Command.ScreenTime
         if (has("light", "lights", "lamp", "bulb")) {
             val on = if (has("off")) false else if (has("on")) true else null
             val named = Regex("\\b(?:the |my )?([a-z' ]+?) (light|lights|lamp|bulb)\\b").find(t.replace(Regex("\\b(turn|switch|put) (on|off)\\b|\\b(on|off)$"), " ").replace(Regex("\\s+"), " ").trim())
@@ -312,6 +343,17 @@ object JarvisParser {
         // Questions about the day.
         val dayAhead0 = whenIn(t, today).first?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() }
         if (has("start", "finish", "clock in", "clock off", "get off", "done at") && has("what time", "when do i", "when am i", "when will i", "what time am i")) return Command.Shift(dayAhead0 ?: 0)
+        // Shifts by voice: "I'm working Monday 7 till 3", "add a shift on Friday 9 to 5", "I'm off on Monday".
+        Regex("^(i'm|i am|im|i'll be|i will be|put me|add a shift|add shift|new shift|book me)( working| on| in| down)?( on| for)? (.+?) (from )?(\\d{1,2}(?::\\d{2})? ?(?:am|pm)?) ?(till|until|to|-|through) ?(\\d{1,2}(?::\\d{2})? ?(?:am|pm)?)$").find(t)?.let { m ->
+            val date = whenIn(m.groupValues[4], today).first ?: dateIn(m.groupValues[4], today)
+            val (start, end) = shiftTimes(m.groupValues[6], m.groupValues[8])
+            if (date != null && start != null && end != null) return Command.AddShift(date, start, end)
+        }
+        Regex("^(i'm|i am|im) (off|not working|not in)( on)? (.+)$|^(remove|delete|cancel|clear) (my |the )?shift( on| for)? (.+)$").find(t)?.let { m ->
+            val day = m.groupValues[4].ifEmpty { m.groupValues[8] }
+            val date = whenIn(day, today).first ?: dateIn(day, today)
+            if (date != null) return Command.RemoveShift(date)
+        }
         if (Regex("^am i (off|free|working|on)\\b|^do i (work|have work|have a shift)|^have i got (work|a shift)").containsMatchIn(t)) return Command.Shift(dayAhead0)
         if (has("time is it", "the time", "what time")) return Command.Time
         if (has("date", "what day is it", "what's today")) return Command.Date
@@ -329,6 +371,22 @@ object JarvisParser {
         if (has("news", "headlines")) return Command.News
         if (has("bitcoin", "btc", "ethereum", "eth", "solana", "crypto", "portfolio", "coin")) {
             return Command.Crypto(listOf("bitcoin", "ethereum", "solana").firstOrNull { has(it) } ?: when { has("btc") -> "bitcoin"; has("eth") -> "ethereum"; else -> null })
+        }
+        // The deck's habits: "add a habit gym and tick it off today", "remove the reading habit", "my habits".
+        Regex("^(add|create|start|make|new|set up)( a| an)?( new)? habit( called| for| of| to)? (.+?)(,? and (tick|mark) (it|that)( off| as done| done)?( for)?( today)?)?$").find(t)?.let { m ->
+            return Command.AddHabit(orig(m.groupValues[5]).replaceFirstChar { it.uppercase() }, m.groupValues[6].isNotEmpty())
+        }
+        Regex("^(start tracking|track) (.+)$").find(t)?.let { return Command.AddHabit(orig(it.groupValues[2]).replaceFirstChar { c -> c.uppercase() }, false) }
+        Regex("^(remove|delete|drop|stop tracking)( the| my)? (habit )?(.+?)( habit)?$").find(t)?.takeIf { has("habit") || it.groupValues[1] == "stop tracking" }?.let { return Command.RemoveHabit(it.groupValues[4].clean()) }
+        Regex("^(untick|un-tick|unmark|undo) (the |my )?(.+?)( habit)?$").find(t)?.takeIf { !Regex("^undo (that|it)$").matches(t) }?.let { return Command.Untick(it.groupValues[3].clean()) }
+        if (has("my habits", "habit streaks", "how are my habits", "habits")) return Command.Habits
+        // Countdowns: "add a countdown to holiday on 3 March", "remove the christmas countdown".
+        Regex("^(add|create|start|set up|make|new)( a)? countdown( to| for| until)? (.+?) (on|for|at) (.+)$").find(t)?.let { m ->
+            val date = dateIn(m.groupValues[6], today) ?: whenIn(m.groupValues[6], today).first
+            if (date != null) return Command.AddCountdown(orig(m.groupValues[4]).replaceFirstChar { it.uppercase() }, date)
+        }
+        Regex("^(remove|delete|drop|cancel)( the| my)? (countdown (to |for )?(.+)|(.+?) countdown)$").find(t)?.let { m ->
+            return Command.RemoveCountdown((m.groupValues[5].ifEmpty { m.groupValues[6] }).clean())
         }
         if (has("countdown", "countdowns", "how long until", "how many days until", "days until", "how long till")) {
             return Command.Countdown(Regex("(until|till|to) (my |the )?(.+)$").find(t)?.groupValues?.get(3)?.clean())
@@ -349,6 +407,51 @@ object JarvisParser {
     }
 
     private fun String.clean() = trim().trimEnd('.', ',', '!', '?').trim()
+
+    /** Any time in [t], however said: "6am", "6:30", "at 7", "18:00". No guessing at afternoons. */
+    fun anyTime(t: String): LocalTime? {
+        val s = spokenNumbers(t.lowercase())
+        Regex("\\b(\\d{1,2})(?:[:.](\\d{2}))? ?(am|pm|a\\.m\\.|p\\.m\\.)").find(s)?.let { m ->
+            var h = m.groupValues[1].toInt()
+            val pm = m.groupValues[3].startsWith("p")
+            if (pm && h < 12) h += 12
+            if (!pm && h == 12) h = 0
+            if (h in 0..23) return LocalTime.of(h, m.groupValues[2].toIntOrNull() ?: 0)
+        }
+        Regex("\\b(\\d{1,2})[:.](\\d{2})\\b").find(s)?.let { m ->
+            val h = m.groupValues[1].toInt()
+            val min = m.groupValues[2].toInt()
+            if (h in 0..23 && min in 0..59) return LocalTime.of(h, min)
+        }
+        Regex("\\b(?:at|for|to|until|till) (\\d{1,2})\\b|^(\\d{1,2})$").find(s.trim())?.let { m ->
+            val h = (m.groupValues[1].ifEmpty { m.groupValues[2] }).toInt()
+            if (h in 0..23) return LocalTime.of(h, 0)
+        }
+        return null
+    }
+
+    /** A shift's start and end as said: "7 till 3" is 07:00–15:00, "2 till 10" is 14:00–22:00, "10pm to 6" overnight. */
+    fun shiftTimes(a: String, b: String): Pair<LocalTime?, LocalTime?> {
+        fun read(x: String): Pair<Int, Int>? {
+            val m = Regex("^(\\d{1,2})(?::(\\d{2}))? ?(am|pm)?$").find(x.trim()) ?: return null
+            var h = m.groupValues[1].toInt()
+            if (m.groupValues[3] == "pm" && h < 12) h += 12
+            if (m.groupValues[3] == "am" && h == 12) h = 0
+            return h to (m.groupValues[2].toIntOrNull() ?: 0)
+        }
+        val (sh0, sm) = read(a) ?: return null to null
+        val (eh0, em) = read(b) ?: return null to null
+        var sh = sh0
+        var eh = eh0
+        val saidA = Regex("am|pm").containsMatchIn(a)
+        val saidB = Regex("am|pm").containsMatchIn(b)
+        // Nobody starts at 2 in the morning by accident: 1–5 with no am/pm is the afternoon.
+        if (!saidA && sh in 1..5) sh += 12
+        // An end before the start is usually the afternoon ("7 till 3"), unless that's still before it (overnight).
+        if (!saidB && eh <= sh && eh + 12 in (sh + 1)..24) eh = (eh + 12) % 24
+        if (sh !in 0..23 || eh !in 0..23) return null to null
+        return LocalTime.of(sh, sm) to LocalTime.of(eh, em)
+    }
 
     private val NUMS = mapOf(
         "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5, "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10,

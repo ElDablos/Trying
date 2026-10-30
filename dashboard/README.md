@@ -148,6 +148,12 @@ back to One UI Home the same way at any time.
   - **Hands**: switch on *Jarvis Hands* in Accessibility and he works other apps: "turn on the bedroom
     light" opens Tapo, taps its switch and comes back. "Learn the fan in SmartThings" and he watches you
     do it once, then does it himself. Idle (watching no app) until asked.
+  - **Alarms, all of them** (with Hands on): "what are my alarms?" reads Samsung Clock's whole list, which are
+    on and their days; "turn off my 6am alarm", "turn on all my alarms", "move my 6am alarm to 6:30".
+  - **The deck by voice**: "add a habit gym and tick it off today", "untick gym", "how are my habits?",
+    "add a countdown to holiday on 3 March", "I'm working Monday 7 till 3" (saved, synced to the calendar),
+    "I'm off on Friday", "tick off buy milk". Also "which lights are on?" (reads Tapo) and "what's my
+    screen time?".
   - **Routines**: "good night" (do not disturb, an alarm for your next shift, tomorrow's plan),
     "good morning" (the briefing), "leaving work", "focus mode", and your own in ⚙ → Routines.
   - **Memory**: "remember my locker code is 4412" / "what's my locker code?"; "remember Tom's

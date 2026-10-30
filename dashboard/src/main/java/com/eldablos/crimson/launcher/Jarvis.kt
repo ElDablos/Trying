@@ -417,6 +417,18 @@ class Jarvis(private val context: Context, private val host: Host) {
             Reply(say("Of course. What should the note say, sir?", "Go on, I'm writing.", "What should it say?"), listen = true)
         }
         is Command.Alarms -> alarms(cmd.on)
+        is Command.AlarmSwitch -> alarmSwitch(cmd.time, cmd.on)
+        is Command.MoveAlarm -> moveAlarm(cmd.from, cmd.to)
+        is Command.AddHabit -> addHabit(cmd.name, cmd.tick)
+        is Command.RemoveHabit -> removeHabit(cmd.name)
+        is Command.Untick -> untick(cmd.name)
+        Command.Habits -> habits()
+        is Command.AddCountdown -> addCountdown(cmd.name, cmd.date)
+        is Command.RemoveCountdown -> removeCountdown(cmd.name)
+        is Command.AddShift -> setShift(cmd.date, Shifts.Shift(cmd.start, cmd.end, shiftName(cmd.start, cmd.end)))
+        is Command.RemoveShift -> setShift(cmd.date, null)
+        Command.LightsStatus -> lightsStatus()
+        Command.ScreenTime -> screenTime()
         is Command.Correct -> correct(cmd.name)
         Command.ReadNotes -> readNotes()
         Command.ClearNotes -> {
@@ -512,6 +524,8 @@ class Jarvis(private val context: Context, private val host: Host) {
             Row("HOME", "turn on the bedroom light"),
             Row("ROUTINES", "good night · focus mode"),
             Row("MEMORY", "remember… · what's my…"),
+            Row("ALARMS", "what are my alarms · move my 6am…"),
+            Row("DECK", "add a habit · I'm working Mon 7–3"),
             Row("UNDO", "undo · make it 6:30"),
         )),
     )
@@ -990,12 +1004,22 @@ class Jarvis(private val context: Context, private val host: Host) {
 
     /** The alarm list: Android lets only the Clock switch alarms on and off, so he shows it, with the next one. */
     private fun alarms(on: Boolean?): Reply {
+        // With his hands he reads the whole list in the Clock; without, Android only tells him the next one.
+        if (on == null && handsOnClock()) {
+            return Reply(say("Let me check the Clock, sir.", "Checking. Back in a blink.", "Checking."), afterSpeech = true, then = {
+                JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), "I couldn't read the Clock's alarms, sir.") { root, tries ->
+                    val rows = JarvisReaders.alarms(root)
+                    if (rows.isEmpty() && tries < 4) null else JarvisReaders.describe(rows)
+                }
+            })
+        }
         val next = nextAlarm()
         val nextText = next?.let { "Your next alarm is ${whenText(at(it).toLocalDate(), at(it).toLocalTime())}." } ?: "You've no alarms on at the moment."
         val open = { start(Intent(AlarmClock.ACTION_SHOW_ALARMS).setPackage("com.sec.android.app.clockpackage"), Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
         if (on == false && next != null) {
             val time = at(next).toLocalTime()
             pending = Pending.Confirm({
+                if (handsOnClock()) return@Confirm alarmSwitch(time, false)
                 dismissAlarm(time)
                 push("${time.format(tf)} alarm back on") {
                     start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, time.hour).putExtra(AlarmClock.EXTRA_MINUTES, time.minute).putExtra(AlarmClock.EXTRA_SKIP_UI, true))
@@ -1015,6 +1039,218 @@ class Jarvis(private val context: Context, private val host: Host) {
             then = if (on != null) open else null, afterSpeech = on != null,
             card = Card("⏰", "ALARMS", next?.let { at(it).format(tf) } ?: "NONE", next?.let { whenText(at(it).toLocalDate(), null).replaceFirstChar { c -> c.uppercase() } } ?: "no alarm set", tone = Tone.GOLD),
             actions = listOfNotNull(if (on == null) Action("OPEN ALARMS", run = { open() }) else null, Action("+ NEW ALARM", "set an alarm for "), Action("⏰ FOR MY SHIFT", "set an alarm for my next shift")),
+        )
+    }
+
+    private fun handsOnClock() = JarvisHands.enabled(context) && AppCatalog.apps().any { it.component.packageName == JarvisReaders.CLOCK }
+
+    private fun showAlarms() = Intent(AlarmClock.ACTION_SHOW_ALARMS).setPackage(JarvisReaders.CLOCK).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    /** Switches the alarm at [time] (or every one, for null) on or off, by its switch in the Clock. */
+    private fun clockSwitch(time: LocalTime?, on: Boolean) = JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), "I couldn't reach the Clock's alarms, sir.") { root, tries ->
+        val rows = JarvisReaders.alarms(root)
+        if (rows.isEmpty() && tries < 4) return@custom null
+        val targets = if (time == null) rows else rows.filter { it.time == time }
+        if (targets.isEmpty()) return@custom if (time != null) "I couldn't see a ${time.format(tf)} alarm in the Clock, sir." else "There aren't any alarms to switch, sir."
+        val changed = targets.filter { it.on != on }
+        changed.forEach { r -> r.switch?.let { JarvisHands.press(it) } }
+        when {
+            changed.isEmpty() -> if (time == null) "They're all ${if (on) "on" else "off"} already, sir." else "Your ${time.format(tf)} alarm is already ${if (on) "on" else "off"}."
+            time == null -> "Done. ${changed.size} alarm${if (changed.size == 1) "" else "s"} switched ${if (on) "on" else "off"}."
+            else -> "Done, sir. Your ${time.format(tf)} alarm is ${if (on) "on" else "off"}."
+        }
+    }
+
+    private fun alarmSwitch(time: LocalTime?, on: Boolean): Reply {
+        val what = time?.let { "your ${it.format(tf)} alarm" } ?: "all your alarms"
+        if (handsOnClock()) {
+            push("Put ${what.removePrefix("your ")} back") {
+                clockSwitch(time, !on)
+                "Switching ${if (time == null) "them" else "it"} back."
+            }
+            return Reply(say("Certainly, sir.", "On it.", "OK."), afterSpeech = true, then = { clockSwitch(time, on) },
+                card = Card("⏰", "ALARMS", time?.format(tf) ?: "ALL", "switching ${if (on) "on" else "off"} in the Clock", tone = Tone.GOLD))
+        }
+        // Without hands: the Clock's own requests, where it takes them.
+        if (time != null) {
+            if (on) return alarm(time, 0)
+            dismissAlarm(time)
+            return Reply("I've asked the Clock to switch off your ${time.format(tf)} alarm. Switch on my hands in Accessibility and I can do it myself, and read you the whole list.",
+                actions = listOf(Action("✋ ENABLE HANDS", primary = true, run = { start(JarvisHands.settingsIntent()) })))
+        }
+        return needHands("switching all your alarms")
+    }
+
+    private fun moveAlarm(from: LocalTime?, to: LocalTime): Reply {
+        val old = from ?: nextAlarm()?.let { at(it).toLocalTime() } ?: return alarm(to, 0)
+        val set = {
+            start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, to.hour).putExtra(AlarmClock.EXTRA_MINUTES, to.minute)
+                .putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, "Jarvis"))
+        }
+        amendable = Amendable.Alarm(to)
+        push("Alarm back to ${old.format(tf)}") {
+            dismissAlarm(to)
+            if (handsOnClock()) clockSwitch(old, true) else start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, old.hour).putExtra(AlarmClock.EXTRA_MINUTES, old.minute).putExtra(AlarmClock.EXTRA_SKIP_UI, true))
+            "Back to ${old.format(tf)}."
+        }
+        return Reply(
+            "Moved: your ${old.format(tf)} alarm is now ${to.format(tf)}${sir()}.",
+            afterSpeech = true,
+            then = {
+                set()
+                if (handsOnClock()) clockSwitch(old, false) else dismissAlarm(old)
+            },
+            card = Card("⏰", "ALARM MOVED", to.format(tf), "was ${old.format(tf)}", tone = Tone.GOLD),
+            actions = listOf(undoAction),
+        )
+    }
+
+    // --- The deck: habits, countdowns, shifts ---
+
+    private var lastHabit: String? = null
+
+    private fun findHabit(said: String): DeckStore.Habit? {
+        val q = said.lowercase().trim().removePrefix("the ").removePrefix("my ").removeSuffix(" habit").trim()
+        if (q in setOf("it", "that", "it off", "it off today", "that off", "it today") || q.startsWith("it ")) return DeckStore.habits(context).firstOrNull { it.name == lastHabit }
+        val habits = DeckStore.habits(context)
+        return habits.firstOrNull { it.name.equals(q, true) } ?: habits.firstOrNull { it.name.lowercase().contains(q) || q.contains(it.name.lowercase()) }
+            ?: habits.firstOrNull { h -> q.split(' ').any { w -> w.length > 2 && h.name.lowercase().split(' ').contains(w) } }
+    }
+
+    private fun habitCard(h: DeckStore.Habit, title: String): Card {
+        val today = LocalDate.now()
+        val week = (6 downTo 0).map { today.minusDays(it.toLong()) }
+        return Card("✓", title, h.name, "${DeckStore.streak(h.done, today)} day streak", listOf(
+            Row("THIS WEEK", week.joinToString(" ") { if (it in h.done) "■" else "□" }),
+            Row("TODAY", if (today in h.done) "done" else "not yet", ok = today in h.done),
+        ), Tone.GREEN)
+    }
+
+    private fun addHabit(name: String, tick: Boolean): Reply {
+        val before = DeckStore.habits(context)
+        val existing = before.firstOrNull { it.name.equals(name, true) }
+        val today = LocalDate.now()
+        val h = DeckStore.Habit(existing?.name ?: name, (existing?.done ?: emptySet()) + if (tick) setOf(today) else emptySet())
+        DeckStore.setHabits(context, if (existing != null) before.map { if (it === existing) h else it } else before + h)
+        lastHabit = h.name
+        push("${h.name} taken off your habits") {
+            DeckStore.setHabits(context, before)
+            "Taken it off."
+        }
+        return Reply(
+            (if (existing != null) "You already track ${h.name}." else say("${h.name} is on your habits now.", "${h.name}, added. I'll be watching.", "Added ${h.name}.")) +
+                (if (tick) " And ticked off for today${sir()}." else " Say \"tick it off\" when it's done."),
+            card = habitCard(h, if (existing != null) "HABIT" else "NEW HABIT"),
+            actions = listOfNotNull(undoAction, if (!tick) Action("✓ TICK TODAY", "tick it off") else null),
+        )
+    }
+
+    private fun removeHabit(name: String): Reply {
+        val before = DeckStore.habits(context)
+        val h = findHabit(name) ?: return Reply("I couldn't find a habit called $name${sir()}.", failed = true)
+        DeckStore.setHabits(context, before.filter { it !== h })
+        push("${h.name} back on your habits") {
+            DeckStore.setHabits(context, before)
+            "It's back."
+        }
+        return Reply("${h.name} is off your habits.", actions = listOf(undoAction))
+    }
+
+    private fun untick(name: String): Reply {
+        val before = DeckStore.habits(context)
+        val h = findHabit(name) ?: return Reply("I couldn't find a habit called $name${sir()}.", failed = true)
+        val today = LocalDate.now()
+        val updated = DeckStore.Habit(h.name, h.done - today)
+        DeckStore.setHabits(context, before.map { if (it === h) updated else it })
+        lastHabit = h.name
+        push("${h.name} ticked again") {
+            DeckStore.setHabits(context, before)
+            "Ticked again."
+        }
+        return Reply("Unticked ${h.name} for today.", card = habitCard(updated, "HABIT"), actions = listOf(undoAction))
+    }
+
+    private fun habits(): Reply {
+        val list = DeckStore.habits(context)
+        if (list.isEmpty()) return Reply("You're not tracking any habits yet. Say \"add a habit gym\".")
+        val today = LocalDate.now()
+        val done = list.filter { today in it.done }
+        val best = list.maxByOrNull { DeckStore.streak(it.done, today) }
+        return Reply(
+            "${done.size} of ${list.size} done today" + (best?.takeIf { DeckStore.streak(it.done, today) > 1 }?.let { ". Your best streak is ${it.name}, ${DeckStore.streak(it.done, today)} days" } ?: "") +
+                (list.filter { today !in it.done }.takeIf { it.isNotEmpty() }?.let { ". Still to do: ${it.joinToString(", ") { h -> h.name }}" } ?: ". All done, sir. Splendid") + ".",
+            card = Card("✓", "HABITS", "${done.size}/${list.size}", "done today", list.map { Row(it.name, "${DeckStore.streak(it.done, today)}d", ok = if (today in it.done) true else null) }, Tone.GREEN),
+            actions = list.filter { today !in it.done }.take(3).map { Action("✓ ${it.name.uppercase()}", "tick off ${it.name}") },
+        )
+    }
+
+    private fun addCountdown(name: String, date: LocalDate): Reply {
+        val before = DeckStore.countdowns(context)
+        DeckStore.setCountdowns(context, before.filter { !it.name.equals(name, true) } + DeckStore.Countdown(name, date, LocalDate.now()))
+        push("$name countdown removed") {
+            DeckStore.setCountdowns(context, before)
+            "Removed."
+        }
+        val days = ChronoUnit.DAYS.between(LocalDate.now(), date)
+        return Reply("Countdown set: $name, ${date.format(dayName)}. That's $days day${if (days == 1L) "" else "s"} away.",
+            card = Card("★", "NEW COUNTDOWN", "$days", "days to $name", tone = Tone.GOLD), actions = listOf(undoAction))
+    }
+
+    private fun removeCountdown(name: String): Reply {
+        val before = DeckStore.countdowns(context)
+        val c = before.firstOrNull { it.name.equals(name, true) } ?: before.firstOrNull { it.name.contains(name, true) || name.contains(it.name.lowercase()) }
+            ?: return Reply("I couldn't find a countdown for $name${sir()}.", failed = true)
+        DeckStore.setCountdowns(context, before.filter { it !== c })
+        push("${c.name} countdown back") {
+            DeckStore.setCountdowns(context, before)
+            "It's back."
+        }
+        return Reply("${c.name} countdown removed.", actions = listOf(undoAction))
+    }
+
+    private fun shiftName(start: LocalTime, end: LocalTime) =
+        Shifts.templates(context).firstOrNull { it.start == start && it.end == end }?.name ?: when (start.hour) { in 4..10 -> "Early"; in 11..16 -> "Late"; else -> "Night" }
+
+    /** A shift added or taken off by voice: saved, synced to the calendar, and in the briefing. */
+    private fun setShift(date: LocalDate, shift: Shifts.Shift?): Reply {
+        val before = Shifts.all(context)[date]
+        if (shift == null && before == null) return Reply("You weren't down to work ${whenText(date, null)} anyway${sir()}.")
+        Shifts.set(context, date, shift)
+        val synced = Shifts.sync(context) >= 0
+        push(if (shift == null) "Shift put back" else "Shift taken off") {
+            Shifts.set(context, date, before)
+            Shifts.sync(context)
+            "Put it back as it was."
+        }
+        val day = whenText(date, null)
+        return Reply(
+            if (shift == null) "Done. You're off ${day}${if (synced) ", and it's off the calendar too" else ""}."
+            else "Got it: ${day}, ${shift.start.format(tf)} till ${shift.end.format(tf)}, ${duration(shift.minutes * 60_000L)}${if (synced) ". It's on the Even Us calendar too" else ""}.",
+            card = if (shift == null) Card("⧗", "SHIFT REMOVED", "OFF", day.replaceFirstChar { it.uppercase() }, tone = Tone.GREEN)
+            else Card("⧗", "SHIFT SAVED", shift.times(), "${day.replaceFirstChar { it.uppercase() }} · ${shift.name}", listOf(Row("CALENDAR", if (synced) "synced" else "not synced", ok = synced)), Tone.HOT),
+            actions = listOfNotNull(undoAction, if (shift != null) alarmOffer(date, shift).firstOrNull() else null),
+        )
+    }
+
+    private fun lightsStatus(): Reply {
+        val tapo = AppCatalog.apps().firstOrNull { it.component.packageName == TAPO } ?: return Reply("I can't find the Tapo app, sir.", failed = true)
+        if (!JarvisHands.enabled(context)) return needHands("checking your lights", Action("OPEN TAPO", run = { host.launch(tapo.component) }))
+        return Reply(say("Let me look, sir.", "Peeking at the lights.", "Checking."), afterSpeech = true, then = {
+            JarvisHands.custom(TAPO, null, "I couldn't read Tapo just now, sir.") { root, tries ->
+                val list = JarvisReaders.devices(root)
+                if (list.isEmpty() && tries < 4) null else JarvisReaders.describeDevices(list)
+            }
+        })
+    }
+
+    private fun screenTime(): Reply {
+        val usage = DeckData.usage(context)
+            ?: return Reply("I'll need usage access to see that, sir. Allow it and ask again.", actions = listOf(Action("ALLOW", primary = true, run = { start(DeckData.usageAccessIntent(context)) })))
+        val top = usage.top.take(3).map { (pkg, ms) -> (AppCatalog.forPackage(pkg)?.label ?: pkg.substringAfterLast('.')) to ms }
+        return Reply(
+            "You've been on your phone ${duration(usage.screenMs)} today" + (top.firstOrNull()?.let { ", most of it on ${it.first}, ${duration(it.second)}" } ?: "") +
+                say(".", if (usage.screenMs > 4 * 3_600_000L) ". I say this with love: put it down." else ".", "."),
+            card = Card("▣", "SCREEN TIME", duration(usage.screenMs), "today", usage.top.take(5).map { (pkg, ms) -> Row(AppCatalog.forPackage(pkg)?.label ?: pkg, duration(ms)) }, Tone.BLUE),
         )
     }
 
@@ -1373,8 +1609,10 @@ class Jarvis(private val context: Context, private val host: Host) {
 
     private fun habit(said: String): Reply {
         val habits = DeckStore.habits(context)
-        val h = habits.firstOrNull { said.contains(it.name.lowercase().substringBefore(' ')) || it.name.lowercase().contains(said) }
-            ?: return Reply("Good for you, $name.", listOf("Add a habit in the deck"))
+        val h = findHabit(said) ?: habits.firstOrNull { said.contains(it.name.lowercase().substringBefore(' ')) || it.name.lowercase().contains(said) }
+            ?: return tickNote(said) ?: Reply("Good for you, $name. That's not one of your habits; shall I add it?", listen = true,
+                actions = listOf(Action("+ ADD AS HABIT", "add a habit $said and tick it off today", primary = true)))
+        lastHabit = h.name
         val today = LocalDate.now()
         DeckStore.setHabits(context, habits.map { if (it === h) DeckStore.Habit(it.name, it.done + today) else it })
         push("${h.name} unticked") {
@@ -1384,6 +1622,24 @@ class Jarvis(private val context: Context, private val host: Host) {
         val streak = DeckStore.streak(h.done + today, today)
         return Reply("Ticked off ${h.name}." + if (streak > 1) say(" That's $streak days in a row. Impressive, sir.", " $streak days running. Who are you?", " $streak days.") else " Nice work.",
             card = Card("✓", "HABIT", h.name, "$streak day streak", tone = Tone.GREEN), actions = listOf(undoAction))
+    }
+
+    /** "Tick off buy milk": the note that says it, ticked. */
+    private fun tickNote(said: String): Reply? {
+        val q = said.lowercase().removeSuffix(" from my notes").removeSuffix(" from my list").trim()
+        val lines = openNotes()
+        val i = lines.indexOfFirst { !it.startsWith(DONE) && it.lowercase().contains(q) }.takeIf { it >= 0 }
+            ?: lines.indexOfFirst { l -> !l.startsWith(DONE) && q.split(' ').filter { it.length > 2 }.let { w -> w.isNotEmpty() && w.all { l.lowercase().contains(it) } } }.takeIf { it >= 0 }
+            ?: return null
+        val before = DeckData.note(context)
+        val updated = lines.toMutableList().also { it[i] = DONE + it[i] }
+        DeckData.setNote(context, updated.joinToString("\n"))
+        push("Unticked on your notes") {
+            DeckData.setNote(context, before)
+            "Unticked."
+        }
+        return Reply("Ticked off \"${lines[i]}\" on your notes.", card = Card("✎", "NOTES", sub = "${updated.count { !it.startsWith(DONE) }} open",
+            rows = updated.take(6).map { Row(it.removePrefix(DONE), ok = if (it.startsWith(DONE)) true else null) }), actions = listOf(undoAction))
     }
 
     // --- Helpers ---
@@ -1438,6 +1694,9 @@ class Jarvis(private val context: Context, private val host: Host) {
             "WhatsApp Mum saying on my way", "Turn on the bedroom light", "Turn on the torch", "Turn on do not disturb", "Turn the volume up",
             "Play music", "Brief me", "Read me the news", "How's bitcoin?", "Start a focus session", "Remember my locker code is 1234",
             "What do you know about me?", "Good night", "Battery", "Learn the bedroom light", "My routines", "Jarvis settings",
+            "What are my alarms?", "Turn off my 6am alarm", "Move my alarm to 6:30", "Add a habit gym and tick it off today", "How are my habits?",
+            "Tick off gym", "Add a countdown to holiday on 3 March", "I'm working Monday 7 till 3", "I'm off on Friday", "Which lights are on?",
+            "What's my screen time?", "Tick off buy milk",
         )
 
         /** Soundex: names that sound alike share a code ("cloud" and "Claude" are both C430). */

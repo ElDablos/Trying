@@ -177,4 +177,30 @@ class JarvisTest {
         assertEquals(Command.Text("mum", "I'm home"), p("Text mum I'm home"))
         assertEquals(Command.AddNote("call the dentist tomorrow at 9"), p("Remind me tomorrow at 9 to call the dentist"))
     }
+
+    @Test
+    fun alarmsHabitsShiftsByVoice() {
+        assertEquals(Command.Alarms(null), p("What are my alarms for tomorrow"))
+        assertEquals(Command.AlarmSwitch(LocalTime.of(6, 0), false), p("Turn off my 6am alarm"))
+        assertEquals(Command.AlarmSwitch(LocalTime.of(7, 0), true), p("Turn on my 7 o'clock alarm"))
+        assertEquals(Command.AlarmSwitch(null, false), p("Turn off all my alarms"))
+        assertEquals(Command.MoveAlarm(LocalTime.of(6, 0), LocalTime.of(6, 30)), p("Move my 6am alarm to 6:30"))
+        assertEquals(Command.MoveAlarm(null, LocalTime.of(7, 0)), p("Change my alarm to 7"))
+        assertEquals(Command.Alarm(LocalTime.of(7, 0)), p("Set an alarm for 7"))
+        assertEquals(Command.AddHabit("Gym", true), p("Add a habit gym and tick it off today"))
+        assertEquals(Command.AddHabit("Read 20 pages", false), p("Add a new habit called read 20 pages"))
+        assertEquals(Command.RemoveHabit("gym"), p("Remove the gym habit"))
+        assertEquals(Command.Untick("gym"), p("Untick gym"))
+        assertEquals(Command.Habits, p("How are my habits"))
+        assertEquals(Command.Habit("it off"), p("Tick it off"))
+        assertEquals(Command.AddCountdown("Holiday", LocalDate.of(2027, 3, 3)), p("Add a countdown to holiday on 3 March"))
+        assertEquals(Command.RemoveCountdown("christmas"), p("Remove the christmas countdown"))
+        assertEquals(Command.AddShift(LocalDate.of(2026, 11, 2), LocalTime.of(7, 0), LocalTime.of(15, 0)), p("I'm working Monday 7 till 3"))
+        assertEquals(Command.AddShift(LocalDate.of(2026, 11, 6), LocalTime.of(14, 0), LocalTime.of(22, 0)), p("I'm working on Friday from 2 till 10"))
+        assertEquals(Command.AddShift(today.plusDays(1), LocalTime.of(22, 0), LocalTime.of(6, 0)), p("Add a shift on Saturday 10pm to 6am"))
+        assertEquals(Command.RemoveShift(LocalDate.of(2026, 11, 2)), p("I'm off on Monday"))
+        assertEquals(Command.Shift(1), p("Am I off tomorrow"))
+        assertEquals(Command.LightsStatus, p("Which lights are on"))
+        assertEquals(Command.ScreenTime, p("What's my screen time"))
+    }
 }

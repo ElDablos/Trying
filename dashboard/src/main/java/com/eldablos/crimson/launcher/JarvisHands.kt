@@ -57,6 +57,11 @@ class JarvisHands : AccessibilityService() {
         class Run(pkg: String, val skill: Skill, val on: Boolean?, var step: Int = 0) : Job(pkg)
         class Guess(pkg: String, val device: String?, val on: Boolean?, var opened: Boolean = false) : Job(pkg)
         class Learn(pkg: String, val name: String, val taps: MutableList<Target> = ArrayList()) : Job(pkg)
+        /**
+         * Anything else: [step] looks at the screen each time it settles and returns what to say when
+         * it's done, or null to wait for more. [tries] counts the looks, so a reader can give up gracefully.
+         */
+        class Custom(pkg: String, val open: Intent?, val step: (AccessibilityNodeInfo, Int) -> String?, var tries: Int = 0, val failed: String) : Job(pkg)
     }
 
     private var job: Job? = null
@@ -68,7 +73,7 @@ class JarvisHands : AccessibilityService() {
         main.removeCallbacksAndMessages(null)
         job = j
         watch(j.pkg)
-        val launch = packageManager.getLaunchIntentForPackage(j.pkg)
+        val launch = (j as? Job.Custom)?.open ?: packageManager.getLaunchIntentForPackage(j.pkg)
         if (launch == null) {
             finish(false, "I can't find that app on the phone, sir.")
             return
@@ -116,6 +121,11 @@ class JarvisHands : AccessibilityService() {
                 if (tap(power)) main.postDelayed({ finish(true, null) }, 700)
             }
             is Job.Learn -> {}
+            is Job.Custom -> {
+                j.tries++
+                val said = j.step(root, j.tries) ?: return
+                main.postDelayed({ finish(true, said) }, 500)
+            }
         }
     }
 
@@ -196,7 +206,9 @@ class JarvisHands : AccessibilityService() {
             is Job.Run -> done(j.skill.name, j.on)
             is Job.Guess -> done(j.device ?: "the light", j.on)
             is Job.Learn -> ""
+            is Job.Custom -> ""
         } else when (j) {
+            is Job.Custom -> j.failed
             is Job.Guess -> "I couldn't find the switch in Tapo, sir. Show me once: say \"learn the ${j.device ?: "light"}\" and tap it while I watch."
             else -> "That didn't go to plan, sir. The app may have changed; you could teach me again."
         }
@@ -333,6 +345,28 @@ class JarvisHands : AccessibilityService() {
         } ?: false
 
         fun learn(pkg: String, name: String): Boolean = instance?.run { begin(Job.Learn(pkg, name), 60_000); true } ?: false
+
+        /** Opens [pkg] (with [open], or its launcher), works the screen with [step], then comes back and says what it returned. */
+        fun custom(pkg: String, open: Intent?, failed: String, step: (AccessibilityNodeInfo, Int) -> String?): Boolean =
+            instance?.run { begin(Job.Custom(pkg, open, step, failed = failed), 12_000); true } ?: false
+
+        /** Taps [node], or the nearest parent that can be tapped. */
+        fun press(node: AccessibilityNodeInfo): Boolean {
+            var n: AccessibilityNodeInfo? = node
+            var depth = 0
+            while (n != null && depth < 5) {
+                if (n.isClickable && n.isEnabled) return n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                n = n.parent
+                depth++
+            }
+            return false
+        }
+
+        /** Every node under [root], for readers. */
+        fun nodes(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> = ArrayList<AccessibilityNodeInfo>().also { out -> walk(root) { out += it } }
+
+        /** The texts inside [n] (itself and below), for reading a row. */
+        fun texts(n: AccessibilityNodeInfo): List<String> = nodes(n).mapNotNull { (it.text ?: it.contentDescription)?.toString()?.trim()?.takeIf { s -> s.isNotEmpty() } }
 
         /** Back to the launcher, where Jarvis says how it went. */
         private fun report(context: Context, say: String) {

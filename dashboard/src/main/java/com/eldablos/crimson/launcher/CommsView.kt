@@ -765,6 +765,12 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             addView(more)
             val hasMore = more.childCount > 0 || body.text.length > 90
             chevron.visibility = if (hasMore) View.VISIBLE else View.GONE
+            // Says how: hold to open it up, hold again to fold it.
+            val hint = TextView(context)
+            style(hint, 6.5f, Hud.alpha(Hud.HOT, .75f), .18f)
+            hint.text = "HOLD TO EXPAND ⌄"
+            hint.gravity = Gravity.END
+            hint.visibility = if (hasMore) View.VISIBLE else View.GONE
             val toggle = {
                 android.transition.TransitionManager.beginDelayedTransition(this@Card)
                 val open = more.visibility != View.VISIBLE
@@ -772,12 +778,15 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
                 body.maxLines = if (open) 40 else 2
                 title.maxLines = if (open) 3 else 1
                 chevron.text = if (open) "⌃" else "⌄"
+                hint.text = if (open) "HOLD TO FOLD ⌃" else "HOLD TO EXPAND ⌄"
             }
             chevron.setOnClickListener { toggle() }
-            // The whole top line (app, time, ⌄) opens it up too: the ⌄ alone is a small target.
-            if (hasMore) head.setOnClickListener { toggle() }
+            // Hold anywhere on it: it opens up (with a buzz); tap still opens the app.
             setOnLongClickListener {
-                if (hasMore) toggle()
+                if (hasMore) {
+                    performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    toggle()
+                }
                 hasMore
             }
 
@@ -805,6 +814,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             }
             if (actions.childCount > 0) addView(actions, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (7 * u).toInt() })
 
+            addView(hint, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = (6 * u).toInt() })
             setOnClickListener {
                 Comms.open(context, sbn)
                 onClose?.invoke()
@@ -980,12 +990,118 @@ class HexButton(context: Context, private val u: Float, private val hex: Hex) : 
         }
         canvas.drawPath(p, Hud.fill(if (hex.on) Hud.tint(0xFF4A0C18.toInt()) else Hud.tint(0xFF14070A.toInt())))
         canvas.drawPath(p, if (hex.on) Hud.glow(Hud.stroke(Hud.HOT, 1.6f * u), 6 * u) else Hud.stroke(Hud.alpha(Hud.CRIMSON, .35f), 1.2f * u))
-        val g = Hud.text(13 * u, if (hex.on) Color.WHITE else Hud.DUST, Hud.SANS, align = Paint.Align.CENTER)
-        if (hex.on) Hud.glow(g, 6 * u, Hud.HOT)
-        canvas.drawText(hex.glyph, cx, top + h / 2 + 4.5f * u, g)
+        val colour = if (hex.on) Color.WHITE else Hud.DUST
+        if (!drawIcon(canvas, hex.label, cx, top + h / 2, 9.5f * u, colour)) {
+            val g = Hud.text(18 * u, colour, Hud.SANS, align = Paint.Align.CENTER)
+            if (hex.on) Hud.glow(g, 6 * u, Hud.HOT)
+            canvas.drawText(hex.glyph, cx, top + h / 2 + 6 * u, g)
+        }
         if (hex.external) canvas.drawText("↗", cx + w * .26f, top + h * .3f, Hud.text(7 * u, Hud.tint(0xFFFF8A9A.toInt()), Hud.SANS, align = Paint.Align.CENTER))
         canvas.drawText(hex.label, cx, top + h + 13 * u, Hud.fit(hex.label, Hud.text(5.5f * u, if (hex.on) Color.WHITE else Hud.DUST, Hud.MONO, .04f, Paint.Align.CENTER), width - 2 * u))
     }
+}
+
+/**
+ * The toggle's icon, drawn as lines the way Android's own are (Wi-Fi arcs, the Bluetooth rune, a pin…),
+ * [s] its half-size, glowing when on. False for one it doesn't know, which falls back to its glyph.
+ */
+private fun HexButton.drawIcon(canvas: Canvas, kind: String, cx: Float, cy: Float, s: Float, colour: Int): Boolean {
+    val u = s / 9.5f
+    val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.8f * u
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        color = colour
+        if (colour == Color.WHITE) setShadowLayer(5 * u, 0f, 0f, Hud.HOT)
+    }
+    val solid = Paint(line).apply { style = Paint.Style.FILL }
+    fun arc(r: Float, ox: Float, oy: Float, start: Float, sweep: Float) = canvas.drawArc(RectF(ox - r, oy - r, ox + r, oy + r), start, sweep, false, line)
+    when (kind) {
+        "WI-FI" -> {
+            val oy = cy + s * .75f
+            arc(s * .55f, cx, oy, 225f, 90f)
+            arc(s * 1.05f, cx, oy, 225f, 90f)
+            arc(s * 1.55f, cx, oy, 225f, 90f)
+            canvas.drawCircle(cx, oy - .1f * s, 1.6f * u, solid)
+        }
+        "BLUETOOTH" -> canvas.drawPath(Path().apply {
+            moveTo(cx - s * .5f, cy - s * .45f); lineTo(cx + s * .45f, cy + s * .45f); lineTo(cx, cy + s * .95f); lineTo(cx, cy - s * .95f)
+            lineTo(cx + s * .45f, cy - s * .45f); lineTo(cx - s * .5f, cy + s * .45f)
+        }, line)
+        "MOBILE DATA" -> {
+            val l = cx - s * .38f
+            val r = cx + s * .38f
+            canvas.drawLine(l, cy + s * .85f, l, cy - s * .85f, line)
+            canvas.drawPath(Path().apply { moveTo(l - s * .35f, cy - s * .45f); lineTo(l, cy - s * .85f); lineTo(l + s * .35f, cy - s * .45f) }, line)
+            canvas.drawLine(r, cy - s * .85f, r, cy + s * .85f, line)
+            canvas.drawPath(Path().apply { moveTo(r - s * .35f, cy + s * .45f); lineTo(r, cy + s * .85f); lineTo(r + s * .35f, cy + s * .45f) }, line)
+        }
+        "VIBRATE" -> {
+            canvas.drawRoundRect(RectF(cx - s * .35f, cy - s * .75f, cx + s * .35f, cy + s * .75f), 2 * u, 2 * u, line)
+            for (side in listOf(-1, 1)) {
+                val x = cx + side * s * .7f
+                canvas.drawPath(Path().apply { moveTo(x, cy - s * .55f); lineTo(x + side * s * .22f, cy - s * .25f); lineTo(x, cy + s * .05f); lineTo(x + side * s * .22f, cy + s * .35f); lineTo(x, cy + s * .6f) }, line)
+            }
+        }
+        "SOUND", "MUTE" -> {
+            canvas.drawPath(Path().apply {
+                moveTo(cx - s * .9f, cy - s * .3f); lineTo(cx - s * .5f, cy - s * .3f); lineTo(cx - s * .05f, cy - s * .75f)
+                lineTo(cx - s * .05f, cy + s * .75f); lineTo(cx - s * .5f, cy + s * .3f); lineTo(cx - s * .9f, cy + s * .3f); close()
+            }, line)
+            if (kind == "SOUND") {
+                arc(s * .45f, cx + s * .05f, cy, -45f, 90f)
+                arc(s * .85f, cx + s * .05f, cy, -45f, 90f)
+            } else canvas.drawLine(cx + s * .3f, cy - s * .35f, cx + s * .95f, cy + s * .35f, line).also {
+                canvas.drawLine(cx + s * .95f, cy - s * .35f, cx + s * .3f, cy + s * .35f, line)
+            }
+        }
+        "ROTATE" -> {
+            arc(s * .8f, cx, cy, -60f, 290f)
+            val a = Math.toRadians(-60.0)
+            val ex = cx + s * .8f * kotlin.math.cos(a).toFloat()
+            val ey = cy + s * .8f * kotlin.math.sin(a).toFloat()
+            canvas.drawPath(Path().apply { moveTo(ex - s * .45f, ey - s * .05f); lineTo(ex, ey); lineTo(ex + s * .05f, ey + s * .45f) }, line)
+        }
+        "TORCH" -> {
+            canvas.drawPath(Path().apply { moveTo(cx - s * .55f, cy - s * .45f); lineTo(cx + s * .55f, cy - s * .45f); lineTo(cx + s * .3f, cy); lineTo(cx - s * .3f, cy); close() }, line)
+            canvas.drawRoundRect(RectF(cx - s * .3f, cy, cx + s * .3f, cy + s * .95f), 1.5f * u, 1.5f * u, line)
+            canvas.drawLine(cx, cy - s * .7f, cx, cy - s, line)
+            canvas.drawLine(cx - s * .5f, cy - s * .65f, cx - s * .72f, cy - s * .9f, line)
+            canvas.drawLine(cx + s * .5f, cy - s * .65f, cx + s * .72f, cy - s * .9f, line)
+        }
+        "DND" -> {
+            canvas.drawCircle(cx, cy, s * .85f, line)
+            canvas.drawLine(cx - s * .45f, cy, cx + s * .45f, cy, Paint(line).apply { strokeWidth = 2.4f * u })
+        }
+        "LOCATION" -> {
+            canvas.drawPath(Path().apply {
+                moveTo(cx, cy + s * .95f)
+                cubicTo(cx - s * .2f, cy + s * .55f, cx - s * .75f, cy + s * .05f, cx - s * .75f, cy - s * .25f)
+                cubicTo(cx - s * .75f, cy - s * .75f, cx - s * .35f, cy - s * .95f, cx, cy - s * .95f)
+                cubicTo(cx + s * .35f, cy - s * .95f, cx + s * .75f, cy - s * .75f, cx + s * .75f, cy - s * .25f)
+                cubicTo(cx + s * .75f, cy + s * .05f, cx + s * .2f, cy + s * .55f, cx, cy + s * .95f)
+            }, line)
+            canvas.drawCircle(cx, cy - s * .25f, s * .25f, line)
+        }
+        "POWER SAVE" -> canvas.drawPath(Path().apply {
+            moveTo(cx + s * .15f, cy - s); lineTo(cx - s * .5f, cy + s * .1f); lineTo(cx - s * .02f, cy + s * .1f)
+            lineTo(cx - s * .15f, cy + s); lineTo(cx + s * .5f, cy - s * .1f); lineTo(cx + s * .02f, cy - s * .1f); close()
+        }, if (colour == Color.WHITE) solid.apply { color = Hud.GOLD } else line)
+        "AIRPLANE" -> canvas.drawPath(Path().apply {
+            moveTo(cx, cy - s); lineTo(cx + s * .12f, cy - s * .2f); lineTo(cx + s * .95f, cy + s * .25f); lineTo(cx + s * .12f, cy + s * .1f)
+            lineTo(cx + s * .1f, cy + s * .6f); lineTo(cx + s * .35f, cy + s * .85f); lineTo(cx, cy + s * .75f); lineTo(cx - s * .35f, cy + s * .85f)
+            lineTo(cx - s * .1f, cy + s * .6f); lineTo(cx - s * .12f, cy + s * .1f); lineTo(cx - s * .95f, cy + s * .25f); lineTo(cx - s * .12f, cy - s * .2f); close()
+        }, line)
+        "BUDS" -> for (side in listOf(-1, 1)) {
+            val bx = cx + side * s * .48f
+            canvas.drawCircle(bx, cy - s * .3f, s * .35f, line)
+            canvas.drawLine(bx + side * s * .1f, cy, bx + side * s * .15f, cy + s * .85f, line)
+        }
+        "SAMSUNG" -> for (k in -1..1) canvas.drawCircle(cx + k * s * .55f, cy, 1.8f * u, solid)
+        else -> return false
+    }
+    return true
 }
 
 /** A level (brightness, volume) as a row of skewed segments; drag along it to change. */

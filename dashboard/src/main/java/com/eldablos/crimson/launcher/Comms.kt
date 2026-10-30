@@ -238,18 +238,36 @@ object Comms {
             ?.toString()?.trim().orEmpty()
     }
 
-    /** The picture a notification carries (a screenshot's preview, a photo someone sent), if any. */
+    /**
+     * The picture a notification carries (a screenshot's preview, a photo someone sent), if any: the big
+     * picture as a bitmap or an icon, else the large icon apps use for a preview.
+     */
     fun picture(context: Context, sbn: StatusBarNotification): android.graphics.Bitmap? {
         val e = sbn.notification.extras ?: return null
-        return try {
+        fun bitmapOf(d: android.graphics.drawable.Drawable?): android.graphics.Bitmap? {
+            d ?: return null
+            (d as? android.graphics.drawable.BitmapDrawable)?.bitmap?.let { return it }
+            val w = d.intrinsicWidth.takeIf { it > 0 } ?: return null
+            val h = d.intrinsicHeight.takeIf { it > 0 } ?: return null
+            return android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888).also { b ->
+                val c = android.graphics.Canvas(b)
+                d.setBounds(0, 0, w, h)
+                d.draw(c)
+            }
+        }
+        fun any(key: String): android.graphics.Bitmap? = try {
             @Suppress("DEPRECATION")
-            (e.getParcelable(Notification.EXTRA_PICTURE) as? android.graphics.Bitmap)
-                ?: (e.getParcelable(Notification.EXTRA_PICTURE_ICON) as? android.graphics.drawable.Icon)?.loadDrawable(context)?.let { d ->
-                    (d as? android.graphics.drawable.BitmapDrawable)?.bitmap
-                }
-        } catch (e2: Exception) {
+            when (val v = e.get(key)) {
+                is android.graphics.Bitmap -> v
+                is android.graphics.drawable.Icon -> bitmapOf(v.loadDrawable(context))
+                else -> null
+            }
+        } catch (x: Exception) {
             null
         }
+        return any(Notification.EXTRA_PICTURE) ?: any(Notification.EXTRA_PICTURE_ICON) ?: any(Notification.EXTRA_LARGE_ICON_BIG)
+            ?: (if (e.containsKey(Notification.EXTRA_PICTURE) || e.getString(Notification.EXTRA_TEMPLATE)?.contains("BigPicture") == true)
+                try { bitmapOf(sbn.notification.getLargeIcon()?.loadDrawable(context)) } catch (x: Exception) { null } else null)
     }
 
     /** A conversation's messages ("Tom: on my way"), oldest first, or the inbox-style lines, when the notification has them. */

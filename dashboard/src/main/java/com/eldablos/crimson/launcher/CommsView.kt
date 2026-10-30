@@ -702,9 +702,12 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
             head.addView(time)
             // ⌄ opens it up: the whole message, the picture, the conversation, the rest of the group.
             val chevron = TextView(context)
-            style(chevron, 12f, Hud.HOT)
+            style(chevron, 15f, Hud.HOT)
             chevron.text = "⌄"
-            chevron.setPadding((10 * u).toInt(), 0, (2 * u).toInt(), (2 * u).toInt())
+            chevron.gravity = Gravity.CENTER
+            chevron.minWidth = (40 * u).toInt()
+            chevron.minHeight = (32 * u).toInt()
+            chevron.setPadding((8 * u).toInt(), 0, (2 * u).toInt(), (2 * u).toInt())
             head.addView(chevron)
             addView(head)
 
@@ -771,6 +774,8 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
                 chevron.text = if (open) "⌃" else "⌄"
             }
             chevron.setOnClickListener { toggle() }
+            // The whole top line (app, time, ⌄) opens it up too: the ⌄ alone is a small target.
+            if (hasMore) head.setOnClickListener { toggle() }
             setOnLongClickListener {
                 if (hasMore) toggle()
                 hasMore

@@ -18,7 +18,7 @@ import java.util.Locale
  */
 object Speech {
     private const val GOOGLE_TTS = "com.google.android.tts"
-    private val main = Handler(Looper.getMainLooper())
+    private val main by lazy { Handler(Looper.getMainLooper()) }
     private var tts: TextToSpeech? = null
     private var ready = false
     private val waiting = ArrayList<(TextToSpeech) -> Unit>()

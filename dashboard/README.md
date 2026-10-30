@@ -118,7 +118,7 @@ back to One UI Home the same way at any time.
   total and today's move (set them on a coin's page); most used apps; Buds; power, with how long the
   battery will last or how long to full; **network** with live download and upload speeds and today's
   data; time; and systems. Tap a card's title row to expand it; **✎** rearranges the deck, turns
-  sections on or off and picks the six quick actions. ⚙ opens Launcher settings. Screen time, data and
+  sections on or off and picks the six quick actions. ⚙ opens the phone's Settings. Screen time, data and
   most-used need Usage access (tap a card to allow it).
 - **Hive Map**: every app in a honeycomb that repeats for ever in every direction (no edge), in patches round tags for the dock and each node, big in the
   middle and shrinking outwards. The middle bulges big with the apps spread apart and named; a sight marks the centre and it settles onto a cell after a fling. Drag to fly round it, tap a tag in the jump bar to glide there, or
@@ -128,7 +128,18 @@ back to One UI Home the same way at any time.
   one in a gold target lock; its playtime, this week and last played; **Launch** and **⚄** random; then
   every game as hex tiles with playtime bars, filtered by ALL / RECENT / MOST PLAYED / NEW / A–Z (with a
   letter rail). **Player stats** shows your level and rank, the week's playtime by day, top games and
-  achievements. Tapping a game only selects it. The GAMES node opens it too.
+  achievements. Tapping a game only selects it. The GAMES node opens it too. **⋮** next to Launch, or
+  holding a game tile, offers Launch, Remove from Arcade, App info and **Uninstall**.
+- **Jarvis**: your assistant, on the **JARVIS** button under the music bar, ◉ JARVIS on the briefing, or
+  his own **Jarvis** icon (set the side key's double press to open it). Talk or type: "brief me",
+  "continue from the news", "go back a bit", "stop"; "am I working tomorrow?", "what's on Friday?",
+  "will it rain tomorrow?"; "add Dentist on Monday at 3pm to my calendar", "remind me to call the bank",
+  "read my notes"; "any emails from Even Us?", "any messages?"; "set a timer for 10 minutes", "wake me up
+  at 6:30", torch, volume, do not disturb, music; "call Mum", "WhatsApp Tom saying I'm on my way" (opens
+  the chat with it typed, you tap send), "text…", "open Spotify", "turn the lights on" (opens Tapo);
+  bitcoin, news, countdowns, habits and focus. Speech is recognised on the phone where it can be, and he
+  learns what you ask at each time of day, which apps and people you mean, all kept on the phone.
+  Anything he can't do he offers to hand to Claude.
 - **Messages on the home screen** slide up into the space under the music bar: tap to open, REPLY to
   answer in the Comms Centre, or swipe it down to dismiss it (it stays in the Comms Centre).
 - **Comms Centre**: Samsung's quick controls and your notifications in one panel: twelve toggles (Wi-Fi,

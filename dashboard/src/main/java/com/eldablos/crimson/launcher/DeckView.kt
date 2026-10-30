@@ -254,6 +254,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
     fun stopBriefing() = stopSpeaking()
 
+    /** The briefing is being read out right now. */
+    val readingBriefing: Boolean get() = speaking
+
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)
         if (visibility != VISIBLE && speaking) stopSpeaking()

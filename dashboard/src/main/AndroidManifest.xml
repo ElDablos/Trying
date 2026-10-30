@@ -31,6 +31,10 @@
     <!-- Edge lighting draws over other apps; the Comms Centre can open Samsung's own panel. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+    <!-- Jarvis: hearing you (on the phone where it can), finding people to call or message, calling. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
 
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
@@ -63,6 +67,12 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <!-- Jarvis: speech recognition, WhatsApp chats and the Tapo lights app. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.tplink.iot" />
     </queries>
 
     <application
@@ -112,6 +122,18 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Jarvis on his own icon: set the side key's double press to open it and he's straight up, listening. -->
+        <activity-alias
+            android:name=".launcher.JarvisShortcut"
+            android:exported="true"
+            android:label="Jarvis"
+            android:targetActivity=".launcher.LauncherActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <activity
             android:name=".launcher.NodeEditActivity"

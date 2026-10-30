@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.IntentFilter
 import android.content.Intent
 import android.content.pm.LauncherApps
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.graphics.RenderEffect
 import android.graphics.Shader
@@ -46,6 +47,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private lateinit var hub: GameHubView
     private lateinit var weather: WeatherView
     private lateinit var deck: DeckView
+    private lateinit var jarvis: JarvisView
     private lateinit var anchor: View
     private val handler = Handler(Looper.getMainLooper())
     private var mode = Mode.at(LocalTime.now().hour)
@@ -172,8 +174,15 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             onWeatherDay = { day -> closeDeck(); handler.postDelayed({ showWeather(day) }, 220) }
             onLaunch = { component -> AppCatalog.launch(this@LauncherActivity, component) }
             onVoice = { askByVoice() }
+            onJarvis = { openJarvis(listen = true) }
         }
         root.addView(deck)
+        jarvis = JarvisView(this, u, jarvisHost).apply {
+            visibility = View.GONE
+            onClose = { closeJarvis() }
+            onPermission = { asked -> requestPermissions(asked, JARVIS_REQUEST) }
+        }
+        root.addView(jarvis)
         root.addView(anchor, FrameLayout.LayoutParams(1, 1))
         setContentView(root)
 
@@ -198,6 +207,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         loadGames()
         registerReceiver(unlocked, IntentFilter(Intent.ACTION_USER_PRESENT), RECEIVER_NOT_EXPORTED)
         home.boot()
+        if (fromJarvisShortcut(intent)) handler.postDelayed({ openJarvis(listen = true) }, 400)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -256,8 +266,14 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // The Jarvis shortcut (side key, or its icon): straight to him, listening.
+        if (fromJarvisShortcut(intent)) {
+            if (jarvis.visibility != View.VISIBLE) openJarvis(listen = true) else jarvis.listen()
+            return
+        }
         // Home pressed while already home: close whatever's open.
         when {
+            jarvis.visibility == View.VISIBLE -> closeJarvis()
             deck.visibility == View.VISIBLE -> closeDeck()
             weather.visibility == View.VISIBLE -> closeWeather()
             hub.visibility == View.VISIBLE -> closeGames()
@@ -270,6 +286,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
+            jarvis.visibility == View.VISIBLE -> closeJarvis()
             deck.visibility == View.VISIBLE -> if (!deck.back()) closeDeck()
             weather.visibility == View.VISIBLE -> if (!weather.back()) closeWeather()
             hub.visibility == View.VISIBLE -> if (!hub.back()) closeGames()
@@ -371,7 +388,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     // --- Overlays ---
 
     private fun overlayOpen() = comms.visibility == View.VISIBLE || apps.visibility == View.VISIBLE ||
-        hub.visibility == View.VISIBLE || weather.visibility == View.VISIBLE || deck.visibility == View.VISIBLE
+        hub.visibility == View.VISIBLE || weather.visibility == View.VISIBLE || deck.visibility == View.VISIBLE ||
+        jarvis.visibility == View.VISIBLE
 
     /** Blurs the home screen behind an overlay, like Samsung's panel does. */
     private fun backdrop(on: Boolean) {
@@ -452,6 +470,69 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == DeckView.CALENDAR_REQUEST) deck.calendarAccessChanged()
+        if (requestCode == JARVIS_REQUEST && jarvis.visibility == View.VISIBLE &&
+            permissions.indexOf(android.Manifest.permission.RECORD_AUDIO).let { it >= 0 && grantResults.getOrNull(it) == PackageManager.PERMISSION_GRANTED }
+        ) jarvis.listen()
+    }
+
+    // --- Jarvis ---
+
+    private fun fromJarvisShortcut(intent: Intent?) = intent?.component?.className?.endsWith(".JarvisShortcut") == true
+
+    /** Jarvis comes up over whatever's showing; over a briefing being read, he pauses it and listens. */
+    override fun openJarvis(listen: Boolean) {
+        if (jarvis.visibility == View.VISIBLE) return
+        val midBriefing = deck.visibility == View.VISIBLE && deck.readingBriefing
+        if (midBriefing) deck.stopBriefing()
+        backdrop(true)
+        jarvis.show(listen, greet = !midBriefing)
+    }
+
+    private fun closeJarvis() {
+        jarvis.hide()
+        handler.postDelayed({ backdrop(false) }, 200)
+    }
+
+    private val jarvisHost = object : Jarvis.Host {
+        override fun briefing(control: JarvisParser.Control?, chapter: String?): Boolean {
+            // Jarvis steps aside and the deck reads it, so you can see where it's up to.
+            jarvis.hide(now = true)
+            val act = {
+                when (control) {
+                    null -> deck.readBriefing()
+                    JarvisParser.Control.STOP -> deck.stopBriefing()
+                    JarvisParser.Control.RESUME -> if (!deck.resumeBriefing()) deck.readBriefing()
+                    JarvisParser.Control.BACK -> deck.skipBriefing(-1)
+                    JarvisParser.Control.SKIP -> deck.skipBriefing(1)
+                    JarvisParser.Control.CHAPTER -> if (chapter == null || !deck.jumpBriefing(chapter)) deck.skipBriefing(1)
+                }
+            }
+            if (deck.visibility == View.VISIBLE) {
+                act()
+            } else {
+                closeOtherOverlays()
+                openDeck()
+                // Give the deck a moment to load today's agenda before reading it.
+                handler.postDelayed({ if (deck.visibility == View.VISIBLE) act() }, 600)
+            }
+            return true
+        }
+
+        override fun launch(component: ComponentName) {
+            jarvis.hide(now = true)
+            backdrop(false)
+            AppCatalog.launch(this@LauncherActivity, component)
+        }
+
+        override fun ask(permissions: Array<String>) = requestPermissions(permissions, JARVIS_REQUEST)
+    }
+
+    /** Shuts the other panels at once, so the deck can open for the briefing. */
+    private fun closeOtherOverlays() {
+        for (v in listOf(weather, hub, apps, comms)) {
+            v.animate().cancel()
+            v.visibility = View.GONE
+        }
     }
 
     @Deprecated("Deprecated in Java")
@@ -762,6 +843,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     companion object {
         private const val BLUR = 14f
         private const val VOICE_REQUEST = 41
+        private const val JARVIS_REQUEST = 42
         private val SAMSUNG_WEATHER = listOf("com.sec.android.daemonapp", "com.samsung.android.weather")
     }
 }

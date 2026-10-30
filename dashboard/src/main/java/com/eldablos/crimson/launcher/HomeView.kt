@@ -62,6 +62,9 @@ class HomeView(context: Context) : View(context) {
 
         /** Swipe left: the Command Deck. */
         fun openDeck() {}
+
+        /** The Jarvis orb: talk to him. */
+        fun openJarvis(listen: Boolean) {}
     }
 
     /** How far down the screen the ring sits, for lining the wallpaper's reactor up behind it. */
@@ -356,6 +359,7 @@ class HomeView(context: Context) : View(context) {
         stage(canvas, win(b, .72f, .25f), dy = 30 * u) { drawMusic(canvas, t) }
         if (incoming == null && calls.isNotEmpty()) drawCall(canvas, calls.first())
         else if (incoming == null && b >= .86f && (b >= 1f || ((now() / 60) % 2 == 0L))) drawHint(canvas)
+        if (incoming == null && calls.isEmpty()) stage(canvas, win(b, .78f, .22f), dy = 20 * u) { drawJarvis(canvas) }
         drawModeShift(canvas)
         drawIncoming(canvas)
         drawLock(canvas)
@@ -903,7 +907,27 @@ class HomeView(context: Context) : View(context) {
 
     private fun drawHint(canvas: Canvas) {
         val text = if (open >= 0) "TAP AN APP · HOLD FOR OPTIONS · TAP THE CORE TO CLOSE" else "TAP A NODE · ↓ COMMS · ↑ ALL APPS · → GAME HUB"
-        canvas.drawText(text, width / 2f, y(822f), Hud.text(7 * u, Hud.alpha(Hud.DUST, .8f), Hud.MONO, .08f, Paint.Align.CENTER))
+        canvas.drawText(text, width / 2f, y(874f), Hud.text(7 * u, Hud.alpha(Hud.DUST, .8f), Hud.MONO, .08f, Paint.Align.CENTER))
+    }
+
+    /** The Jarvis button under the music bar: a small arc reactor and his name. Tap and talk. */
+    private fun drawJarvis(canvas: Canvas) {
+        val cy = y(834f)
+        val r = RectF(width / 2f - 74 * u, cy - 19 * u, width / 2f + 74 * u, cy + 19 * u)
+        // A slow breath, only as fast as the home screen already redraws: no extra frames for it.
+        val breath = .5f + .5f * sin(now() / 900.0).toFloat()
+        canvas.drawRoundRect(r, 19 * u, 19 * u, Hud.glow(Hud.fill(Hud.alpha(Hud.tint(0xFF1A0609.toInt()), .85f)), (6 + 6 * breath) * u, Hud.alpha(Hud.CRIMSON, .45f)))
+        canvas.drawRoundRect(r, 19 * u, 19 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .55f + .3f * breath), u))
+        // The reactor: rings and a hot core.
+        val ox = r.left + 22 * u
+        canvas.drawCircle(ox, cy, 11 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .5f), u))
+        val arc = Hud.glow(Hud.stroke(Hud.HOT, 1.6f * u), 4 * u)
+        val box = RectF(ox - 7.5f * u, cy - 7.5f * u, ox + 7.5f * u, cy + 7.5f * u)
+        for (k in 0..2) canvas.drawArc(box, k * 120f + 20f, 80f, false, arc)
+        canvas.drawCircle(ox, cy, (3 + breath) * u, Hud.glow(Hud.fill(Color.WHITE), 8 * u, Hud.HOT))
+        canvas.drawText("JARVIS", r.left + 42 * u, cy + 4.5f * u, Hud.text(12 * u, Color.WHITE, Hud.MONO_BOLD, .3f))
+        canvas.drawText("TAP · TALK", r.right - 14 * u, cy + 3 * u, Hud.text(6.5f * u, Hud.alpha(Hud.DUST, .9f), Hud.MONO, .12f, Paint.Align.RIGHT))
+        hits.add(0, RectF(r.left - 6 * u, r.top - 6 * u, r.right + 6 * u, r.bottom + 6 * u) to { host?.openJarvis(listen = true) })
     }
 
     // --- Call bar ---

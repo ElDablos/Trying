@@ -136,6 +136,8 @@ object JarvisParser {
         object Reboot : Command()
         /** "Systems check": what's running and what needs you. */
         object SystemsCheck : Command()
+        /** "The 7pm alarm always stays on" ([keep]), or "you can turn it off now" (not): a rule he keeps. */
+        data class KeepRule(val subject: String, val keep: Boolean) : Command()
         /** How you do things, taught: he keeps it and acts on it ("I wake up at 5 for a 7 start"…). */
         data class Learn(val lessons: List<JarvisLessons.Lesson>) : Command()
         /** "Set 6 alarms 5 minutes apart from 5am". */
@@ -190,6 +192,13 @@ object JarvisParser {
         Regex("^(?:no,? (?:it's called|it's|its|i mean|i meant|i said)|it's called|it is called|its called|it's named|the app is called|i mean|i meant|i said)\\s+(the )?(.+?)( app)?$").find(t)?.let { return Command.Correct(it.groupValues[2].clean()) }
 
         if (Regex("^(restart|reboot|reset|refresh) ?(yourself|jarvis|your systems|all systems|everything|all of jarvis|your hands)?$").matches(t)) return Command.Reboot
+        // Rules about things that must stay as they are: "the 7pm alarm always stays on", "never turn off the hallway light".
+        JarvisRules.read(t)?.let { r ->
+            return when (r) {
+                is JarvisRules.Said.KeepOn -> Command.KeepRule(r.subject, true)
+                is JarvisRules.Said.LetGo -> Command.KeepRule(r.subject, false)
+            }
+        }
         // Teaching him how you do things: kept and acted on.
         JarvisLessons.read(t).takeIf { it.isNotEmpty() }?.let { lessons ->
             if (JarvisLessons.isStatement(t)) return Command.Learn(lessons)

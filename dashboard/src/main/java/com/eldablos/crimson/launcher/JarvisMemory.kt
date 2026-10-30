@@ -186,6 +186,12 @@ object JarvisMemory {
      */
     fun seed(context: Context) {
         val p = prefs(context)
+        // The 7pm "Place Order" alarm always stays on (it rings every day but Saturday; the Clock keeps its days).
+        if (!p.getBoolean("seeded:3", false)) {
+            p.edit().putBoolean("seeded:3", true).apply()
+            if (JarvisRules.all(context).none { it.kind == JarvisRules.ALARM && it.key.contains("19:00") })
+                JarvisRules.add(context, JarvisRules.Keep(JarvisRules.ALARM, "19:00", "7pm Place Order alarm (every day but Saturday)"))
+        }
         // The heater's on 25 (Air+ won't tell him, so he starts from what Vee said).
         if (!p.getBoolean("seeded:2", false)) {
             p.edit().putBoolean("seeded:2", true).apply()

@@ -140,7 +140,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     private sealed class Pending {
         /** He asked "shall I?": yes runs it. */
-        class Confirm(val yes: () -> Reply, val no: String) : Pending()
+        class Confirm(val yes: () -> Reply, val no: String, val noRun: (() -> Reply)? = null) : Pending()
         /** He asked which app something's in. */
         class WhichApp(val name: String) : Pending()
         /** He asked what the note should say. */
@@ -291,7 +291,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             pending = null
             when (cmd) {
                 Command.Yes -> return styled(p.yes())
-                Command.No -> return styled(Reply(p.no))
+                Command.No -> return styled(p.noRun?.invoke() ?: Reply(p.no))
                 else -> {}
             }
         }
@@ -750,6 +750,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             travel(if (!cmd.dayGiven && prev != null && cmd.line != null) prev.day else cmd.day, cmd.line)
         }
         is Command.ItAction -> itAction(cmd.kind)
+        is Command.KeepRule -> keepRule(cmd.subject, cmd.keep)
         is Command.PhoneAction -> phoneAction(cmd.kind)
         is Command.Ringer -> ringer(cmd.mode)
         is Command.HeaterNow -> {
@@ -1122,6 +1123,22 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         } catch (e: SecurityException) {
             Reply("Android won't let me change that without Do not disturb access${sir()}.", actions = listOf(Action("ALLOW", run = { start(Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) })), failed = true)
         }
+    }
+
+    /** A rule to keep something on (or to let it go), with what it'll mean in practice. */
+    private fun keepRule(subject: String, keep: Boolean): Reply {
+        val k = JarvisRules.keyFor(subject) ?: return Reply("Which alarm${sir()}? Tell me its time, like \"the 7pm alarm always stays on\".", listen = true)
+        val name = if (k.kind == JarvisRules.ALARM) "your ${JarvisRules.alarmName(k.key)} alarm" else "the ${k.key}"
+        if (!keep) {
+            JarvisRules.remove(context, k.kind, k.key)
+            return Reply("Understood${sir()}: $name doesn't have to stay on any more.")
+        }
+        JarvisRules.add(context, k)
+        val means = if (k.kind == JarvisRules.ALARM) "If you ask me to switch off all your alarms, I'll leave that one and check with you first."
+        else "If anything would switch it off, I'll check with you first."
+        return Reply("Understood${sir()}: $name always stays on. $means",
+            card = Card("✦", "RULE · KEPT ON", name.removePrefix("your ").removePrefix("the ").uppercase(), "I'll ask before switching it off", tone = Tone.BLUE),
+            actions = listOf(Action("MY RULES", "what do you know about me")))
     }
 
     /** "Delete it", "tick it off": the note he just read, wrote or changed. */
@@ -1641,7 +1658,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 }
                 Reply("Done. Your ${time.format(tf)} alarm is off.", actions = listOf(undoAction))
             }, "Very well, it stays on.")
-            return Reply("Switch off your ${time.format(tf)} alarm${sir()}?", listen = true,
+            return Reply(if (time in JarvisRules.keptAlarms(context)) "That's your ${time.format(tf)} alarm, which you said always stays on${sir()}. Switch it off anyway?" else "Switch off your ${time.format(tf)} alarm${sir()}?", listen = true,
                 card = Card("⏰", "NEXT ALARM", time.format(tf), whenText(at(next).toLocalDate(), null).replaceFirstChar { it.uppercase() }, tone = Tone.GOLD),
                 actions = listOf(Action("SWITCH OFF", "yes", primary = true), Action("KEEP", "no"), Action("ALL ALARMS", run = { open() })))
         }
@@ -1661,10 +1678,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun showAlarms() = Intent(AlarmClock.ACTION_SHOW_ALARMS).setPackage(JarvisReaders.CLOCK).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
     /** Switches the alarm at [time] (or every one, for null) on or off, by its switch in the Clock. */
-    private fun clockSwitch(time: LocalTime?, on: Boolean) = JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), "I couldn't reach the Clock's alarms, sir.") { root, tries ->
+    private fun clockSwitch(time: LocalTime?, on: Boolean, except: Set<LocalTime> = emptySet()) = JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), "I couldn't reach the Clock's alarms, sir.") { root, tries ->
         val rows = JarvisReaders.alarms(root)
         if (rows.isEmpty() && tries < 4) return@custom null
-        val targets = if (time == null) rows else rows.filter { it.time == time }
+        val targets = (if (time == null) rows else rows.filter { it.time == time }).filter { it.time !in except }
         if (targets.isEmpty()) return@custom if (time != null) "I couldn't see a ${time.format(tf)} alarm in the Clock, sir." else "There aren't any alarms to switch, sir."
         val changed = targets.filter { it.on != on }
         changed.forEach { r -> r.switch?.let { JarvisHands.press(it) } }
@@ -1675,8 +1692,29 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         }
     }
 
-    private fun alarmSwitch(time: LocalTime?, on: Boolean): Reply {
+    private fun alarmSwitch(time: LocalTime?, on: Boolean, checked: Boolean = false): Reply {
         val what = time?.let { "your ${it.format(tf)} alarm" } ?: "all your alarms"
+        // Alarms you said always stay on: never switched off without a yes.
+        val kept = JarvisRules.keptAlarms(context)
+        if (!on && !checked && handsOnClock()) {
+            if (time != null && time in kept) {
+                pending = Pending.Confirm({ alarmSwitch(time, false, checked = true) }, "Very good, it stays on.")
+                return Reply("You told me your ${time.format(tf)} alarm always stays on${sir()}. Turn it off anyway?", listen = true,
+                    card = Card("⏰", "KEPT ON · YOUR RULE", time.format(tf), "turn it off anyway?", tone = Tone.GOLD),
+                    actions = listOf(Action("TURN IT OFF", "yes"), Action("KEEP IT ON", "no", primary = true)))
+            }
+            if (time == null && kept.isNotEmpty()) {
+                val names = kept.sorted().joinToString(" and ") { it.format(tf) }
+                pending = Pending.Confirm(
+                    { push("Put your alarms back") { clockSwitch(null, true); "Switching them back on." }; clockSwitch(null, false); Reply("All of them off, $names included${sir()}.") },
+                    "",
+                    { push("Put your alarms back") { clockSwitch(null, true); "Switching them back on." }; clockSwitch(null, false, except = kept); Reply("Done: everything off except $names, as you like it${sir()}.") },
+                )
+                return Reply("Switching off all your alarms. Your $names ${if (kept.size == 1) "alarm always stays" else "alarms always stay"} on, as you told me. Turn ${if (kept.size == 1) "that one" else "those"} off too?", listen = true,
+                    card = Card("⏰", "ALL ALARMS OFF?", "EXCEPT $names", "your rule: always on", tone = Tone.GOLD),
+                    actions = listOf(Action("YES, ALL", "yes"), Action("KEEP $names", "no", primary = true)))
+            }
+        }
         if (handsOnClock()) {
             push("Put ${what.removePrefix("your ")} back") {
                 clockSwitch(time, !on)
@@ -2149,7 +2187,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     /** Wi-Fi and friends: Android keeps those switches for you, so he puts the right one in front of you. */
-    private fun setting(kind: String, on: Boolean?): Reply {
+    private fun setting(kind: String, on: Boolean?, checked: Boolean = false): Reply {
+        if (on == false && !checked) JarvisRules.keptThing(context, kind)?.let {
+            pending = Pending.Confirm({ setting(kind, false, checked = true) }, "Very good, it stays on.")
+            return Reply("You told me $kind always stays on${sir()}. Turn it off anyway?", listen = true,
+                actions = listOf(Action("TURN IT OFF", "yes"), Action("KEEP IT ON", "no", primary = true)))
+        }
         val (panel, label) = when (kind) {
             "wifi" -> Intent(android.provider.Settings.Panel.ACTION_WIFI) to "Wi-Fi"
             "bluetooth" -> Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS) to "Bluetooth"
@@ -2226,7 +2269,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         actions = listOfNotNull(Action("✋ ENABLE HANDS", primary = true, run = { start(JarvisHands.settingsIntent()) }), fallback),
     )
 
-    private fun device(name: String?, on: Boolean?, light: Boolean): Reply {
+    private fun device(name: String?, on: Boolean?, light: Boolean, checked: Boolean = false): Reply {
+        // Something you said always stays on: ask first.
+        if (on == false && !checked) JarvisRules.keptThing(context, name)?.let { k ->
+            pending = Pending.Confirm({ device(name, false, light, checked = true) }, "Very good, it stays on.")
+            return Reply("You told me ${k.said.removePrefix("the ").let { "the $it" }} always stays on${sir()}. Turn it off anyway?", listen = true,
+                actions = listOf(Action("TURN IT OFF", "yes"), Action("KEEP IT ON", "no", primary = true)))
+        }
         val skill = JarvisHands.skill(context, name)
         val label = (skill?.name ?: name ?: "light").removePrefix("the ")
         lastDevice = label
@@ -2557,6 +2606,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (JarvisMemory.alarmCount(context) > 1) add(Row("ALARMS", "${JarvisMemory.alarmCount(context)} × every ${JarvisMemory.alarmGap(context)} min"))
         add(Row("JOURNEY", "${JarvisMemory.commuteMinutes(context)} min · ${Travel.nameOf(Travel.commute(context).first())}"))
         Travel.dayLines(context).forEach { (d, l) -> add(Row(d.getDisplayName(TextStyle.FULL, Locale.getDefault()).uppercase() + "S", Travel.nameOf(l))) }
+        // Things you said must stay on.
+        JarvisRules.all(context).forEach { k -> add(Row("ALWAYS ON", if (k.kind == JarvisRules.ALARM) JarvisRules.alarmName(k.key) + " alarm" else k.key)) }
         // What he's noticed you do on the phone.
         PhoneHabits.byBand(context).forEach { (band, apps) ->
             if (apps.isNotEmpty()) add(Row(band.uppercase() + "S", apps.joinToString(", ") { PhoneHabits.label(context, it) }))

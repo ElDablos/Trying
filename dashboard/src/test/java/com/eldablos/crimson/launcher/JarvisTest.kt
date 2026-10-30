@@ -409,6 +409,24 @@ class JarvisTest {
     }
 
     @Test
+    fun keepingThingsOn() {
+        for (said in listOf("The 7pm alarm stays always on", "the 7pm alarm always stays on", "keep my 7pm alarm on", "never turn off the 7pm alarm",
+                "don't ever turn off my 7pm alarm", "the 7pm alarm should always stay on", "the 7pm alarm is always on", "always keep the 7pm alarm on",
+                "my 7pm alarm must never be turned off", "don't touch my 7pm alarm")) {
+            assertEquals(said, Command.KeepRule(if (said.contains("my 7pm")) "7pm alarm" else "7pm alarm", true), p(said).let { if (it is Command.KeepRule) it.copy(subject = it.subject.removePrefix("my ").removePrefix("the ")) else it })
+        }
+        assertEquals(Command.KeepRule("7pm alarm", false), p("you can turn off the 7pm alarm now"))
+        assertEquals(Command.KeepRule("7pm alarm", true), p("I have a 7pm alarm that's always on except for Saturdays"))
+        assertEquals(Command.KeepRule("7pm alarm", true), p("the 7pm alarm always stays on apart from weekends"))
+        assertEquals(Command.KeepRule("hallway light", true), p("never turn off the hallway light"))
+        assertEquals(JarvisRules.Keep(JarvisRules.ALARM, "19:00", "7pm alarm"), JarvisRules.keyFor("7pm alarm"))
+        assertEquals(JarvisRules.Keep(JarvisRules.ALARM, "07:00", "7am alarm"), JarvisRules.keyFor("7am alarm"))
+        assertEquals(JarvisRules.Keep(JarvisRules.ALARM, "07:00|19:00", "7 o'clock alarm"), JarvisRules.keyFor("7 o'clock alarm"))
+        assertEquals(Command.AlarmSwitch(null, false), p("turn all my alarms off"))
+        assertFalse(p("keep going") is Command.KeepRule)
+    }
+
+    @Test
     fun handsLogAsHeard() {
         assertEquals(Command.HandsLog, p("Send me hands long"))
         assertEquals(Command.HandsLog, p("Hands long"))

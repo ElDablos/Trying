@@ -84,8 +84,8 @@ object Travel {
             val today = day == LocalDate.now()
             val range = if (today) "" else "/${day}T05:00:00/${day}T23:59:00"
             val rail = get("$API/Line/Mode/$RAIL/Status$range")
-            val national = get("$API/Line/Mode/national-rail/Status$range")
-            val roads = get("$API/Road/all/Status" + if (today) "" else "?dateRangeNullable.startDate=${enc("${day}T06:00:00")}&dateRangeNullable.endDate=${enc("${day}T20:00:00")}")
+            val national: String? = null
+            val roads: String? = null
             if (rail != null) {
                 // Only the latest few days are kept.
                 val e = p.edit()
@@ -166,7 +166,7 @@ object Travel {
         val r = l.reason.replace(Regex("^${Regex.escape(l.name)}( line)?\\s*:\\s*", RegexOption.IGNORE_CASE), "").replace(Regex("\\s+"), " ").trim()
         if (r.isEmpty()) return ""
         val first = r.split(Regex("(?<=\\.)\\s")).first()
-        return if (first.length > 170) first.take(167).substringBeforeLast(' ') + "…" else first
+        return if (first.length > 110) first.take(107).substringBeforeLast(' ') + "…" else first
     }
 
     fun lineName(l: Line) = if (l.mode == "tube" || l.mode == "elizabeth-line") "${l.name.removeSuffix(" line")} line" else l.name
@@ -176,49 +176,45 @@ object Travel {
         val mine = commute.mapNotNull { id -> r.lines.firstOrNull { it.id == id } }
         val usual = mine.firstOrNull()
         val backups = mine.drop(1)
-        val trouble = r.lines.filter { !it.fine && it.id !in commute }
-        val roads = r.roads.filter { it.bad }
+        // The tube and the lines like it: no buses, roads or national rail (you don't drive, and rarely bus).
+        val trouble = r.lines.filter { !it.fine && it.id !in commute && it.mode != "national-rail" }
         val day = if (r.day == LocalDate.now()) "today" else if (r.day == LocalDate.now().plusDays(1)) "tomorrow" else "on ${r.day.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }}"
         val sb = StringBuilder()
         var plan = false
         val headline: String
         if (usual == null) {
             headline = "No word from TfL on your line"
-            sb.append("I couldn't get the status of your usual line $day, sir. ")
+            sb.append("I couldn't get your line's status $day, sir.")
         } else if (usual.fine) {
             headline = "${lineName(usual)}: good service $day"
-            sb.append("The ${lineName(usual)} is running a good service $day, so no need to plan ahead. ")
+            sb.append("The ${short(usual)}'s running fine $day, no need to plan ahead.")
         } else {
-            val cause = why(usual).let { if (it.isNotEmpty()) " $it" else "" }
             val okBackup = backups.firstOrNull { it.fine }
             plan = usual.bad || okBackup == null
             headline = "${lineName(usual)}: ${usual.status.lowercase()} $day"
-            sb.append("Heads up, sir: ${clause(usual, day)}.$cause ")
-            when {
-                usual.bad && okBackup != null -> sb.append("I'd plan your journey ahead of time. The ${lineName(okBackup)} is running fine, so that's your best bet. ")
-                usual.bad -> sb.append("And your usual back-ups aren't much better, so plan ahead and leave plenty of extra time. ")
-                okBackup != null -> sb.append("Leave ten or fifteen minutes early, or take the ${lineName(okBackup)}, which is running fine. ")
-                else -> sb.append("Leave a bit earlier to be safe. ")
-            }
+            sb.append(clause(usual, day).replaceFirstChar { it.uppercase() })
+            why(usual).takeIf { it.isNotEmpty() }?.let { sb.append(": ").append(it.trimEnd('.').replaceFirstChar { c -> c.lowercase() }) }
+            sb.append(". ")
+            sb.append(when {
+                usual.bad && okBackup != null -> "Plan ahead and take the ${lineName(okBackup)}, it's running fine."
+                usual.bad -> "Plan ahead and leave plenty of extra time; your back-ups are struggling too."
+                okBackup != null -> "Leave ten minutes early, or take the ${lineName(okBackup)}."
+                else -> "Leave a bit early to be safe."
+            })
         }
-        // The back-ups, when they're the ones in trouble.
-        if (usual?.fine == true) backups.filter { !it.fine }.takeIf { it.isNotEmpty() }?.let { b ->
-            sb.append("If you need them, the ${b.joinToString(" and the ") { lineName(it) }} ${if (b.size == 1) "has" else "have"} ${b.joinToString(" and ") { it.status.lowercase() }}. ")
+        // The back-ups, only when they're the ones in trouble and you might need them.
+        if (usual?.fine == true) backups.filter { it.bad }.takeIf { it.isNotEmpty() }?.let { b ->
+            sb.append(" The ${b.joinToString(" and ") { short(it) }} ${if (b.size == 1) "is" else "are"} disrupted though.")
         }
-        // Everything else on the network.
-        val tube = trouble.filter { it.mode == "tube" || it.mode == "elizabeth-line" || it.mode == "overground" || it.mode == "dlr" || it.mode == "tram" }
-        val rail = trouble.filter { it.mode == "national-rail" }
-        if (tube.isEmpty() && rail.isEmpty()) sb.append("Everything else on the tube and rail is running normally. ")
-        else {
-            if (tube.isNotEmpty()) sb.append("Elsewhere: " + tube.take(5).joinToString(", ") { "${it.status.lowercase()} on the ${lineName(it)}" } + (if (tube.size > 5) ", and ${tube.size - 5} more" else "") + ". ")
-            if (rail.isNotEmpty()) sb.append("On the trains, " + rail.take(4).joinToString(", ") { "${it.name} has ${it.status.lowercase()}" } + (if (rail.size > 4) ", and ${rail.size - 4} more" else "") + ". ")
+        // The rest of the network, in a breath.
+        if (trouble.isNotEmpty()) {
+            val names = trouble.take(3).map { short(it) }
+            val list = if (names.size == 1) names[0] else names.dropLast(1).joinToString(", ") + " and " + names.last()
+            sb.append(" Elsewhere, problems on the $list" + (if (trouble.size > 3) " and ${trouble.size - 3} more" else "") + ".")
         }
-        // The roads.
-        when {
-            r.roads.isEmpty() -> {}
-            roads.isEmpty() -> sb.append("Traffic across London looks normal on the main roads.")
-            else -> sb.append("On the roads, ${roads.take(4).joinToString(", ") { "the ${it.name} has ${it.status.lowercase().ifEmpty { it.severity.lowercase() }}" }}" + (if (roads.size > 4) ", and ${roads.size - 4} more routes" else "") + ".")
-        }
-        return Advice(plan, headline, sb.toString().trim(), mine, trouble, roads)
+        return Advice(plan, headline, sb.toString().trim(), mine, trouble, emptyList())
     }
+
+    /** "Jubilee", "Elizabeth line", "Lioness line": how you'd say it in passing. */
+    private fun short(l: Line) = if (l.mode == "tube") l.name.removeSuffix(" line") else lineName(l)
 }

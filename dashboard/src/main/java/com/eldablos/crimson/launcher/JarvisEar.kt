@@ -48,6 +48,9 @@ class JarvisEar : Service() {
     private var model: Model? = null
     private var wake: SpeechService? = null
     private var recognizer: SpeechRecognizer? = null
+
+    /** The command heard on the phone itself, with Vosk, while it's locked (Google's recognizer can't use the mic then). */
+    private var command: SpeechService? = null
     private var overlay: JarvisOverlay? = null
     private var session = false
     private var lingering = false
@@ -233,9 +236,13 @@ class JarvisEar : Service() {
         o.show()
     }
 
+    private fun locked() = getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
+
     /** Hears one command; a [followUp] that hears nothing just ends the conversation. */
     private fun listen(followUp: Boolean) {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return end(goHome = false)
+        // Locked: Android won't give Google's recognizer the mic, so he listens himself.
+        if (locked() && modelReady(this)) return listenOffline(followUp)
         recognizer?.destroy()
         val r = SpeechRecognizer.createSpeechRecognizer(this)
         recognizer = r
@@ -247,6 +254,14 @@ class JarvisEar : Service() {
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() { overlay?.state = JarvisOverlay.State.THINKING }
             override fun onError(error: Int) {
+                // Refused the mic or the service (locked, or busy): hear it on the phone instead.
+                val refused = error == SpeechRecognizer.ERROR_AUDIO || error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
+                    error == SpeechRecognizer.ERROR_CLIENT || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED
+                if (refused && modelReady(this@JarvisEar) && recognizer === r) {
+                    recognizer = null
+                    r.destroy()
+                    return listenOffline(followUp)
+                }
                 if (followUp) end(goHome = lingering) else {
                     overlay?.said("Didn't catch that, sir.")
                     main.postDelayed({ end(goHome = false) }, 1500)
@@ -379,6 +394,82 @@ class JarvisEar : Service() {
         })
     }
 
+    /**
+     * One command, heard on the phone with Vosk's full vocabulary (the same model as the wake word):
+     * a little less sharp than Google's, but it works with the phone locked and nothing leaves it.
+     */
+    private fun listenOffline(followUp: Boolean) {
+        stopCommand()
+        overlay?.state = JarvisOverlay.State.LISTENING
+        Thread {
+            try {
+                val m = model ?: Model(modelDir(this).absolutePath).also { model = it }
+                val rec = Recognizer(m, 16000f)
+                main.post {
+                    if (!session) {
+                        rec.close()
+                        return@post
+                    }
+                    try {
+                        var done = false
+                        val svc = SpeechService(rec, 16000f)
+                        command = svc
+                        fun heard(json: String?) {
+                            if (done) return
+                            val text = try { JSONObject(json ?: "").optString("text").trim() } catch (e: Exception) { "" }
+                            if (text.isEmpty() || text == "jarvis") return
+                            done = true
+                            stopCommand()
+                            JarvisSound.play(this@JarvisEar, JarvisSound.Cue.HEARD)
+                            overlay?.heard("“$text”")
+                            handle(text)
+                        }
+                        svc.startListening(object : org.vosk.android.RecognitionListener {
+                            override fun onPartialResult(hypothesis: String?) {
+                                val p = try { JSONObject(hypothesis ?: "").optString("partial") } catch (e: Exception) { "" }
+                                if (p.isNotBlank()) overlay?.heard("“$p”")
+                            }
+                            override fun onResult(hypothesis: String?) = heard(hypothesis)
+                            override fun onFinalResult(hypothesis: String?) = heard(hypothesis)
+                            override fun onError(exception: Exception?) {
+                                if (done) return
+                                done = true
+                                stopCommand()
+                                end(goHome = false)
+                            }
+                            override fun onTimeout() {
+                                if (done) return
+                                done = true
+                                stopCommand()
+                                if (followUp) end(goHome = lingering) else {
+                                    overlay?.said("Didn't catch that, sir.")
+                                    main.postDelayed({ end(goHome = false) }, 1500)
+                                }
+                            }
+                        }, if (followUp) 6000 else 9000)
+                    } catch (e: Exception) {
+                        stopCommand()
+                        end(goHome = false)
+                    }
+                }
+            } catch (e: Exception) {
+                main.post { end(goHome = false) }
+            }
+        }.start()
+    }
+
+    private fun stopCommand() {
+        command?.let {
+            command = null
+            try {
+                it.stop()
+                it.shutdown()
+            } catch (e: Exception) {
+                // Already stopped.
+            }
+        }
+    }
+
     private fun toLauncher(say: String) {
         startActivity(Intent(this, LauncherActivity::class.java).putExtra(JarvisProactive.EXTRA_SAY, say).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))
         end(goHome = false)
@@ -388,6 +479,7 @@ class JarvisEar : Service() {
     private fun end(goHome: Boolean) {
         recognizer?.destroy()
         recognizer = null
+        stopCommand()
         overlay?.hide()
         val wasLingering = lingering
         session = false

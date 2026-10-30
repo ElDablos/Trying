@@ -54,6 +54,9 @@ class JarvisHands : AccessibilityService() {
     // --- Jobs ---
 
     private sealed class Job(val pkg: String) {
+        /** Acted and about to report: the screen changing after the tap mustn't make it tap again. */
+        var done = false
+
         class Run(pkg: String, val skill: Skill, val on: Boolean?, var step: Int = 0) : Job(pkg)
         class Guess(pkg: String, val device: String?, val on: Boolean?, var opened: Boolean = false) : Job(pkg)
         class Learn(pkg: String, val name: String, val taps: MutableList<Target> = ArrayList()) : Job(pkg)
@@ -102,6 +105,7 @@ class JarvisHands : AccessibilityService() {
 
     private fun step() {
         val j = job ?: return
+        if (j.done) return
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != j.pkg) return
         when (j) {
@@ -112,18 +116,25 @@ class JarvisHands : AccessibilityService() {
                 if (last && j.on != null) state(node)?.let { if (it == j.on) return finish(true, ALREADY) }
                 if (!tap(node)) return
                 j.step++
-                if (j.step >= j.skill.steps.size) main.postDelayed({ finish(true, null) }, 700)
+                if (j.step >= j.skill.steps.size) {
+                    j.done = true
+                    main.postDelayed({ finish(true, null) }, 700)
+                }
                 else main.postDelayed(attempt, 650)
             }
             is Job.Guess -> {
                 val power = guessSwitch(root, j.device) ?: return
                 if (j.on != null) state(power)?.let { if (it == j.on) return finish(true, ALREADY) }
-                if (tap(power)) main.postDelayed({ finish(true, null) }, 700)
+                if (tap(power)) {
+                    j.done = true
+                    main.postDelayed({ finish(true, null) }, 700)
+                }
             }
             is Job.Learn -> {}
             is Job.Custom -> {
                 j.tries++
                 val said = j.step(root, j.tries) ?: return
+                j.done = true
                 main.postDelayed({ finish(true, said) }, 500)
             }
         }
@@ -349,6 +360,18 @@ class JarvisHands : AccessibilityService() {
         /** Opens [pkg] (with [open], or its launcher), works the screen with [step], then comes back and says what it returned. */
         fun custom(pkg: String, open: Intent?, failed: String, timeout: Long = 12_000, step: (AccessibilityNodeInfo, Int) -> String?): Boolean =
             instance?.run { begin(Job.Custom(pkg, open, step, failed = failed), timeout); true } ?: false
+
+        /** A finger tap at a point on screen, for controls that don't describe themselves (a slider, a colour dot). */
+        fun tapAt(x: Float, y: Float): Boolean = instance?.run {
+            val path = Path().apply { moveTo(x, y) }
+            dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 60)).build(), null, null)
+        } ?: false
+
+        /** A slow finger drag, for wheels and lists that only move by hand (slow so it doesn't fling). */
+        fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long = 550): Boolean = instance?.run {
+            val path = Path().apply { moveTo(x1, y1); lineTo(x2, y2) }
+            dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, ms)).build(), null, null)
+        } ?: false
 
         /** Taps [node], or the nearest parent that can be tapped. */
         fun press(node: AccessibilityNodeInfo): Boolean {

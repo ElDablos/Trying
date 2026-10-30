@@ -159,6 +159,9 @@ back to One UI Home the same way at any time.
     notes"; "rename the gym habit to gym session"; "change my Monday shift to 8 till 4"; "move the dentist to
     Friday at 2"; "change my locker code to 9921"; "change the holiday countdown to 5 March"; "cancel the
     dentist" (he checks first). All undoable.
+  - **Lights (Tapo)**: on and off by the light's own button (only when it needs it), "brighter", "dimmer",
+    "lights to 30%", "full brightness", "next colour", "make the light red / blue / green / purple / warm white"
+    (your presets, in order), and "brighter" or "red" again straight after.
   - **Heating (Air+)**: "turn on the heating" (or "I'm cold"), "heating off", "turn on the air con", "set it to
     28 degrees", "warmer", "turn the heat down two", and "and 24" right after. Hands open Air+, press power,
     the mode and + / − until it reads your number, then come back. "Learn the heating in Air+" if it can't

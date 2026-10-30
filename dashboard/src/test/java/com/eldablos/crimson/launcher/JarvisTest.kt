@@ -239,4 +239,18 @@ class JarvisTest {
         assertEquals(Command.Undo, p("Undo that"))
         assertEquals(Command.No, p("Cancel"))
     }
+
+    @Test
+    fun lightBrightnessAndColour() {
+        assertEquals(Command.Brightness(null, 20), p("Brighter"))
+        assertEquals(Command.Brightness(null, -20), p("Dim the lights"))
+        assertEquals(Command.Brightness(null, -20), p("Make the light dimmer"))
+        assertEquals(Command.Brightness(30), p("Set the lights to 30%"))
+        assertEquals(Command.Brightness(80), p("Light brightness 80 percent"))
+        assertEquals(Command.Brightness(100), p("Full brightness on the light"))
+        assertEquals(Command.LightColour(null), p("Next colour"))
+        assertEquals(Command.LightColour("red"), p("Make the light red"))
+        assertEquals(Command.LightColour("warm white"), p("Change the light to warm white"))
+        assertEquals(Command.Lights(false, "bedroom light"), p("Turn off the bedroom light"))
+    }
 }

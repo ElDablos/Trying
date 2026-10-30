@@ -308,6 +308,14 @@ class Jarvis(private val context: Context, private val host: Host) {
                 if (Regex("\\bnext week\\b").containsMatchIn(lower)) Command.FollowUp(null, nextWeek = true) to null else date?.let { Command.FollowUp(it) to null }
             is Command.Remember -> Regex("^(?:my |the )?(.+?) (?:is|are) (.+)$", RegexOption.IGNORE_CASE).find(rest)?.let { Command.Remember(JarvisParser.key(it.groupValues[1]), it.groupValues[2]) to null }
             is Command.Climate, is Command.SetTemp -> Regex("(\\d{1,2}(?:[.,]5)?)").find(lower)?.let { Command.SetTemp(it.groupValues[1].replace(',', '.').toDouble()) to null }
+            is Command.Brightness, is Command.LightColour -> when {
+                Regex("brighter|up|more").containsMatchIn(lower) -> Command.Brightness(null, 20) to null
+                Regex("dimmer|darker|down|less").containsMatchIn(lower) -> Command.Brightness(null, -20) to null
+                Regex("(\\d{1,3})").containsMatchIn(lower) -> Command.Brightness(Regex("(\\d{1,3})").find(lower)!!.value.toInt().coerceIn(1, 100)) to null
+                JarvisReaders.presetFor(lower) != null -> Command.LightColour(lower) to null
+                Regex("next|another").containsMatchIn(lower) -> Command.LightColour(null) to null
+                else -> null
+            }
             is Command.Lights, is Command.Switch -> {
                 val on = (l as? Command.Lights)?.on ?: (l as? Command.Switch)?.on ?: true
                 Regex("^(?:the |my )?(.+)$").find(lower)?.let { Command.Switch(it.groupValues[1].trim(), on) to null }
@@ -609,6 +617,8 @@ class Jarvis(private val context: Context, private val host: Host) {
         is Command.Change -> change(cmd.subject, cmd.value)
         is Command.DeleteThing -> deleteThing(cmd.subject)
         is Command.RenameHabit -> renameHabit(cmd.old, cmd.new)
+        is Command.Brightness -> lightControl("brightness", cmd.percent, cmd.by, null)
+        is Command.LightColour -> lightControl("colour", null, 0, cmd.colour)
         is Command.Climate -> climate(cmd.on, cmd.mode)
         is Command.SetTemp -> setTemp(cmd.degrees, cmd.by)
         is Command.Correct -> correct(cmd.name)
@@ -1638,15 +1648,68 @@ class Jarvis(private val context: Context, private val host: Host) {
         }
         if (light && tapo != null) {
             push("The $label ${if (on == false) "on" else "off"} again") {
-                JarvisHands.guessTapo(name, on?.not())
+                tapoPower(name, on?.not())
                 "Switching it back."
             }
-            return Reply(say("Certainly, sir.", "Leave it with me.", "OK."), then = { JarvisHands.guessTapo(name, on) }, afterSpeech = true,
+            return Reply(say("Certainly, sir.", "Leave it with me.", "OK."), then = { tapoPower(name, on) }, afterSpeech = true,
                 card = Card("✋", "HANDS · TAPO", verb, "finding the $label's switch", tone = Tone.GOLD),
                 actions = listOf(Action("TEACH ME INSTEAD", "learn the $label")))
         }
         return Reply("I haven't learnt the $label yet${sir()}. Say \"learn the $label\" and show me once; after that it's mine.",
             actions = listOf(Action("TEACH ME", "learn the $label", primary = true)), failed = true)
+    }
+
+    /** Tapo's home screen: the light's own power button, pressed only if it isn't already as asked. */
+    private fun tapoPower(name: String?, on: Boolean?) = JarvisHands.custom(TAPO, null, "I couldn't find the light in Tapo, sir. Show me once: say \"learn the light\".") { root, tries ->
+        val list = JarvisReaders.lights(root)
+        val l = JarvisReaders.light(list, name) ?: return@custom if (tries < 6) null else "I couldn't see any lights in Tapo, sir."
+        if (on != null && l.on == on) return@custom "${l.name} is already ${if (on) "on" else "off"}, sir."
+        val p = l.power ?: return@custom "I couldn't find ${l.name}'s power button, sir."
+        JarvisHands.press(p)
+        when (on) {
+            true -> "Done, sir. ${l.name} is on."
+            false -> "Done. ${l.name} is off."
+            null -> "Done, sir. ${l.name} is ${if (l.on == true) "off" else "on"}."
+        }
+    }
+
+    /** On the light's page in Tapo: brightness (to a level, or brighter/dimmer) or colour (a named preset, or the next). */
+    private fun lightControl(kind: String, percent: Int?, by: Int, colour: String?): Reply {
+        val tapo = AppCatalog.apps().firstOrNull { it.component.packageName == TAPO } ?: return Reply("I can't find the Tapo app, sir.", failed = true)
+        if (!JarvisHands.enabled(context)) return needHands("the lights", Action("OPEN TAPO", run = { host.launch(tapo.component) }))
+        val name = lastDevice?.takeIf { Regex("light|lamp|bulb|room").containsMatchIn(it) }
+        lastDevice = name ?: "light"
+        val prefs = context.getSharedPreferences("jarvis_hands", Context.MODE_PRIVATE)
+        var opened = false
+        val job = {
+            JarvisHands.custom(TAPO, null, "I couldn't open the light in Tapo, sir.", timeout = 20_000) { root, tries ->
+                if (!JarvisReaders.tapoLightPage(root)) {
+                    if (opened && tries < 12) return@custom null
+                    val l = JarvisReaders.light(JarvisReaders.lights(root), name) ?: return@custom if (tries < 6) null else "I couldn't see the light in Tapo, sir."
+                    if (l.on == false) l.power?.let { JarvisHands.press(it) }
+                    JarvisHands.press(l.card)
+                    opened = true
+                    return@custom null
+                }
+                if (kind == "brightness") {
+                    val (now, _) = JarvisReaders.brightness(root)
+                    val goal = (percent ?: ((now ?: 50) + by)).coerceIn(1, 100)
+                    if (!JarvisReaders.setBrightness(root, goal)) return@custom "I couldn't move the brightness slider, sir."
+                    prefs.edit().putInt("brightness", goal).apply()
+                    "Done, sir. Brightness at $goal percent" + (now?.takeIf { it != goal }?.let { ", from $it." } ?: ".")
+                } else {
+                    val index = colour?.let { JarvisReaders.presetFor(it) } ?: ((prefs.getInt("preset", 1) + 1) % 6)
+                    if (!JarvisReaders.tapPreset(root, index)) return@custom "I couldn't find the colour presets, sir."
+                    prefs.edit().putInt("preset", index).apply()
+                    if (colour != null) "Done, sir. ${colour.replaceFirstChar { it.uppercase() }} it is." else "Next colour, sir."
+                }
+            }
+        }
+        val label = if (kind == "brightness") percent?.let { "$it%" } ?: if (by > 0) "BRIGHTER" else "DIMMER" else colour?.uppercase() ?: "NEXT"
+        return Reply(say("Certainly, sir.", if (kind == "colour") "Redecorating." else "On it.", "OK."), afterSpeech = true, then = { job() },
+            card = Card("✋", "HANDS · TAPO · ${kind.uppercase()}", label, "on the light's page", tone = Tone.GOLD),
+            actions = if (kind == "brightness") listOf(Action("BRIGHTER", "brighter"), Action("DIMMER", "dimmer"), Action("50%", "lights to 50%"))
+            else listOf(Action("NEXT COLOUR", "next colour"), Action("WARM WHITE", "make the light warm white")))
     }
 
     private fun appLabel(pkg: String) = AppCatalog.apps().firstOrNull { it.component.packageName == pkg }?.label ?: pkg.substringAfterLast('.')

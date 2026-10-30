@@ -101,6 +101,10 @@ object JarvisParser {
         /** "Which lights are on?": he looks in Tapo. */
         object LightsStatus : Command()
         object ScreenTime : Command()
+        /** The light's brightness: [percent] outright, or up or down [by]. */
+        data class Brightness(val percent: Int?, val by: Int = 0, val name: String? = null) : Command()
+        /** The light's colour: a name ("red", "warm white"), or null for the next one. */
+        data class LightColour(val colour: String?, val name: String? = null) : Command()
         /** "Change my note from X to Y", "change the last note to Y" ([old] null: the last one). */
         data class EditNote(val old: String?, val new: String) : Command()
         data class DeleteNote(val text: String?) : Command()
@@ -329,7 +333,7 @@ object JarvisParser {
 
         // The camera; and switches only you can flip, which he opens for you.
         if (has("take a photo", "take a picture", "take a selfie", "selfie", "open the camera", "camera")) return Command.Camera
-        Regex("\\b(wi-?fi|wifi|bluetooth|mobile data|airplane mode|aeroplane mode|flight mode|location|gps|hotspot|nfc|brightness)\\b").find(t)?.let { m ->
+        Regex("\\b(wi-?fi|wifi|bluetooth|mobile data|airplane mode|aeroplane mode|flight mode|location|gps|hotspot|nfc|brightness)\\b").find(t)?.takeIf { it.value != "brightness" || !has("light", "lights", "lamp", "bulb") }?.let { m ->
             if (has("turn", "switch", "put", "on", "off", "enable", "disable", "open", "settings", "toggle", "up", "down")) {
                 val kind = when (m.value) { "wi-fi", "wifi", "wi fi" -> "wifi"; "gps" -> "location"; "aeroplane mode", "flight mode" -> "airplane mode"; else -> m.value }
                 return Command.Setting(kind, if (has("off", "disable")) false else if (has("on", "enable")) true else null)
@@ -349,6 +353,15 @@ object JarvisParser {
             },
         )
         if (has("light", "lights", "lamp", "bulb") && Regex("^(which|what|are|is|any)\\b").containsMatchIn(t) && !has("turn", "switch")) return Command.LightsStatus
+        // Brightness and colour: "brighter", "dim the lights", "lights to 30%", "next colour", "make the light red".
+        val lightish = has("light", "lights", "lamp", "bulb", "brightness")
+        Regex("\\b(\\d{1,3}) ?(%|percent|per cent)").find(t)?.takeIf { lightish }?.let { return Command.Brightness(it.groupValues[1].toInt().coerceIn(1, 100)) }
+        if (lightish && has("full brightness", "full", "max", "maximum", "brightest")) return Command.Brightness(100)
+        if (lightish && has("half")) return Command.Brightness(50)
+        if (Regex("^(a bit |a little |slightly |much )?(brighter|brighten)( the)?( lights?| lamp| bulb)?( up)?$").matches(t) || (lightish && has("brighter", "brighten", "turn up", "up a bit"))) return Command.Brightness(null, if (has("much", "lot")) 40 else 20)
+        if (Regex("^(a bit |a little |slightly |much )?(dimmer|dim)( the)?( lights?| lamp| bulb)?( down)?$").matches(t) || (lightish && has("dimmer", "dim", "turn down", "darker", "lower"))) return Command.Brightness(null, if (has("much", "lot")) -40 else -20)
+        if (has("next colour", "next color", "another colour", "another color", "change the colour", "change the color", "different colour", "different color")) return Command.LightColour(null)
+        Regex("\\b(red|blue|green|purple|violet|pink|warm white|white|warm|yellow|cream|natural)\\b").find(t)?.takeIf { lightish || has("colour", "color") }?.let { return Command.LightColour(it.value) }
         if (has("screen time", "screentime", "most used", "on my phone today", "time on my phone", "used my phone")) return Command.ScreenTime
         if (has("light", "lights", "lamp", "bulb")) {
             val on = if (has("off")) false else if (has("on")) true else null

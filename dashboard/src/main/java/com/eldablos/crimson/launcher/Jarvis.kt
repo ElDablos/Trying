@@ -1618,7 +1618,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var pressed = false
         JarvisHands.custom(app.component.packageName, null, "I couldn't work ${app.label} this time, sir. Show me once: say \"learn the heating in ${app.label}\".") { root, tries ->
             if (!JarvisReaders.airDevicePage(root)) {
-                JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it) } ?: run { if (tries in 3..5) JarvisHands.back() }
+                JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it) } ?: run { if (tries == 3 || tries == 6) JarvisHands.back() }
                 return@custom if (tries < 10) null else "I couldn't open the heater in ${app.label}, sir."
             }
             if (pressed) return@custom "Done, sir. The heating is ${if (on) "on" else "off"}."
@@ -1641,63 +1641,91 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var stage = 0
         var moves = 0
         var waited = 0
+        // Looks to sit out after a tap or a swipe, so the screen can catch up before he looks again
+        // (he checks every 650ms now, and a page still animating mustn't get a second tap).
+        var cool = 0
+        var powered = false
+        var reopened = 0
+        var applied = 0
         val job = {
             JarvisEar.start(context)
-            JarvisHands.custom(app.component.packageName, null, "I couldn't set the temperature in ${app.label} this time, sir.", timeout = 40_000, linger = true) { root, tries ->
-                if (tries > 60) return@custom "I couldn't finish setting it, sir. It may need a tap from you."
+            // Air+: the heater's page → the heat button beside Auto ("30°C") → the "Set the preferred
+            // temperature" wheel → turn it to the target → Apply → read the button back.
+            JarvisHands.custom(app.component.packageName, null, "I couldn't set the temperature in ${app.label} this time, sir.", timeout = 45_000, linger = true) { root, tries ->
+                if (tries > 65) return@custom "I couldn't finish setting it, sir. It may need a tap from you."
+                if (cool > 0) {
+                    cool--
+                    return@custom null
+                }
+                val picker = JarvisReaders.airPickerOpen(root)
                 when (stage) {
                     // The heater's page, switched on.
                     0 -> {
-                        // The temperature wheel already open from last time: carry on from there.
-                        if (target != null && JarvisReaders.airPickerOpen(root)) {
+                        // The wheel already open from last time: carry on from there.
+                        if (target != null && picker) {
                             stage = 1
                             return@custom null
                         }
                         if (!JarvisReaders.airDevicePage(root)) {
-                            JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it) } ?: run { if (tries in 3..5) JarvisHands.back() }
-                            return@custom null
+                            JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it); cool = 1 } ?: run { if (tries == 3 || tries == 6) JarvisHands.back() }
+                            return@custom if (tries < 14) null else "I couldn't open the heater in ${app.label}, sir."
                         }
                         if (JarvisReaders.airIsOff(root)) {
-                            JarvisReaders.airPower(root)?.let { JarvisHands.press(it) }
-                            return@custom null
+                            // Power once, then wait for it to come on.
+                            if (!powered) JarvisReaders.airPower(root)?.let { JarvisHands.press(it); powered = true; cool = 2 }
+                            return@custom if (tries < 20) null else "The heater wouldn't switch on, sir."
                         }
-                        val heat = JarvisReaders.airHeatButton(root) ?: return@custom if (tries < 10) null else "I couldn't find the heat setting in ${app.label}, sir."
+                        val heat = JarvisReaders.airHeatButton(root) ?: return@custom if (tries < 12) null else "I couldn't find the heat setting in ${app.label}, sir."
                         from = JarvisReaders.airSetting(heat)
                         val goal = target ?: ((from ?: 20.0) + by).also { target = it }
                         if (from != null && kotlin.math.abs(from!! - goal) < .25) return@custom "It's already set to ${fmtTemp(goal)} degrees, sir."
                         JarvisHands.press(heat)
                         stage = 1
+                        cool = 1
                         null
                     }
-                    // Wherever it's chosen: move it to the target, then confirm.
+                    // The wheel: turn it to the target, then Apply.
                     1 -> {
                         val goal = target ?: return@custom null
+                        if (!picker) {
+                            // Still sliding up, or the tap didn't take: wait, then tap the button again (twice at most).
+                            if (++waited < 5) return@custom null
+                            val heat = JarvisReaders.airHeatButton(root)
+                            val now = heat?.let { JarvisReaders.airSetting(it) }
+                            if (now != null && kotlin.math.abs(now - goal) < .25) return@custom done(goal, from)
+                            if (heat == null || reopened >= 2) return@custom "I couldn't open the temperature setting in ${app.label}, sir."
+                            JarvisHands.press(heat)
+                            reopened++
+                            waited = 0
+                            cool = 1
+                            return@custom null
+                        }
                         when (JarvisReaders.airChoose(root, goal)) {
                             true -> {
-                                JarvisReaders.airConfirm(root)?.let { JarvisHands.press(it) }
+                                JarvisReaders.airConfirm(root)?.let { JarvisHands.press(it); applied++ }
                                 stage = 2
+                                cool = 2
                                 null
                             }
-                            false -> if (++moves > 30) "I got it as close as I could, sir." else null
-                            null -> {
-                                // The wheel may still be sliding up: give it a moment before trying anything else.
-                                if (++waited < 4) return@custom null
-                                // The button itself may step through the settings: keep tapping until it reads the target.
-                                val heat = JarvisReaders.airHeatButton(root) ?: return@custom null
-                                val now = JarvisReaders.airSetting(heat)
-                                if (now != null && kotlin.math.abs(now - goal) < .25) return@custom done(goal, from)
-                                if (++moves > 30) return@custom "I couldn't get it to ${fmtTemp(goal)}, sir. Teach me once: say \"learn the heating in ${app.label}\"."
-                                JarvisHands.press(heat)
-                                null
+                            false -> {
+                                // Swiped: let the wheel settle before reading it again.
+                                cool = 1
+                                if (++moves > 30) "I got it as close as I could, sir." else null
                             }
+                            null -> if (++waited < 8) null else "I couldn't turn the temperature wheel, sir."
                         }
                     }
                     // Back on the page: read what it's set to now.
                     else -> {
                         val goal = target ?: 0.0
+                        if (picker) {
+                            // Apply didn't take (or wasn't found yet): press it again.
+                            if (applied < 3) JarvisReaders.airConfirm(root)?.let { JarvisHands.press(it); applied++; cool = 1 }
+                            return@custom if (tries < 60) null else "It's on ${fmtTemp(goal)} in the wheel, sir, but I couldn't press Apply."
+                        }
                         val heat = JarvisReaders.airHeatButton(root)
                         val now = heat?.let { JarvisReaders.airSetting(it) }
-                        if (now == null && tries < 50) return@custom null
+                        if (now == null && tries < 55) return@custom null
                         if (now != null && kotlin.math.abs(now - goal) >= .25) "It's set to ${fmtTemp(now)} degrees, sir; that's as near as it would go."
                         else done(goal, from)
                     }
@@ -1837,12 +1865,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         return JarvisHands.custom(TAPO, null, "I couldn't find the light in Tapo, sir. Show me once: say \"learn the light\".") { root, tries ->
         // Left on a light's own page (or anywhere else): back out to the list, where it says what's on.
         if (JarvisReaders.tapoLightPage(root)) {
-            if (backs++ < 3) JarvisHands.back()
-            return@custom null
+            // Every other look, so the page has gone before he'd press back again.
+            if (tries % 2 == 1 && backs < 3) { backs++; JarvisHands.back() }
+            return@custom if (tries < 12) null else "I couldn't get back to Tapo's list of lights, sir."
         }
         val list = JarvisReaders.lights(root)
         val l = JarvisReaders.light(list, name) ?: run {
-            if (tries in 3..5 && backs < 3) { backs++; JarvisHands.back() }
+            if ((tries == 3 || tries == 6) && backs < 3) { backs++; JarvisHands.back() }
             return@custom if (tries < 9) null else "I couldn't see any lights in Tapo, sir."
         }
         if (on != null && l.on == on) return@custom "${l.name} is already ${if (on) "on" else "off"}, sir."
@@ -1871,7 +1900,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                     if (opened && tries < 12) return@custom null
                     val l = JarvisReaders.light(JarvisReaders.lights(root), name) ?: run {
                         // Somewhere else in Tapo: back out towards the list of lights.
-                        if (tries in 3..5) JarvisHands.back()
+                        if (tries == 3 || tries == 6) JarvisHands.back()
                         return@custom if (tries < 9) null else "I couldn't see the light in Tapo, sir."
                     }
                     if (l.on == false) l.power?.let { JarvisHands.press(it) }

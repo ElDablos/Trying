@@ -427,6 +427,15 @@ class JarvisTest {
     }
 
     @Test
+    fun habitsSaidNaturally() {
+        assertEquals(Command.Habit("i have placed my orders"), p("I have placed my orders"))
+        assertEquals(Command.Habit("i have placed orders for today"), p("I have placed orders for today"))
+        assertEquals(Command.Habit("i worked on lessons today"), p("I worked on lessons today"))
+        assertTrue(p("I completed the first one") is Command.TickNote)
+        assertFalse(p("I wanted to ask something") is Command.Habit)
+    }
+
+    @Test
     fun handsLogAsHeard() {
         assertEquals(Command.HandsLog, p("Send me hands long"))
         assertEquals(Command.HandsLog, p("Hands long"))

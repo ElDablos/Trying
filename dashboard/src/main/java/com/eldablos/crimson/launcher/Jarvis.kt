@@ -1766,7 +1766,33 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (q in setOf("it", "that", "it off", "it off today", "that off", "it today") || q.startsWith("it ")) return DeckStore.habits(context).firstOrNull { it.name == lastHabit }
         val habits = DeckStore.habits(context)
         return habits.firstOrNull { it.name.equals(q, true) } ?: habits.firstOrNull { it.name.lowercase().contains(q) || q.contains(it.name.lowercase()) }
-            ?: habits.firstOrNull { h -> q.split(' ').any { w -> w.length > 2 && h.name.lowercase().split(' ').contains(w) } }
+            ?: habitByRoots(q, habits)
+    }
+
+    private val FILLER = setOf("i", "i've", "have", "has", "had", "just", "already", "now", "my", "the", "a", "an", "for", "on", "of", "to", "with", "some", "all",
+        "today", "tonight", "this", "morning", "evening", "afternoon", "again", "finally", "done", "did", "it", "them", "and", "in", "at", "up", "off", "out")
+
+    /** A word's root, near enough: "placed" and "place", "orders" and "order", "lessons" and "lesson", "studying" and "study". */
+    private fun root(w: String): String = w.lowercase().trim('.', ',', '!', '?', '\'')
+        .removeSuffix("'s").let { if (it.length > 5 && it.endsWith("ing")) it.dropLast(3) else it }
+        .let { if (it.length > 4 && it.endsWith("ied")) it.dropLast(3) + "y" else it }
+        .let { if (it.length > 3 && it.endsWith("ed")) it.dropLast(2) else it }
+        .let { if (it.length > 3 && it.endsWith("es")) it.dropLast(2) else it }
+        .let { if (it.length > 3 && it.endsWith("s")) it.dropLast(1) else it }
+        .let { if (it.length > 3 && it.endsWith("e")) it.dropLast(1) else it }
+
+    /**
+     * The habit what you said is about, by root words: "I've placed my orders for today" is "Place orders";
+     * "I worked on lessons" is "Work on lessons". Most of the habit's words have to be there.
+     */
+    private fun habitByRoots(said: String, habits: List<DeckStore.Habit>): DeckStore.Habit? {
+        val roots = said.split(Regex("\\s+")).filter { it.lowercase() !in FILLER }.map { root(it) }.filter { it.length > 1 }.toSet()
+        if (roots.isEmpty()) return null
+        return habits.map { h ->
+            val words = h.name.split(Regex("[\\s/&+]+")).filter { it.lowercase() !in FILLER }.map { root(it) }.filter { it.length > 1 }
+            val hit = words.count { w -> roots.any { r -> r == w || (r.length >= 4 && w.length >= 4 && (r.startsWith(w) || w.startsWith(r))) } }
+            h to if (words.isEmpty()) 0f else hit.toFloat() / words.size
+        }.filter { it.second >= .5f }.maxByOrNull { it.second }?.first
     }
 
     private fun habitCard(h: DeckStore.Habit, title: String): Card {

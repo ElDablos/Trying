@@ -217,6 +217,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         id == "x:msgs" -> "MESSAGES"
         id.startsWith("x:mail") -> "EMAIL"
         id == "x:notes" -> "NOTES"
+        id == "x:habits" -> "HABITS"
         id == "x:soon" -> "COUNTDOWNS"
         id == "x:bits" -> "EXTRAS"
         id == "x:money" -> "MONEY"
@@ -1479,16 +1480,33 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 }
             }
 
-            // Notes: what's still on the list.
-            val open = note.lines().map { it.trim() }.filter { it.isNotBlank() && !it.startsWith(DONE) }
-            val ticked = note.lines().count { it.startsWith(DONE) }
+            // Notes: what's still on the list, read fresh and numbered the way Jarvis reads them, so "tick the
+            // first one" afterwards means the first one here.
+            val noteNow = DeckData.note(context)
+            val open = noteNow.lines().map { it.trim() }.filter { it.isNotBlank() && !it.startsWith(DONE) }
+            val ticked = noteNow.lines().count { it.startsWith(DONE) }
             if (open.isNotEmpty()) {
-                val items = open.take(8)
-                val joined = if (items.size == 1) items[0] else items.dropLast(1).joinToString(", ") + ", and " + items.last()
-                out += "x:notes" to (if (open.size == 1) "There's one thing on your notes: " else "You've got ${open.size} things on your notes: ") + joined + "." +
+                val words = listOf("First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth")
+                val items = open.take(8).mapIndexed { i, n -> "${words[i]}, ${n.trimEnd('.')}" }
+                out += "x:notes" to (if (open.size == 1) "On your notes, there's one thing: ${open[0].trimEnd('.')}." else "On your notes, you've got ${open.size} things. ${items.joinToString(". ")}.") +
                     (if (open.size > items.size) " Plus ${open.size - items.size} more." else "")
             } else if (ticked > 0) {
-                out += "x:notes" to "Everything on your notes is ticked off. Well done, sir."
+                out += "x:notes" to "Your notes are all ticked off. Well done, sir."
+            } else {
+                out += "x:notes" to "Nothing on your notes."
+            }
+
+            // Habits: their own part, every time; what's done today and what's left.
+            val habitsNow = DeckStore.habits(context)
+            if (habitsNow.isNotEmpty()) {
+                val doneH = habitsNow.filter { today in it.done }.map { it.name }
+                val leftH = habitsNow.filter { today !in it.done }.map { it.name }
+                fun and(l: List<String>) = if (l.size == 1) l[0] else l.dropLast(1).joinToString(", ") + " and " + l.last()
+                out += "x:habits" to when {
+                    leftH.isEmpty() -> "Your habits: all ${habitsNow.size} done today. Nice work."
+                    doneH.isEmpty() -> "Your habits for today: ${and(leftH)}, none ticked off yet."
+                    else -> "Your habits: you've done ${and(doneH)}; still to do, ${and(leftH)}."
+                }
             }
 
             // Countdowns: every one still to come, the nearest first.
@@ -1515,11 +1533,6 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     evening && t.battery < 60 -> bits += "You're on ${t.battery} percent, so it's worth charging before bed."
                 }
                 if (!evening && nowT.hour >= 15 && t.steps != null && t.steps < t.goal) bits += "You're ${t.goal - t.steps} steps off your goal today."
-            }
-            if (habits.isNotEmpty()) {
-                val left = habits.filter { today !in it.done }.map { it.name }
-                if (left.isEmpty()) bits += "You've ticked off every habit today. Nice work."
-                else if (nowT.hour >= 17) bits += "Still to do today: ${left.joinToString(" and ")}."
             }
             focus?.let { bits += "You're in a focus session, with ${duration((it.endAt - nowMs).coerceAtLeast(0))} to go." }
             if (bits.isNotEmpty()) out += "x:bits" to bits.joinToString(" ")

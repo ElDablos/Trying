@@ -352,7 +352,7 @@ object JarvisParser {
             chapterIn(t)?.let { return Command.BriefingControl(Control.CHAPTER, it) }
             return Command.BriefingControl(Control.RESUME)
         }
-        if (Regex("\\b(from|skip to|jump to|go to) the (news|weather|emails?|notes|countdowns|messages)\\b").containsMatchIn(t)) {
+        if (Regex("\\b(from|skip to|jump to|go to) the (news|weather|emails?|notes|habits|countdowns|messages)\\b").containsMatchIn(t)) {
             return Command.BriefingControl(Control.CHAPTER, chapterIn(t))
         }
         if (has("go back", "back a bit", "say that again", "repeat that", "what was that")) return Command.BriefingControl(Control.BACK)
@@ -603,6 +603,11 @@ object JarvisParser {
             return Command.Countdown(Regex("(until|till|to) (my |the )?(.+)$").find(t)?.groupValues?.get(3)?.clean())
         }
         Regex("^(i (went to|did|finished|done|had)|tick( off)?|done) (the |my )?(.+)$").find(t)?.let { return Command.Habit(it.groupValues[5].clean()) }
+        // Something done, said as you'd say it: "I've placed my orders", "I worked on lessons today", "just went for a run".
+        // The whole thing goes to him, verb and all, to match against your habits (and notes).
+        Regex("^(?:i|i've|i have|i just|i've just|i have just|i already|i've already|just|already|i've now|i have now)? ?(?:(?!wanted|needed|started|asked|wondered|used|liked|loved|hated|forgot|meant|tried|planned|hoped|decided|wished|missed)([a-z]+ed)|did|done|finished|completed|went|had|made|wrote|read|ran|paid|sent|bought|took|got|swam|ate|drank|slept|meditated|cleaned|cooked) .+$").find(t)?.let {
+            return Command.Habit(t)
+        }
         Regex("\\bfocus( session| mode)?( for)? ?(\\d+)? ?(minutes?|mins?)?\\b").find(t)?.let { return Command.Focus(it.groupValues[3].toIntOrNull() ?: 25) }
 
         // Anything else to change or get rid of: he works out what it is.
@@ -803,6 +808,7 @@ object JarvisParser {
         "weather" in t -> "WEATHER"
         "email" in t || "mail" in t -> "EMAIL"
         "note" in t -> "NOTES"
+        "habit" in t -> "HABITS"
         "countdown" in t -> "COUNTDOWNS"
         "message" in t -> "MESSAGES"
         else -> null

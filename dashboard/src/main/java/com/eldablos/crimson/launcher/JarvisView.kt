@@ -145,7 +145,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
 
         // The core: tap it to talk, or to cut him off.
         column.addView(core, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(258f)).apply { topMargin = dp(22f) })
-        core.setOnClickListener { if (state == State.LISTENING) stopListening() else listen() }
+        core.setOnClickListener { micTap() }
         mono(status, 8f, Hud.HOT, .34f)
         status.setShadowLayer(6 * u, 0f, 0f, Hud.HOT)
         status.gravity = Gravity.CENTER
@@ -194,7 +194,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             background = Hex(if (solid) Hud.HOT else Hud.alpha(Hud.HOT, .08f), Hud.HOT, solid)
             setOnClickListener { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); act() }
         }
-        row.addView(round("◉", false) { if (state == State.LISTENING) stopListening() else listen() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(8f) })
+        row.addView(round("◉", false) { micTap() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(8f) })
         row.addView(round("➤", true) { send() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(6f) })
         column.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(14f), dp(10f), dp(14f), dp(26f)) })
 
@@ -385,8 +385,28 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     /** True while listening by himself after an answer: silence then just ends the conversation, quietly. */
     private var auto = false
 
-    fun listen(auto: Boolean = false) {
+    /**
+     * The mic: while he's listening for your next command by himself, a tap means "yes, I'm talking",
+     * so he keeps listening rather than stopping (it took two taps before). Otherwise it starts or stops.
+     */
+    private fun micTap() {
+        when {
+            state == State.LISTENING && auto -> {
+                auto = false
+                performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                showHeard("Listening…")
+            }
+            state == State.LISTENING -> stopListening()
+            else -> listen()
+        }
+    }
+
+    /** Retried once when the recognizer was still shutting down from the last turn. */
+    private var retried = false
+
+    fun listen(auto: Boolean = false, retry: Boolean = false) {
         this.auto = auto
+        if (!retry) retried = false
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             bubble("I'll need the microphone to hear you, sir. Allow it and I'll be listening.", mine = false)
             onPermission?.invoke(arrayOf(Manifest.permission.RECORD_AUDIO))
@@ -411,6 +431,17 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() = setState(State.THINKING)
             override fun onError(error: Int) {
+                if (recognizer !== r) return
+                // Still busy with the last turn: try again in a moment rather than making you tap twice.
+                if ((error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT) && !retried) {
+                    retried = true
+                    val wasAuto = this@JarvisView.auto
+                    r.destroy()
+                    recognizer = null
+                    postDelayed({ if (recognizer == null && state != State.SPEAKING) listen(wasAuto, retry = true) }, 350)
+                    return
+                }
+                finished(r)
                 releaseEar()
                 setState(State.IDLE)
                 val silent = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
@@ -418,6 +449,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             }
             override fun onResults(results: Bundle?) {
                 // Of everything it might have heard, the one he can act on ("Claude" over "cloud").
+                if (recognizer !== r) return
+                finished(r)
                 releaseEar()
                 val heardAll = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
                 val said = if (heardAll.size > 1) jarvis.bestHeard(heardAll) else heardAll.firstOrNull().orEmpty()
@@ -464,6 +497,12 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             earPaused = false
             JarvisEar.pause(false)
         }
+    }
+
+    /** Lets go of a finished recognizer straight away, so the next tap gets a fresh one that works first time. */
+    private fun finished(r: SpeechRecognizer) {
+        if (recognizer === r) recognizer = null
+        post { r.destroy() }
     }
 
     private fun stopListening() {

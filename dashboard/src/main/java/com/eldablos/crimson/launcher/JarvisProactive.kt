@@ -63,6 +63,16 @@ object JarvisProactive {
                 )
             }
         }
+        // The tube: trouble on your usual line tomorrow (told in the evening) or this morning.
+        val travelDay = when (now.hour) { in 18..22 -> now.toLocalDate().plusDays(1); in 5..9 -> now.toLocalDate(); else -> null }
+        travelDay?.let { Travel.report(context, it, fetch = false) }?.let { r ->
+            val a = Travel.advise(r, Travel.commute(context))
+            val u = a.commute.firstOrNull()
+            if (u != null && !u.fine) out += Insight(
+                "tube:${u.id}:${r.day}:${u.severity}", "⇄", if (a.planAhead) "Plan your journey" else a.headline, a.say,
+                if (r.day == now.toLocalDate()) "how's the tube" else "any delays tomorrow", "DETAILS",
+            )
+        }
         // Birthdays and countdowns today or tomorrow.
         for (c in DeckStore.countdowns(context)) {
             val days = ChronoUnit.DAYS.between(now.toLocalDate(), c.date)
@@ -121,6 +131,9 @@ object JarvisProactive {
 
     /** From the background refresh: a notification for each new insight, once. */
     fun notify(context: Context) {
+        // Fresh TfL news for the commute that matters, while we're in the background anyway.
+        val hour = LocalDateTime.now().hour
+        if (JarvisMemory.proactive(context) && (hour in 18..22 || hour in 5..9)) Travel.report(context, if (hour >= 18) LocalDate.now().plusDays(1) else LocalDate.now(), fetch = true)
         val list = insights(context)
         if (list.isEmpty()) return
         val p = prefs(context)

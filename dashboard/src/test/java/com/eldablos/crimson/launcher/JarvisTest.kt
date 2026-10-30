@@ -3,6 +3,7 @@ package com.eldablos.crimson.launcher
 import com.eldablos.crimson.launcher.JarvisParser.Command
 import com.eldablos.crimson.launcher.JarvisParser.Control
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -271,6 +272,43 @@ class JarvisTest {
         assertEquals(Command.ChangeIt("Dentist check-up"), p("Rename it to Dentist check-up"))
         assertEquals(Command.Amend(null, LocalTime.of(6, 30)), p("Change it to 6:30"))
         assertEquals(Command.Amend(LocalDate.of(2026, 11, 6), null), p("Move it to Friday"))
+    }
+
+    @Test
+    fun londonTravel() {
+        assertEquals(Command.Travel(1), p("How's the traffic tomorrow"))
+        assertEquals(Command.Travel(1), p("Any tube delays tomorrow?"))
+        assertEquals(Command.Travel(0), p("Is the Jubilee line running"))
+        assertEquals(Command.Travel(0), p("Any cancellations on the trains"))
+        assertEquals(Command.Travel(1), p("Should I plan my journey to work tomorrow"))
+        assertEquals(Command.Commute("northern"), p("I usually take the Northern line to work"))
+        assertTrue(p("add a note about train delays") is Command.AddNote)
+        assertTrue(p("next colour") is Command.LightColour)
+    }
+
+    @Test
+    fun travelAdvice() {
+        val day = java.time.LocalDate.now().plusDays(1)
+        fun line(id: String, name: String, sev: Int, desc: String, reason: String = "", mode: String = "tube") =
+            """{"id":"$id","name":"$name","modeName":"$mode","lineStatuses":[{"statusSeverity":$sev,"statusSeverityDescription":"$desc","reason":"$reason"}]}"""
+        val good = Travel.parseLines("[" + listOf(line("jubilee", "Jubilee", 10, "Good Service"), line("central", "Central", 10, "Good Service"),
+            line("elizabeth", "Elizabeth line", 10, "Good Service", mode = "elizabeth-line")).joinToString(",") + "]")
+        val fine = Travel.advise(Travel.Report(day, good, emptyList(), 0), Travel.DEFAULT_COMMUTE)
+        assertFalse(fine.planAhead)
+        assertTrue(fine.say, fine.say.contains("Jubilee line is running a good service tomorrow"))
+        val bad = Travel.parseLines("[" + listOf(line("jubilee", "Jubilee", 4, "Planned Closure", "JUBILEE LINE: No service between Stratford and Waterloo due to engineering works. Replacement buses."),
+            line("elizabeth", "Elizabeth line", 10, "Good Service", mode = "elizabeth-line"), line("central", "Central", 9, "Minor Delays"),
+            line("northern", "Northern", 6, "Severe Delays")).joinToString(",") + "]")
+        val roads = Travel.parseRoads("""[{"displayName":"A2","statusSeverity":"Serious","statusSeverityDescription":"Serious Delays"},{"displayName":"A40","statusSeverity":"Good","statusSeverityDescription":"No Exceptional Delays"}]""")
+        val plan = Travel.advise(Travel.Report(day, bad, roads, 0), Travel.DEFAULT_COMMUTE)
+        assertTrue(plan.planAhead)
+        assertTrue(plan.say, plan.say.contains("the Jubilee line has a planned closure tomorrow"))
+        assertTrue(plan.say, plan.say.contains("No service between Stratford and Waterloo"))
+        assertTrue(plan.say, plan.say.contains("Elizabeth line is running fine"))
+        assertTrue(plan.say, plan.say.contains("severe delays on the Northern line"))
+        assertTrue(plan.say, plan.say.contains("A2"))
+        assertEquals("jubilee", Travel.lineId("the Jubilee line"))
+        assertEquals("elizabeth", Travel.lineId("lizzy line"))
     }
 
     @Test

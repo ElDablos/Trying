@@ -184,13 +184,26 @@ object JarvisReaders {
         return all.drop(maxOf(0, i)).filter { it.isClickable && it.isEnabled }
     }
 
-    /** The heat setting button: the one after Auto. Its text is "Off", or what it's set to. */
+    /**
+     * The heat setting button: the one beside Auto on the same row (never Power above them). Its text is
+     * "Off", or what it's set to ("30°C").
+     */
     fun airHeatButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         val c = controls(root)
-        val auto = c.indexOfFirst { n -> JarvisHands.texts(n).any { it.equals("Auto", true) } }
-        if (auto >= 0) c.getOrNull(auto + 1)?.let { return it }
-        return c.firstOrNull { n -> JarvisHands.texts(n).any { Regex("^\\d{2}(\\.\\d)?\\s*°", RegexOption.IGNORE_CASE).containsMatchIn(it) } }
+        // The smallest tappable thing saying "Auto": the button itself, not a panel holding all of them.
+        val auto = c.filter { n -> JarvisHands.texts(n).any { it.equals("Auto", true) } }.minByOrNull { bounds(it).width() * bounds(it).height() }
+        if (auto != null) {
+            val a = bounds(auto)
+            c.filter { n -> val b = bounds(n); b.left >= a.right - 4 && kotlin.math.abs(b.centerY() - a.centerY()) < a.height() / 2 && b.height() < a.height() * 2 }
+                .minByOrNull { bounds(it).left }?.let { return it }
+        }
+        return c.filter { n -> JarvisHands.texts(n).any { Regex("^\\d{2}(\\.\\d)?\\s*°", RegexOption.IGNORE_CASE).containsMatchIn(it) } }
+            .minByOrNull { bounds(it).width() * bounds(it).height() }
     }
+
+    /** The "Set the preferred temperature" wheel is showing. */
+    fun airPickerOpen(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).count { Regex("^\\d{1,2}\\s*°\\s*c$", RegexOption.IGNORE_CASE).matches(textOf(it)) } >= 3 ||
+        JarvisHands.nodes(root).any { textOf(it).contains("preferred temperature", true) }
 
     /** What the heat setting reads: a temperature, or null for "Off" or a level. */
     fun airSetting(button: AccessibilityNodeInfo): Double? = JarvisHands.texts(button).firstNotNullOfOrNull { t ->
@@ -340,11 +353,20 @@ object JarvisReaders {
         val all = JarvisHands.nodes(root)
         val label = all.firstOrNull { textOf(it).equals("My Presets", true) } ?: return false
         val lb = bounds(label)
-        val screen = bounds(root)
-        // Six dots spread across the card, a row below the label.
-        val left = lb.left - lb.height() * .2f
-        val step = (screen.width() - 2 * left) / 6f
-        return JarvisHands.tapAt(left + step * (index.mod(6) + .5f), lb.bottom + lb.height() * 1.9f)
+        val w = bounds(root).width().toFloat()
+        // The dots don't describe themselves (Tapo draws them), so tap where they sit: a row across the
+        // card, half-way between the label and the card's bottom edge; on a 412dp-wide screen the first
+        // is 12% of the way across and each next one 15.7% further.
+        var card: AccessibilityNodeInfo? = label.parent
+        var cardBottom: Int? = null
+        repeat(4) {
+            val c = card ?: return@repeat
+            val b = bounds(c)
+            if (cardBottom == null && b.height() > lb.height() * 3 && b.top <= lb.top && b.width() < w * .98f) cardBottom = b.bottom
+            card = c.parent
+        }
+        val y = cardBottom?.let { (lb.bottom + it) / 2f } ?: (lb.bottom + lb.height() * 2.6f)
+        return JarvisHands.tapAt(w * (.12f + .157f * index.mod(6)), y)
     }
 
     /** Which preset a colour name is, in Tapo's order: auto, warm white, blue, red, green, purple. */

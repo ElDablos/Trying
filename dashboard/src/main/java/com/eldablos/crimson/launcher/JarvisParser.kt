@@ -21,6 +21,10 @@ object JarvisParser {
         object Time : Command()
         object Date : Command()
         data class Weather(val day: Int, val rainOnly: Boolean = false) : Command()
+        /** The tube, trains and roads across London on a day (0 today), and whether to plan ahead. */
+        data class Travel(val day: Int) : Command()
+        /** "I take the Jubilee line to work": your usual line. */
+        data class Commute(val line: String) : Command()
         data class Shift(val day: Int?) : Command()
         data class ShiftWeek(val next: Boolean) : Command()
         data class Agenda(val day: Int) : Command()
@@ -219,6 +223,19 @@ object JarvisParser {
         if (Regex("^(i'm|im|i am|it's|its) (too )?(hot|boiling|roasting)").containsMatchIn(t) && !has("weather")) return Command.SetTemp(null, -1.0)
 
         // Follow-ups: "and friday?", "what about tomorrow", "make it 6:30", "move it to monday".
+        // Getting about London.
+        Regex("^(?:i|i usually|i normally|i mostly|i always|i tend to) (?:take|use|get|ride|go on) (?:the )?([a-z&]+(?: and city| city)?) line(?: to work| in| to the office)?$|^my (?:usual |work )?line is (?:the )?([a-z&]+(?: and city)?)(?: line)?$").find(t)?.let { m ->
+            val line = m.groupValues[1].ifEmpty { m.groupValues[2] }
+            if (com.eldablos.crimson.launcher.Travel.lineId(line) != null) return Command.Commute(line)
+        }
+        if (!Regex("^(add|make|take|write|put|note|remind|remember|jot|create|text|message|send|tell|search|google|open)\\b").containsMatchIn(t) &&
+            (has("traffic", "tube", "underground", "jubilee", "central line", "elizabeth line", "lizzy line", "overground", "dlr", "trains", "train lines", "line status", "tfl",
+                "commute", "my journey", "journey to work", "the roads", "delays", "cancellations", "cancelled trains", "strike", "strikes", "engineering works", "closures") ||
+                Regex("\\b(northern|victoria|piccadilly|district|bakerloo|metropolitan|circle|central|jubilee|elizabeth) line\\b").containsMatchIn(t))
+        ) {
+            val d = whenIn(t, today).first?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() } ?: 0
+            return Command.Travel(d.coerceAtLeast(0))
+        }
         Regex("^(and|what about|how about|and what about|same for|and for)\\s+(.+)$").find(t)?.let { m ->
             val rest = m.groupValues[2]
             if (Regex("\\bnext week\\b").containsMatchIn(rest)) return Command.FollowUp(null, nextWeek = true)

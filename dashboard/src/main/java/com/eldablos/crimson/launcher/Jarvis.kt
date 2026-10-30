@@ -264,7 +264,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     private fun informative(c: Command) = when (c) {
-        is Command.Weather, is Command.Shift, is Command.ShiftWeek, is Command.Agenda, is Command.Emails, Command.Messages, is Command.Recall,
+        is Command.Weather, is Command.Travel, is Command.Shift, is Command.ShiftWeek, is Command.Agenda, is Command.Emails, Command.Messages, is Command.Recall,
         Command.News, is Command.Crypto, is Command.Countdown, Command.ReadNotes, Command.Battery, Command.Time, Command.Date, Command.Joke, is Command.Alarms -> true
         else -> false
     }
@@ -315,7 +315,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 Command.Timer(it.groupValues[1].toInt() * when { it.groupValues[2].startsWith("s") -> 1; it.groupValues[2].startsWith("h") -> 3600; else -> 60 }) to null
             }
             is Command.AddEvent -> if (date != null || time != null || bare != null) Command.Amend(date, time ?: bare) to null else null
-            is Command.Weather, is Command.Shift, is Command.Agenda, is Command.ShiftWeek ->
+            is Command.Weather, is Command.Shift, is Command.Agenda, is Command.ShiftWeek, is Command.Travel ->
                 if (Regex("\\bnext week\\b").containsMatchIn(lower)) Command.FollowUp(null, nextWeek = true) to null else date?.let { Command.FollowUp(it) to null }
             is Command.Remember -> Regex("^(?:my |the )?(.+?) (?:is|are) (.+)$", RegexOption.IGNORE_CASE).find(rest)?.let { Command.Remember(JarvisParser.key(it.groupValues[1]), it.groupValues[2]) to null }
             is Command.Climate, is Command.SetTemp -> Regex("(\\d{1,2}(?:[.,]5)?)").find(lower)?.let { Command.SetTemp(it.groupValues[1].replace(',', '.').toDouble()) to null }
@@ -673,6 +673,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Command.Time -> Reply("It's ${LocalTime.now().format(tf)}${sir()}.", card = Card("◷", "TIME", LocalTime.now().format(tf), LocalDate.now().format(dayName)))
         Command.Date -> Reply("It's ${LocalDate.now().format(dayName)}.", card = Card("▦", "DATE", LocalDate.now().format(DateTimeFormatter.ofPattern("d MMM")), LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE · 'week' w"))))
         is Command.Weather -> weather(cmd)
+        is Command.Travel -> travel(cmd.day)
+        is Command.Commute -> {
+            Travel.setUsual(context, cmd.line)
+            val lines = Travel.commute(context)
+            fun nice(id: String) = when (id) { "elizabeth" -> "Elizabeth"; "hammersmith-city" -> "Hammersmith & City"; "waterloo-city" -> "Waterloo & City"; "dlr" -> "DLR"; else -> id.replaceFirstChar { it.uppercase() } }
+            Reply("Noted, sir. The ${nice(lines[0])} line is your usual, with the ${lines.drop(1).joinToString(" and the ") { nice(it) }} as back-ups. I'll keep an eye on them.",
+                card = Card("🚇", "YOUR COMMUTE", nice(lines[0]).uppercase(), "back-ups: " + lines.drop(1).joinToString(" · ") { nice(it) }, tone = Tone.BLUE),
+                actions = listOf(Action("CHECK NOW", "how's the tube"), Action("TOMORROW", "any delays tomorrow")))
+        }
         is Command.Shift -> shift(cmd.day)
         is Command.ShiftWeek -> shiftWeek(cmd.next)
         Command.ShiftAlarm -> shiftAlarm()
@@ -839,6 +848,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             is Command.Shift -> if (cmd.nextWeek) Command.ShiftWeek(true) else days?.let { Command.Shift(it) }
             is Command.ShiftWeek -> if (cmd.nextWeek) Command.ShiftWeek(true) else days?.let { Command.Shift(it) }
             is Command.Agenda -> days?.let { Command.Agenda(it) }
+            is Command.Travel -> days?.let { Command.Travel(it.coerceAtLeast(0)) }
             else -> null
         }
         lastFollowed = next
@@ -916,6 +926,44 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 ". Today's high is ${day.high}, low ${day.low}. $rain", card = card)
         } else {
             Reply("${label.replaceFirstChar { it.uppercase() }} looks ${look.lowercase()}, ${day.high} degrees at best and ${day.low} overnight. $rain", card = card)
+        }
+    }
+
+    /**
+     * The tube, trains and roads across London on a day, from TfL: your usual line first (the Jubilee,
+     * unless you've said otherwise), the back-ups, everything else in trouble, and whether to plan ahead.
+     */
+    private fun travel(day: Int): Reply {
+        val date = LocalDate.now().plusDays(day.toLong())
+        val r = Travel.report(context, date, fetch = true)
+            ?: return Reply("I can't reach TfL right now${sir()}. Check you're online and ask me again.", failed = true,
+                actions = listOf(Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") })))
+        val a = Travel.advise(r, Travel.commute(context))
+        val rows = ArrayList<Row>()
+        for (l in a.commute) rows += Row(Travel.lineName(l).uppercase(), l.status, ok = l.fine)
+        for (l in a.trouble.take(5)) rows += Row(Travel.lineName(l).uppercase(), l.status, ok = false)
+        if (a.trouble.size > 5) rows += Row("+${a.trouble.size - 5} MORE", "disrupted", ok = false)
+        if (r.roads.isNotEmpty()) rows += Row("ROADS", if (a.roadTrouble.isEmpty()) "normal" else a.roadTrouble.take(3).joinToString(", ") { it.name } + " " + a.roadTrouble.first().severity.lowercase(), ok = a.roadTrouble.isEmpty())
+        val usual = a.commute.firstOrNull()
+        val card = Card(
+            "🚇", "LONDON TRAVEL · ${dayWord(day).removePrefix("on ").uppercase()}",
+            if (a.planAhead) "PLAN AHEAD" else if (usual?.fine == false) "LEAVE EARLY" else "ALL GOOD",
+            usual?.let { "${Travel.lineName(it)}: ${it.status.lowercase()}" } ?: "your line", rows,
+            if (a.planAhead) Tone.HOT else if (usual?.fine == false) Tone.GOLD else Tone.GREEN,
+        )
+        return Reply(a.say, card = card, actions = listOf(
+            Action("PLAN JOURNEY", primary = a.planAhead, run = { open("https://tfl.gov.uk/plan-a-journey/") }),
+            Action(if (day == 0) "TOMORROW" else "TODAY", if (day == 0) "any delays tomorrow" else "how's the tube today"),
+            Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") }),
+        ))
+    }
+
+    /** A web page, in whatever handles it (TfL Go or Citymapper if they claim it, else the browser). */
+    private fun open(url: String) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            // Nothing to open it with.
         }
     }
 
@@ -1570,8 +1618,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var pressed = false
         JarvisHands.custom(app.component.packageName, null, "I couldn't work ${app.label} this time, sir. Show me once: say \"learn the heating in ${app.label}\".") { root, tries ->
             if (!JarvisReaders.airDevicePage(root)) {
-                JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it) }
-                return@custom if (tries < 8) null else "I couldn't open the heater in ${app.label}, sir."
+                JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it) } ?: run { if (tries in 3..5) JarvisHands.back() }
+                return@custom if (tries < 10) null else "I couldn't open the heater in ${app.label}, sir."
             }
             if (pressed) return@custom "Done, sir. The heating is ${if (on) "on" else "off"}."
             val off = JarvisReaders.airIsOff(root)
@@ -1592,6 +1640,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var from: Double? = null
         var stage = 0
         var moves = 0
+        var waited = 0
         val job = {
             JarvisEar.start(context)
             JarvisHands.custom(app.component.packageName, null, "I couldn't set the temperature in ${app.label} this time, sir.", timeout = 40_000, linger = true) { root, tries ->
@@ -1599,8 +1648,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 when (stage) {
                     // The heater's page, switched on.
                     0 -> {
+                        // The temperature wheel already open from last time: carry on from there.
+                        if (target != null && JarvisReaders.airPickerOpen(root)) {
+                            stage = 1
+                            return@custom null
+                        }
                         if (!JarvisReaders.airDevicePage(root)) {
-                            JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it) }
+                            JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it) } ?: run { if (tries in 3..5) JarvisHands.back() }
                             return@custom null
                         }
                         if (JarvisReaders.airIsOff(root)) {
@@ -1626,6 +1680,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                             }
                             false -> if (++moves > 30) "I got it as close as I could, sir." else null
                             null -> {
+                                // The wheel may still be sliding up: give it a moment before trying anything else.
+                                if (++waited < 4) return@custom null
                                 // The button itself may step through the settings: keep tapping until it reads the target.
                                 val heat = JarvisReaders.airHeatButton(root) ?: return@custom null
                                 val now = JarvisReaders.airSetting(heat)
@@ -1776,9 +1832,19 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     /** Tapo's home screen: the light's own power button, pressed only if it isn't already as asked. */
-    private fun tapoPower(name: String?, on: Boolean?) = JarvisHands.custom(TAPO, null, "I couldn't find the light in Tapo, sir. Show me once: say \"learn the light\".") { root, tries ->
+    private fun tapoPower(name: String?, on: Boolean?): Boolean {
+        var backs = 0
+        return JarvisHands.custom(TAPO, null, "I couldn't find the light in Tapo, sir. Show me once: say \"learn the light\".") { root, tries ->
+        // Left on a light's own page (or anywhere else): back out to the list, where it says what's on.
+        if (JarvisReaders.tapoLightPage(root)) {
+            if (backs++ < 3) JarvisHands.back()
+            return@custom null
+        }
         val list = JarvisReaders.lights(root)
-        val l = JarvisReaders.light(list, name) ?: return@custom if (tries < 6) null else "I couldn't see any lights in Tapo, sir."
+        val l = JarvisReaders.light(list, name) ?: run {
+            if (tries in 3..5 && backs < 3) { backs++; JarvisHands.back() }
+            return@custom if (tries < 9) null else "I couldn't see any lights in Tapo, sir."
+        }
         if (on != null && l.on == on) return@custom "${l.name} is already ${if (on) "on" else "off"}, sir."
         val p = l.power ?: return@custom "I couldn't find ${l.name}'s power button, sir."
         JarvisHands.press(p)
@@ -1786,6 +1852,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             true -> "Done, sir. ${l.name} is on."
             false -> "Done. ${l.name} is off."
             null -> "Done, sir. ${l.name} is ${if (l.on == true) "off" else "on"}."
+        }
         }
     }
 
@@ -1802,7 +1869,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             JarvisHands.custom(TAPO, null, "I couldn't open the light in Tapo, sir.", timeout = 20_000, linger = true) { root, tries ->
                 if (!JarvisReaders.tapoLightPage(root)) {
                     if (opened && tries < 12) return@custom null
-                    val l = JarvisReaders.light(JarvisReaders.lights(root), name) ?: return@custom if (tries < 6) null else "I couldn't see the light in Tapo, sir."
+                    val l = JarvisReaders.light(JarvisReaders.lights(root), name) ?: run {
+                        // Somewhere else in Tapo: back out towards the list of lights.
+                        if (tries in 3..5) JarvisHands.back()
+                        return@custom if (tries < 9) null else "I couldn't see the light in Tapo, sir."
+                    }
                     if (l.on == false) l.power?.let { JarvisHands.press(it) }
                     JarvisHands.press(l.card)
                     opened = true

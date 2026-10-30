@@ -145,6 +145,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     // Headlines for the briefing.
     private var news: List<News.Story> = emptyList()
 
+    // The tube, trains and roads for the day the briefing's about (tomorrow once it's evening).
+    private var travel: Travel.Report? = null
+
     /** One line of the briefing: a glyph, what it is, the detail, its colour and urgency (0 = most), a
      *  headline if it's the most pressing thing, how to say it aloud, and where a tap goes. */
     private class Intel(
@@ -209,6 +212,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         id == "x:hello" || id == "x:head" -> "INTRO"
         id == "x:work" || id == "x:plan" -> "DAY"
         id == "x:sky" -> "WEATHER"
+        id == "x:travel" -> "TRAVEL"
         id == "x:sleep" || id == "x:wake" -> "SLEEP"
         id == "x:msgs" -> "MESSAGES"
         id.startsWith("x:mail") -> "EMAIL"
@@ -342,6 +346,16 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val fresh = News.stories(app, fetch = true)
             main.post {
                 if (fresh.isNotEmpty()) news = fresh
+                board.invalidate()
+            }
+        }.start()
+        val travelDay = if (LocalDateTime.now().hour >= 19) LocalDate.now().plusDays(1) else LocalDate.now()
+        travel = Travel.report(app, travelDay, fetch = false)
+        Thread {
+            val fresh = Travel.report(app, travelDay, fetch = true)
+            main.post {
+                if (fresh != null) travel = fresh
+                board.freshIntel()
                 board.invalidate()
             }
         }.start()
@@ -1020,6 +1034,21 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     }
                 }
             }
+            // The tube: your usual line on the day that matters, and whether to plan ahead.
+            travel?.takeIf { it.day == (if (evening) today.plusDays(1) else today) }?.let { r ->
+                val a = Travel.advise(r, Travel.commute(context))
+                val u = a.commute.firstOrNull() ?: return@let
+                val whenSaid = if (r.day == today) "" else " TOMORROW"
+                val others = if (a.trouble.isEmpty()) "rest of network fine" else "${a.trouble.size} other line${if (a.trouble.size == 1) "" else "s"} disrupted"
+                out += Intel("⇄", "TUBE$whenSaid", "${Travel.lineName(u)}: ${u.status.lowercase()} · $others" + if (a.roadTrouble.isNotEmpty()) " · roads busy" else "",
+                    if (a.planAhead) DOWN else if (!u.fine) Hud.GOLD else Hud.SOFT, if (a.planAhead) 1 else if (!u.fine) 3 else 8,
+                    if (a.planAhead) "Plan your journey: ${a.headline}." else if (!u.fine) "${a.headline}." else null, a.say) {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://tfl.gov.uk/plan-a-journey/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    } catch (e: Exception) {
+                    }
+                }
+            }
             // The week's shifts, or a prompt to add them.
             val monday = Shifts.monday(today)
             val week = (0 until 7).mapNotNull { k -> shifts[monday.plusDays(k.toLong())] }
@@ -1379,6 +1408,15 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 }
                 sb.append(advice)
                 out += "x:sky" to sb.toString()
+            }
+
+            // Getting to work: the usual line (and the back-ups), the rest of the network and the roads.
+            travel?.takeIf { it.day == focusDay }?.let { r ->
+                val a = Travel.advise(r, Travel.commute(context))
+                val working = nextShift?.first == focusDay || cur != null
+                out += "x:travel" to (if (working || a.planAhead || a.commute.firstOrNull()?.fine == false) a.say
+                    else a.commute.firstOrNull()?.let { "On the tube, the ${Travel.lineName(it)} is running a good service" + (if (evening) " tomorrow" else "") + "." }.orEmpty() +
+                        (if (a.trouble.isNotEmpty()) " Elsewhere, ${a.trouble.size} line${if (a.trouble.size == 1) " has" else "s have"} problems." else " The rest of the network looks fine."))
             }
 
             // Sleep, in the evening.

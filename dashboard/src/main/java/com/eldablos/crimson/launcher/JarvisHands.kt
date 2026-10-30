@@ -98,16 +98,29 @@ class JarvisHands : AccessibilityService() {
             }
             return
         }
-        // The screen changed: try the next step once it settles.
-        main.removeCallbacks(attempt)
-        main.postDelayed(attempt, 280)
+        // The screen changed: look soon, unless a look is already on its way (a page that never stops
+        // animating used to push it back for ever).
+        if (!main.hasCallbacks(attempt)) main.postDelayed(attempt, 280)
+    }
+
+    /** The app's own window: the active one, or found among the windows when something (his strip) sits over it. */
+    private fun appRoot(pkg: String): AccessibilityNodeInfo? {
+        rootInActiveWindow?.takeIf { it.packageName?.toString() == pkg }?.let { return it }
+        return try {
+            windows.mapNotNull { it.root }.firstOrNull { it.packageName?.toString() == pkg }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun step() {
         val j = job ?: return
         if (j.done) return
-        val root = rootInActiveWindow ?: return
-        if (root.packageName?.toString() != j.pkg) return
+        // Keep looking every so often too: an app that's already open on the right page sends no
+        // events, and he used to wait for one forever.
+        main.removeCallbacks(attempt)
+        if (j !is Job.Learn) main.postDelayed(attempt, POLL)
+        val root = appRoot(j.pkg) ?: return
         when (j) {
             is Job.Run -> {
                 val t = j.skill.steps.getOrNull(j.step) ?: return finish(true, null)
@@ -120,7 +133,10 @@ class JarvisHands : AccessibilityService() {
                     j.done = true
                     main.postDelayed({ finish(true, null) }, 700)
                 }
-                else main.postDelayed(attempt, 650)
+                else {
+                    main.removeCallbacks(attempt)
+                    main.postDelayed(attempt, 650)
+                }
             }
             is Job.Guess -> {
                 val power = guessSwitch(root, j.device) ?: return
@@ -309,6 +325,9 @@ class JarvisHands : AccessibilityService() {
         private const val ALREADY = "\u0000already"
         private const val LEARN_PAUSE = 4500L
 
+        /** How often he looks at the screen while working an app, events or not. */
+        private const val POLL = 650L
+
         /** Whether you've switched him on in Accessibility settings. */
         fun enabled(context: Context): Boolean {
             if (instance != null) return true
@@ -367,6 +386,9 @@ class JarvisHands : AccessibilityService() {
         val busy: Boolean get() = instance?.job != null
 
         /** A finger tap at a point on screen, for controls that don't describe themselves (a slider, a colour dot). */
+        /** The phone's back button, to step out of a page to the one before. */
+        fun back(): Boolean = instance?.performGlobalAction(GLOBAL_ACTION_BACK) ?: false
+
         fun tapAt(x: Float, y: Float): Boolean = instance?.run {
             val path = Path().apply { moveTo(x, y) }
             dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 60)).build(), null, null)

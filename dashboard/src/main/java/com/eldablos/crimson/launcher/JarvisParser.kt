@@ -32,6 +32,8 @@ object JarvisParser {
         data class Agenda(val day: Int) : Command()
         data class AddEvent(val title: String, val date: LocalDate, val time: LocalTime?) : Command()
         data class AddNote(val text: String) : Command()
+        /** "Add a note to buy milk and eggs and another note to lock the door": two notes. */
+        data class AddNotes(val texts: List<String>) : Command()
         object ReadNotes : Command()
         object ClearNotes : Command()
         data class Emails(val company: Boolean?) : Command()
@@ -165,6 +167,16 @@ object JarvisParser {
     enum class Play { PLAY, PAUSE, NEXT, PREVIOUS }
 
     /**
+     * One note, or several when you say so: "…and another note to lock the door", "…, and a note to call mum",
+     * "…then one more note saying…". "And" inside a note stays ("buy milk and eggs").
+     */
+    fun noteOf(text: String): Command {
+        val parts = text.split(Regex("\\s*(?:,\\s*(?:and\\s+)?|\\s+and\\s+|\\s+then\\s+|\\s+plus\\s+)(?:also\\s+)?(?:another|a second|a third|one more|a new|a separate|a|an)\\s+(?:quick\\s+)?note(?:\\s+for me)?(?:[,:]?\\s*(?:to say|saying|that says|that|to|about|of|for|reading|:))?\\s+", RegexOption.IGNORE_CASE))
+            .map { it.trim().trimEnd('.', ',') }.filter { it.isNotEmpty() }
+        return if (parts.size > 1) Command.AddNotes(parts) else Command.AddNote(text)
+    }
+
+    /**
      * Several commands in one go ("close the app and lock my phone", "turn the heating on, then lock my
      * phone"): the parts, if every one is a command on its own and the sentence isn't one command that
      * happens to contain "and" (a note's words, "the third and second", a message). Else null.
@@ -173,7 +185,7 @@ object JarvisParser {
         val parts = said.split(Regex("\\s*(?:,\\s*)?\\b(?:and then|and also|then|and)\\b\\s*", RegexOption.IGNORE_CASE)).map { it.trim().trim(',') }.filter { it.isNotEmpty() }
         if (parts.size < 2 || parts.any { it.split(' ').size < 2 }) return null
         val whole = parse(said, today)
-        val oneCommand = whole is Command.TickNotes || whole is Command.DeleteNotes || whole is Command.Learn || whole is Command.AddHabit || whole is Command.AddNote ||
+        val oneCommand = whole is Command.TickNotes || whole is Command.DeleteNotes || whole is Command.Learn || whole is Command.AddHabit || whole is Command.AddNote || whole is Command.AddNotes ||
             whole is Command.AddEvent || whole is Command.Remember || whole is Command.KeepRule || whole is Command.HeaterNow || whole is Command.WhatsApp ||
             whole is Command.Text || whole is Command.EditNote || whole is Command.Change || whole is Command.AlarmSeries || whole is Command.AddShift ||
             whole is Command.AddCountdown || whole is Command.Travel
@@ -455,11 +467,11 @@ object JarvisParser {
         // Notes: "make a note", "add a note to do my laundry", "note that the boiler's booked".
         Regex("^(add|make|take|create|write|jot|jot down|leave|put|new|start)( me| down)? ?(a |an |another )?(quick |new )?note( for me| down)?(?:[,:]?\\s*(?:to say|saying|that says|that|to|about|of|for|reading|:)?\\s*(.+))?$").find(t)?.let { m ->
             val text = m.groupValues[6].trim()
-            return if (text.isEmpty()) Command.NoteAsk else Command.AddNote(orig(text))
+            return if (text.isEmpty()) Command.NoteAsk else noteOf(orig(text))
         }
-        Regex("^(add|put|write) (to|on|in) (my )?(notes?|list|to-?do( list)?)[:,]?\\s+(.+)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[6])) }
-        Regex("^(add|put|write|note|jot down)\\s+(.+?)\\s+(to|on|in)\\s+(my )?(notes?|list|to-?do( list)?|shopping list)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[2])) }
-        Regex("^(note|make a note|take a note|remember)( that| to)?[:,]?\\s+(.+)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[3])) }
+        Regex("^(add|put|write) (to|on|in) (my )?(notes?|list|to-?do( list)?)[:,]?\\s+(.+)$").find(t)?.let { return noteOf(orig(it.groupValues[6])) }
+        Regex("^(add|put|write|note|jot down)\\s+(.+?)\\s+(to|on|in)\\s+(my )?(notes?|list|to-?do( list)?|shopping list)$").find(t)?.let { return noteOf(orig(it.groupValues[2])) }
+        Regex("^(note|make a note|take a note|remember)( that| to)?[:,]?\\s+(.+)$").find(t)?.let { return noteOf(orig(it.groupValues[3])) }
         if (Regex("\\b(clear|delete|wipe|empty|remove|tidy)( all)? (my |the )?(notes|list|to-?do( list)?|ticked)\\b").containsMatchIn(t) || has("clear done", "clear the ticked")) return Command.ClearNotes
         if (has("read my notes", "my notes", "what's on my list", "my list", "to do list", "todo list", "what notes", "which notes", "any notes", "notes do i have", "read the notes", "read notes")) return Command.ReadNotes
         if (has("clear my notes", "clear done", "clear the ticked")) return Command.ClearNotes
@@ -658,7 +670,7 @@ object JarvisParser {
         Regex("^(delete|remove|cancel|get rid of|scrap|bin|clear) (my |the )?(.+)$").find(t)?.let { return Command.DeleteThing(it.groupValues[3].clean()) }
 
         // "Add milk", "add call the bank tomorrow": on your notes.
-        Regex("^(add|put down|write down|jot down|stick)\\s+(.+)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[2])) }
+        Regex("^(add|put down|write down|jot down|stick)\\s+(.+)$").find(t)?.let { return noteOf(orig(it.groupValues[2])) }
 
         // A fact he was asked to remember: "what's my locker code", "when is tom's birthday".
         Regex("^(what's|what is|what are|whats) (my |the )?(.+)$").find(t)?.let { return Command.Recall(key(it.groupValues[3])) }

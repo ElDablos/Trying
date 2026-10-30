@@ -780,6 +780,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.Agenda -> agenda(cmd.day)
         is Command.AddEvent -> addEvent(cmd)
         is Command.AddNote -> addNote(cmd.text)
+        is Command.AddNotes -> addNotes(cmd.texts)
         Command.NoteAsk -> {
             pending = Pending.NoteText
             Reply(say("Of course. What should the note say, sir?", "Go on, I'm writing.", "What should it say?"), listen = true)
@@ -1413,6 +1414,23 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 JarvisParser.whenIn(item.lowercase(), LocalDate.now()).let { (d, t) -> if (d != null || t != null) Action("▦ TO CALENDAR", "add $item to my calendar") else null },
             ),
         )
+    }
+
+    /** Several new notes at once, each on its own line; one undo takes them all off. */
+    private fun addNotes(texts: List<String>): Reply {
+        val before = DeckData.note(context)
+        val items = texts.map { withTopic(it).replaceFirstChar { c -> c.uppercase() } }
+        DeckData.setNote(context, (openNotes() + items).joinToString("\n"))
+        lastNote = items.last()
+        push("${items.size} notes taken off") {
+            DeckData.setNote(context, before)
+            "Done, they're off your notes."
+        }
+        val open = openNotes().filter { !it.startsWith(DONE) }
+        val list = items.dropLast(1).joinToString(", ") { "“$it”" } + " and “${items.last()}”"
+        return Reply(say("Added ${items.size} notes${sir()}: $list.", "${items.size} notes: $list. The list grows.", "${items.size} notes added."),
+            card = Card("✎", "NOTES", sub = "${open.size} open", rows = open.takeLast(6).map { Row(it, if (it in items) "NEW" else "") }, tone = Tone.GOLD),
+            actions = listOf(undoAction, Action("+ MORE", "and ")))
     }
 
     private fun readNotes(): Reply {

@@ -458,6 +458,14 @@ class JarvisTest {
     }
 
     @Test
+    fun severalNotesInOneGo() {
+        assertEquals(Command.AddNotes(listOf("buy milk and eggs", "lock the door")), p("add a note to buy milk and eggs and another note to lock the door"))
+        assertEquals(Command.AddNotes(listOf("call mum", "pay rent", "book the dentist")), p("make a note to call mum, and a note to pay rent and one more note saying book the dentist"))
+        assertEquals(Command.AddNote("buy milk and eggs"), p("add a note to buy milk and eggs"))
+        assertEquals(Command.AddNote("buy a note pad"), p("add a note to buy a note pad"))
+    }
+
+    @Test
     fun handsLogAsHeard() {
         assertEquals(Command.HandsLog, p("Send me hands long"))
         assertEquals(Command.HandsLog, p("Hands long"))

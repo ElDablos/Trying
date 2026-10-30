@@ -43,7 +43,7 @@ import kotlin.random.Random
  * with buttons) and sometimes done. [answer] may read the calendar and contacts: call it off the main
  * thread, and run the reply's [Reply.then] on the main thread.
  */
-class Jarvis(private val context: Context, private val host: Host) {
+class Jarvis private constructor(private val context: Context, var host: Host) {
     /** What Jarvis needs from the launcher. */
     interface Host {
         /** The briefing: read it, or steer it (null control reads it from the start). */
@@ -137,6 +137,8 @@ class Jarvis(private val context: Context, private val host: Host) {
         class WhichApp(val name: String) : Pending()
         /** He asked what the note should say. */
         object NoteText : Pending()
+        /** He asked when a countdown's for. */
+        class CountdownWhen(val name: String) : Pending()
         /** A message written but not sent yet: you can add to it, change it, send it or scrap it. */
         class Draft(val whatsapp: Boolean, val name: String, val number: String, var text: String) : Pending()
     }
@@ -191,6 +193,13 @@ class Jarvis(private val context: Context, private val host: Host) {
             pending = null
             val app = findApp(text.lowercase().removePrefix("it's in ").removePrefix("in ").removePrefix("the ").removeSuffix(" app"))
             if (app != null) return styled(teach(p.name, app))
+        }
+        (pending as? Pending.CountdownWhen)?.let { p ->
+            pending = null
+            val today = LocalDate.now()
+            val date = JarvisParser.dateIn(text, today) ?: JarvisParser.whenIn(text.lowercase(), today).first ?: JarvisParser.occasion(text, today)
+            if (date != null) return styled(addCountdown(p.name, date))
+            if (JarvisParser.parse(text) == Command.No) return styled(Reply("Very well, no countdown."))
         }
         if (pending == Pending.NoteText) {
             pending = null
@@ -606,7 +615,10 @@ class Jarvis(private val context: Context, private val host: Host) {
         is Command.RemoveHabit -> removeHabit(cmd.name)
         is Command.Untick -> untick(cmd.name)
         Command.Habits -> habits()
-        is Command.AddCountdown -> addCountdown(cmd.name, cmd.date)
+        is Command.AddCountdown -> cmd.date?.let { addCountdown(cmd.name, it) } ?: run {
+            pending = Pending.CountdownWhen(cmd.name)
+            Reply("When is ${cmd.name}${sir()}?", listOf("Next Friday", "1 January", "In two weeks"), listen = true)
+        }
         is Command.RemoveCountdown -> removeCountdown(cmd.name)
         is Command.AddShift -> setShift(cmd.date, Shifts.Shift(cmd.start, cmd.end, shiftName(cmd.start, cmd.end)))
         is Command.RemoveShift -> setShift(cmd.date, null)
@@ -1489,7 +1501,8 @@ class Jarvis(private val context: Context, private val host: Host) {
         var stage = 0
         var moves = 0
         val job = {
-            JarvisHands.custom(app.component.packageName, null, "I couldn't set the temperature in ${app.label} this time, sir.", timeout = 40_000) { root, tries ->
+            JarvisEar.start(context)
+            JarvisHands.custom(app.component.packageName, null, "I couldn't set the temperature in ${app.label} this time, sir.", timeout = 40_000, linger = true) { root, tries ->
                 if (tries > 60) return@custom "I couldn't finish setting it, sir. It may need a tap from you."
                 when (stage) {
                     // The heater's page, switched on.
@@ -1682,7 +1695,8 @@ class Jarvis(private val context: Context, private val host: Host) {
         val prefs = context.getSharedPreferences("jarvis_hands", Context.MODE_PRIVATE)
         var opened = false
         val job = {
-            JarvisHands.custom(TAPO, null, "I couldn't open the light in Tapo, sir.", timeout = 20_000) { root, tries ->
+            JarvisEar.start(context)
+            JarvisHands.custom(TAPO, null, "I couldn't open the light in Tapo, sir.", timeout = 20_000, linger = true) { root, tries ->
                 if (!JarvisReaders.tapoLightPage(root)) {
                     if (opened && tries < 12) return@custom null
                     val l = JarvisReaders.light(JarvisReaders.lights(root), name) ?: return@custom if (tries < 6) null else "I couldn't see the light in Tapo, sir."
@@ -2022,6 +2036,18 @@ class Jarvis(private val context: Context, private val host: Host) {
     private fun duration(ms: Long) = DeckView.duration(ms)
 
     companion object {
+        @Volatile
+        private var brain: Jarvis? = null
+
+        /**
+         * The one Jarvis: the panel and "Hey Jarvis" from any app share him, so the thread of the
+         * conversation ("and blue", "make it 24") carries on whichever you talk to. [host] is whoever's
+         * showing him now.
+         */
+        fun shared(context: Context, host: Host): Jarvis = synchronized(this) {
+            (brain ?: Jarvis(context.applicationContext, host).also { brain = it }).also { it.host = host }
+        }
+
         const val DONE = "[x] "
         const val WHATSAPP = "com.whatsapp"
         const val TAPO = "com.tplink.iot"

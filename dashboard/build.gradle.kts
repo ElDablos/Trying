@@ -14,6 +14,8 @@ android {
         targetSdk = 34
         versionCode = 34
         versionName = "1.33"
+        // "Hey Jarvis" listens with Vosk's native library: the phone's 64-bit ARM build is all it needs.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     signingConfigs {
@@ -49,6 +51,9 @@ android {
 }
 
 dependencies {
+    // Offline wake word for "Hey Jarvis" (Apache 2.0). The English model is downloaded once, in Jarvis's settings.
+    implementation("com.alphacephei:vosk-android:0.3.47@aar")
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
     testImplementation("junit:junit:4.13.2")
     // Android's built-in org.json is a stub in local unit tests.
     testImplementation("org.json:json:20240303")

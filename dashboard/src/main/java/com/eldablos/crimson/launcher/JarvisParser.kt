@@ -94,7 +94,8 @@ object JarvisParser {
         data class RemoveHabit(val name: String) : Command()
         data class Untick(val name: String) : Command()
         object Habits : Command()
-        data class AddCountdown(val name: String, val date: LocalDate) : Command()
+        /** [date] null: he asks when it is. */
+        data class AddCountdown(val name: String, val date: LocalDate?) : Command()
         data class RemoveCountdown(val name: String) : Command()
         data class AddShift(val date: LocalDate, val start: LocalTime, val end: LocalTime) : Command()
         data class RemoveShift(val date: LocalDate) : Command()
@@ -444,9 +445,10 @@ object JarvisParser {
         Regex("^(untick|un-tick|unmark|undo) (the |my )?(.+?)( habit)?$").find(t)?.takeIf { !Regex("^undo (that|it)$").matches(t) }?.let { return Command.Untick(it.groupValues[3].clean()) }
         if (has("my habits", "habit streaks", "how are my habits", "habits")) return Command.Habits
         // Countdowns: "add a countdown to holiday on 3 March", "remove the christmas countdown".
-        Regex("^(add|create|start|set up|make|new)( a)? countdown( to| for| until)? (.+?) (on|for|at) (.+)$").find(t)?.let { m ->
-            val date = dateIn(m.groupValues[6], today) ?: whenIn(m.groupValues[6], today).first
-            if (date != null) return Command.AddCountdown(orig(m.groupValues[4]).replaceFirstChar { it.uppercase() }, date)
+        Regex("^(add|create|start|set up|make|new|set)( a| me a)? countdown( to| for| until| till)? (.+?)(?: (on|for|at|in) (.+))?$").find(t)?.let { m ->
+            val name = m.groupValues[4].removePrefix("the ").removePrefix("my ").trim()
+            val date = m.groupValues[6].takeIf { it.isNotEmpty() }?.let { dateIn(it, today) ?: whenIn(it, today).first } ?: occasion(name, today)
+            return Command.AddCountdown(occasionName(name) ?: orig(name).replaceFirstChar { it.uppercase() }, date)
         }
         Regex("^(remove|delete|drop|cancel)( the| my)? (countdown (to |for )?(.+)|(.+?) countdown)$").find(t)?.let { m ->
             return Command.RemoveCountdown((m.groupValues[5].ifEmpty { m.groupValues[6] }).clean())
@@ -478,6 +480,73 @@ object JarvisParser {
     }
 
     private fun String.clean() = trim().trimEnd('.', ',', '!', '?').trim()
+
+    private fun next(today: LocalDate, month: Int, day: Int): LocalDate =
+        LocalDate.of(today.year, month, day).let { if (it.isBefore(today)) LocalDate.of(today.year + 1, month, day) else it }
+
+    /** Easter Sunday in [year] (the Gregorian computus). */
+    fun easter(year: Int): LocalDate {
+        val a = year % 19
+        val b = year / 100
+        val c = year % 100
+        val d = b / 4
+        val e = b % 4
+        val f = (b + 8) / 25
+        val g = (b - f + 1) / 3
+        val h = (19 * a + b - d - g + 15) % 30
+        val i = c / 4
+        val k = c % 4
+        val l = (32 + 2 * e + 2 * i - h - k) % 7
+        val m = (a + 11 * h + 22 * l) / 451
+        val month = (h + l - 7 * m + 114) / 31
+        val day = (h + l - 7 * m + 114) % 31 + 1
+        return LocalDate.of(year, month, day)
+    }
+
+    private fun yearly(today: LocalDate, of: (Int) -> LocalDate) = of(today.year).let { if (it.isBefore(today)) of(today.year + 1) else it }
+
+    /** The next date of an occasion everyone knows: New Year, Christmas, Easter, Halloween… */
+    fun occasion(name: String, today: LocalDate): LocalDate? {
+        val n = name.lowercase().replace("’", "'")
+        return when {
+            Regex("new year'?s eve|nye").containsMatchIn(n) -> next(today, 12, 31)
+            Regex("new year").containsMatchIn(n) -> next(today, 1, 1)
+            Regex("christmas eve|xmas eve").containsMatchIn(n) -> next(today, 12, 24)
+            Regex("boxing day").containsMatchIn(n) -> next(today, 12, 26)
+            Regex("christmas|xmas").containsMatchIn(n) -> next(today, 12, 25)
+            Regex("halloween").containsMatchIn(n) -> next(today, 10, 31)
+            Regex("valentine").containsMatchIn(n) -> next(today, 2, 14)
+            Regex("bonfire|guy fawkes|fireworks night").containsMatchIn(n) -> next(today, 11, 5)
+            Regex("st\\.? patrick|paddy").containsMatchIn(n) -> next(today, 3, 17)
+            Regex("easter").containsMatchIn(n) -> yearly(today) { easter(it) }
+            Regex("mother'?s day|mothering sunday").containsMatchIn(n) -> yearly(today) { easter(it).minusWeeks(3) }
+            Regex("father'?s day").containsMatchIn(n) -> yearly(today) { y ->
+                var d = LocalDate.of(y, 6, 1)
+                while (d.dayOfWeek != DayOfWeek.SUNDAY) d = d.plusDays(1)
+                d.plusWeeks(2)
+            }
+            Regex("summer").containsMatchIn(n) -> next(today, 6, 21)
+            else -> null
+        }
+    }
+
+    /** How an occasion's written: "the new year" → "New Year". */
+    fun occasionName(name: String): String? {
+        val n = name.lowercase()
+        return when {
+            Regex("new year'?s eve").containsMatchIn(n) -> "New Year's Eve"
+            Regex("new year").containsMatchIn(n) -> "New Year"
+            Regex("christmas eve").containsMatchIn(n) -> "Christmas Eve"
+            Regex("christmas|xmas").containsMatchIn(n) -> "Christmas"
+            Regex("halloween").containsMatchIn(n) -> "Halloween"
+            Regex("valentine").containsMatchIn(n) -> "Valentine's Day"
+            Regex("easter").containsMatchIn(n) -> "Easter"
+            Regex("bonfire|guy fawkes").containsMatchIn(n) -> "Bonfire Night"
+            Regex("mother'?s day").containsMatchIn(n) -> "Mother's Day"
+            Regex("father'?s day").containsMatchIn(n) -> "Father's Day"
+            else -> null
+        }
+    }
 
     /** Any time in [t], however said: "6am", "6:30", "at 7", "18:00". No guessing at afternoons. */
     fun anyTime(t: String): LocalTime? {

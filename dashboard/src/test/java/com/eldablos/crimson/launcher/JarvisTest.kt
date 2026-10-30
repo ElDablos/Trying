@@ -253,4 +253,14 @@ class JarvisTest {
         assertEquals(Command.LightColour("warm white"), p("Change the light to warm white"))
         assertEquals(Command.Lights(false, "bedroom light"), p("Turn off the bedroom light"))
     }
+
+    @Test
+    fun countdownsToOccasions() {
+        assertEquals(Command.AddCountdown("New Year", LocalDate.of(2027, 1, 1)), p("Add a countdown to the new year"))
+        assertEquals(Command.AddCountdown("Christmas", LocalDate.of(2026, 12, 25)), p("Start a countdown to Christmas"))
+        assertEquals(Command.AddCountdown("Easter", LocalDate.of(2027, 3, 28)), p("Set a countdown to Easter"))
+        assertEquals(Command.AddCountdown("Holiday", LocalDate.of(2027, 3, 3)), p("Add a countdown to holiday on 3 March"))
+        assertEquals(Command.AddCountdown("Gym competition", null), p("Add a countdown to gym competition"))
+        assertEquals(Command.Countdown("christmas"), p("How long until Christmas"))
+    }
 }

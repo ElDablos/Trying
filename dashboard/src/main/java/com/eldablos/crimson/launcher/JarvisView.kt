@@ -52,7 +52,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     var onClose: (() -> Unit)? = null
     var onPermission: ((Array<String>) -> Unit)? = null
 
-    val jarvis = Jarvis(context, host)
+    private val panelHost = host
+    val jarvis: Jarvis get() = Jarvis.shared(context, panelHost)
     private val main = Handler(Looper.getMainLooper())
     private enum class State(val label: String) { IDLE("STANDING BY"), LISTENING("LISTENING"), THINKING("THINKING"), SPEAKING("SPEAKING") }
     private var state = State.IDLE
@@ -375,6 +376,10 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         }
         if (state == State.SPEAKING) Speech.stop()
         recognizer?.destroy()
+        if (!earPaused) {
+            JarvisEar.pause(true)
+            earPaused = true
+        }
         val r = SpeechRecognizer.createSpeechRecognizer(context)
         recognizer = r
         r.setRecognitionListener(object : RecognitionListener {
@@ -384,11 +389,13 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() = setState(State.THINKING)
             override fun onError(error: Int) {
+                releaseEar()
                 setState(State.IDLE)
                 showHeard(if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) "Didn't catch that. Tap the core to try again." else "")
             }
             override fun onResults(results: Bundle?) {
                 // Of everything it might have heard, the one he can act on ("Claude" over "cloud").
+                releaseEar()
                 val heardAll = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
                 val said = if (heardAll.size > 1) jarvis.bestHeard(heardAll) else heardAll.firstOrNull().orEmpty()
                 if (said.isNotEmpty()) {
@@ -427,10 +434,20 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         heard.animate().alpha(if (text.isEmpty()) 0f else 1f).setDuration(150).start()
     }
 
+    private var earPaused = false
+
+    private fun releaseEar() {
+        if (earPaused) {
+            earPaused = false
+            JarvisEar.pause(false)
+        }
+    }
+
     private fun stopListening() {
         recognizer?.cancel()
         recognizer?.destroy()
         recognizer = null
+        releaseEar()
         if (state == State.LISTENING) setState(State.IDLE)
     }
 
@@ -666,6 +683,48 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         val leads = listOf(45, 60, 75, 90, 120)
         body.addView(TextView(context).apply { text = "Shift alarm, before the start"; setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(11f) * u); setTextColor(Hud.SOFT); setPadding(0, dp(10f), 0, dp(6f)) })
         choice(body, leads.map { "${it}m" }, leads.indexOf(JarvisMemory.alarmLead(context)).coerceAtLeast(0)) { JarvisMemory.setAlarmLead(context, leads[it]) }
+        heading(body, "HEY JARVIS", "Say \"Hey Jarvis\" from any app and he answers over it. Listens on the phone only (Android shows its green mic dot while he does). A one-off 40 MB download.")
+        val wakeOn = JarvisEar.wakeEnabled(context)
+        lateinit var status: TextView
+        toggle(body, "Hey Jarvis", if (JarvisEar.modelReady(context)) "Ready" else "Needs a one-off download", wakeOn) { on ->
+            JarvisEar.setWake(context, on)
+            if (!on) {
+                JarvisEar.stop(context)
+                status.text = "Off"
+                return@toggle
+            }
+            val missing = listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS).filter { context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+            if (missing.isNotEmpty()) onPermission?.invoke(missing.toTypedArray())
+            if (!android.provider.Settings.canDrawOverlays(context)) {
+                context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            if (JarvisEar.modelReady(context)) {
+                JarvisEar.start(context)
+                status.text = "Listening for \"Hey Jarvis\"."
+            } else {
+                status.text = "Downloading his ears… 0%"
+                JarvisEar.download(context, { p -> status.text = "Downloading his ears… $p%" }) { ok ->
+                    status.text = if (ok) "Ready. Say \"Hey Jarvis\"." else "The download didn't finish. Check the connection and switch it on again."
+                    if (ok) JarvisEar.start(context) else JarvisEar.setWake(context, false)
+                }
+            }
+        }
+        status = TextView(context).apply {
+            text = when {
+                !wakeOn -> "Off"
+                !JarvisEar.modelReady(context) -> "Switch on to download"
+                !android.provider.Settings.canDrawOverlays(context) -> "Needs \"Appear on top\" to show over apps"
+                else -> "Listening for \"Hey Jarvis\"."
+            }
+            mono(this, 7f, Hud.HOT, .1f)
+            setPadding(0, 0, 0, dp(6f))
+        }
+        body.addView(status)
+        toggle(body, "Only while charging", "Save the battery: he listens for \"Hey Jarvis\" only on the charger", JarvisEar.chargingOnly(context)) {
+            JarvisEar.setChargingOnly(context, it)
+            JarvisEar.stop(context)
+            if (JarvisEar.wakeEnabled(context)) JarvisEar.start(context)
+        }
         heading(body, "CALLS")
         toggle(body, "Ask before calling", "\"Call Mum, sir?\" before he dials", JarvisMemory.confirmCalls(context)) { JarvisMemory.setConfirmCalls(context, it) }
         heading(body, "HANDS", "Lets him tap buttons in other apps (Tapo lights and anything you teach him). Idle until he's asked.")

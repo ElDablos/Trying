@@ -166,6 +166,12 @@ back to One UI Home the same way at any time.
     28 degrees", "warmer", "turn the heat down two", and "and 24" right after. Hands open Air+, press power,
     the mode and + / − until it reads your number, then come back. "Learn the heating in Air+" if it can't
     find the buttons.
+  - **"Hey Jarvis" from any app** (⚙ → Hey Jarvis; a one-off 40 MB download): a wake word heard offline by
+    Vosk, then a Jarvis strip over whatever you're in that listens, answers out loud and does it. "Open
+    Gallery" leaves you in Gallery; switching a light or the heater happens in Tapo / Air+ and comes back
+    to Jarvis; after a colour, brightness or temperature he stays a few seconds for "next colour",
+    "brighter" or "warmer", then comes back. Android's green mic dot shows while he listens; "Only while
+    charging" saves the battery. Needs "Appear on top".
   - **Routines**: "good night" (do not disturb, an alarm for your next shift, tomorrow's plan),
     "good morning" (the briefing), "leaving work", "focus mode", and your own in ⚙ → Routines.
   - **Memory**: "remember my locker code is 4412" / "what's my locker code?"; "remember Tom's

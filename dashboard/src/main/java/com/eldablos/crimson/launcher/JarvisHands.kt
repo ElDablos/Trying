@@ -64,7 +64,7 @@ class JarvisHands : AccessibilityService() {
          * Anything else: [step] looks at the screen each time it settles and returns what to say when
          * it's done, or null to wait for more. [tries] counts the looks, so a reader can give up gracefully.
          */
-        class Custom(pkg: String, val open: Intent?, val step: (AccessibilityNodeInfo, Int) -> String?, var tries: Int = 0, val failed: String) : Job(pkg)
+        class Custom(pkg: String, val open: Intent?, val step: (AccessibilityNodeInfo, Int) -> String?, var tries: Int = 0, val failed: String, val linger: Boolean = false) : Job(pkg)
     }
 
     private var job: Job? = null
@@ -223,6 +223,8 @@ class JarvisHands : AccessibilityService() {
             is Job.Guess -> "I couldn't find the switch in Tapo, sir. Show me once: say \"learn the ${j.device ?: "light"}\" and tap it while I watch."
             else -> "That didn't go to plan, sir. The app may have changed; you could teach me again."
         }
+        // Something you might want more of (a colour, the brightness, the temperature): he stays in the app a few seconds to listen.
+        if (ok && (j as? Job.Custom)?.linger == true && JarvisEar.linger(say)) return
         report(this, if (note == ALREADY) "It's already ${if ((j as? Job.Run)?.on ?: (j as? Job.Guess)?.on == true) "on" else "off"}, sir." else say)
     }
 
@@ -358,8 +360,11 @@ class JarvisHands : AccessibilityService() {
         fun learn(pkg: String, name: String): Boolean = instance?.run { begin(Job.Learn(pkg, name), 60_000); true } ?: false
 
         /** Opens [pkg] (with [open], or its launcher), works the screen with [step], then comes back and says what it returned. */
-        fun custom(pkg: String, open: Intent?, failed: String, timeout: Long = 12_000, step: (AccessibilityNodeInfo, Int) -> String?): Boolean =
-            instance?.run { begin(Job.Custom(pkg, open, step, failed = failed), timeout); true } ?: false
+        fun custom(pkg: String, open: Intent?, failed: String, timeout: Long = 12_000, linger: Boolean = false, step: (AccessibilityNodeInfo, Int) -> String?): Boolean =
+            instance?.run { begin(Job.Custom(pkg, open, step, failed = failed, linger = linger), timeout); true } ?: false
+
+        /** Working an app right now. */
+        val busy: Boolean get() = instance?.job != null
 
         /** A finger tap at a point on screen, for controls that don't describe themselves (a slider, a colour dot). */
         fun tapAt(x: Float, y: Float): Boolean = instance?.run {
@@ -393,6 +398,7 @@ class JarvisHands : AccessibilityService() {
 
         /** Back to the launcher, where Jarvis says how it went. */
         private fun report(context: Context, say: String) {
+            JarvisEar.handsReported()
             context.startActivity(
                 Intent(context, LauncherActivity::class.java).putExtra(EXTRA_NOTE, say)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),

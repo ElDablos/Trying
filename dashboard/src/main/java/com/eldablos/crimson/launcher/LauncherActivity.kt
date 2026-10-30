@@ -268,6 +268,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         onComms()
         showNodes()
         refreshJarvisAlerts()
+        // "Hey Jarvis": the mic can only be taken up from the foreground, so it starts (or restarts) here.
+        if (JarvisEar.wakeEnabled(this) && JarvisEar.modelReady(this)) JarvisEar.start(this)
         handler.removeCallbacks(tick)
         tick.run()
         refreshIfStale()
@@ -502,7 +504,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private fun fromJarvisShortcut(intent: Intent?) = intent?.component?.className?.endsWith(".JarvisShortcut") == true
 
     private fun jarvisExtras(intent: Intent?) = intent != null &&
-        (intent.hasExtra(JarvisHands.EXTRA_NOTE) || intent.hasExtra(JarvisProactive.EXTRA_SAY) || intent.hasExtra(JarvisProactive.EXTRA_INSIGHT))
+        (intent.hasExtra(JarvisHands.EXTRA_NOTE) || intent.hasExtra(JarvisProactive.EXTRA_SAY) || intent.hasExtra(JarvisProactive.EXTRA_INSIGHT) ||
+            intent.hasExtra(JarvisEar.EXTRA_BACK))
 
     /** Jarvis reporting back from another app, or a notification's button: open him and carry on. */
     private fun handleJarvis(intent: Intent) {
@@ -512,6 +515,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         intent.removeExtra(JarvisHands.EXTRA_NOTE)
         intent.removeExtra(JarvisProactive.EXTRA_SAY)
         intent.removeExtra(JarvisProactive.EXTRA_INSIGHT)
+        val back = intent.getBooleanExtra(JarvisEar.EXTRA_BACK, false)
+        intent.removeExtra(JarvisEar.EXTRA_BACK)
         if (say != null && insight != null) JarvisProactive.dismiss(this, insight)
         val open = jarvis.visibility == View.VISIBLE
         if (!open) {
@@ -524,6 +529,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
                 if (!open) jarvis.show(listen = false, greet = false)
                 jarvis.submit(say)
             }
+            // Back from an app he was working: Jarvis as you left him, no hello.
+            back -> if (!open) jarvis.show(listen = false, greet = false)
             !open -> jarvis.show(listen = false)
         }
     }

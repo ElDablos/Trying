@@ -193,8 +193,7 @@ class CommsView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        // Near solid, so the app underneath doesn't show through the text.
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Hud.fill(Hud.alpha(Hud.tint(0xFF050203.toInt()), .97f)))
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Hud.fill(Hud.alpha(Hud.tint(0xFF050203.toInt()), .8f)))
         canvas.drawRect(0f, 0f, width.toFloat(), height * .5f, Paint().apply {
             shader = RadialGradient(width / 2f, 0f, width.toFloat(), Hud.alpha(Hud.DEEP, .25f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         })
@@ -1164,7 +1163,7 @@ class CardShape(private val u: Float, private val accent: Int = Hud.HOT) : Drawa
         val r = RectF(bounds)
         val path = Hud.cut(r, 12 * u)
         canvas.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(r.left, 0f, r.right, 0f, Hud.alpha(Hud.tint(0xFF1A070C.toInt()), .98f), Hud.alpha(Hud.tint(0xFF0C0406.toInt()), .98f), Shader.TileMode.CLAMP)
+            shader = LinearGradient(r.left, 0f, r.right, 0f, Hud.alpha(Hud.BLOOD, .55f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .85f), Shader.TileMode.CLAMP)
         })
         canvas.drawPath(path, Hud.stroke(Hud.alpha(Hud.CRIMSON, .45f), u))
         canvas.drawRect(r.left, r.top + 12 * u, r.left + 2 * u, r.bottom - 12 * u, Hud.glow(Hud.fill(accent), 5 * u))

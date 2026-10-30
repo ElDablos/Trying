@@ -13,7 +13,7 @@ object JarvisReaders {
     const val CLOCK = "com.sec.android.app.clockpackage"
     private val HM = DateTimeFormatter.ofPattern("HH:mm")
 
-    class AlarmRow(val time: LocalTime, val on: Boolean?, val detail: String, val switch: AccessibilityNodeInfo?, val label: String? = null, val days: String? = null)
+    class AlarmRow(val time: LocalTime, val on: Boolean?, val detail: String, val switch: AccessibilityNodeInfo?, val label: String? = null, val days: String? = null, val row: AccessibilityNodeInfo? = null)
 
     /** The row round [n]: the nearest parent holding a switch. */
     private fun row(n: AccessibilityNodeInfo): Pair<AccessibilityNodeInfo, AccessibilityNodeInfo>? {
@@ -47,9 +47,20 @@ object JarvisReaders {
             if (ampm.startsWith("a") && h == 12) h = 0
             if (h !in 0..23 || min !in 0..59) continue
             val (label, days) = tidy(texts, text)
-            out += AlarmRow(LocalTime.of(h, min), if (sw.isCheckable) sw.isChecked else null, listOfNotNull(label, days).joinToString(" · "), sw, label, days)
+            out += AlarmRow(LocalTime.of(h, min), if (sw.isCheckable) sw.isChecked else null, listOfNotNull(label, days).joinToString(" · "), sw, label, days, r)
         }
         return out.sortedBy { it.time }.also { lastAlarms = it; lastAlarmsAt = System.currentTimeMillis() }
+    }
+
+    /** The Clock's list in select mode (after a long press): a Delete button and ticks instead of switches. */
+    fun clockSelecting(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { n ->
+        val t = (n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()
+        t.equals("Delete", true) || Regex("\\d+ selected|select all|select alarms", RegexOption.IGNORE_CASE).containsMatchIn(t)
+    }
+
+    /** The Delete button (in select mode, or the "Delete" in its confirmation). */
+    fun clockDelete(root: AccessibilityNodeInfo): AccessibilityNodeInfo? = JarvisHands.nodes(root).lastOrNull { n ->
+        ((n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()).equals("Delete", true)
     }
 
     /** The last list read, for the card that goes with what he says. */

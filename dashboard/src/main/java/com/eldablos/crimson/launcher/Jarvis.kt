@@ -799,7 +799,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             Reply(say("Of course. What should the note say, sir?", "Go on, I'm writing.", "What should it say?"), listen = true)
         }
         is Command.Alarms -> alarms(cmd.on)
-        is Command.AlarmSwitch -> alarmSwitch(cmd.time, cmd.on)
+        is Command.AlarmSwitch -> alarmSwitch(cmd.time, cmd.on, hour = cmd.hour)
+        is Command.DeleteAlarms -> deleteAlarms(cmd.time, cmd.hour)
         is Command.MoveAlarm -> moveAlarm(cmd.from, cmd.to)
         is Command.AddHabit -> addHabit(cmd.name, cmd.tick)
         is Command.RemoveHabit -> removeHabit(cmd.name)
@@ -1750,10 +1751,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun showAlarms() = Intent(AlarmClock.ACTION_SHOW_ALARMS).setPackage(JarvisReaders.CLOCK).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
     /** Switches the alarm at [time] (or every one, for null) on or off, by its switch in the Clock. */
-    private fun clockSwitch(time: LocalTime?, on: Boolean, except: Set<LocalTime> = emptySet()) = JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), "I couldn't reach the Clock's alarms, sir.") { root, tries ->
+    private fun hourName(h: Int) = "${if (h % 12 == 0) 12 else h % 12}${if (h < 12) "am" else "pm"}"
+
+    private fun clockSwitch(time: LocalTime?, on: Boolean, except: Set<LocalTime> = emptySet(), hour: Int? = null) = JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), "I couldn't reach the Clock's alarms, sir.") { root, tries ->
         val rows = JarvisReaders.alarms(root)
         if (rows.isEmpty() && tries < 4) return@custom null
-        val targets = (if (time == null) rows else rows.filter { it.time == time }).filter { it.time !in except }
+        val targets = (if (time == null) rows else rows.filter { it.time == time }).filter { it.time !in except && (hour == null || it.time.hour == hour) }
         if (targets.isEmpty()) return@custom if (time != null) "I couldn't see a ${time.format(tf)} alarm in the Clock, sir." else "There aren't any alarms to switch, sir."
         val changed = targets.filter { it.on != on }
         changed.forEach { r -> r.switch?.let { JarvisHands.press(it) } }
@@ -1764,7 +1767,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         }
     }
 
-    private fun alarmSwitch(time: LocalTime?, on: Boolean, checked: Boolean = false): Reply {
+    private fun alarmSwitch(time: LocalTime?, on: Boolean, checked: Boolean = false, hour: Int? = null): Reply {
+        // "The 7am alarms": every one from 7:00 to 7:59, and nothing else.
+        if (hour != null) {
+            if (!handsOnClock()) return needHands("switching your alarms")
+            val kept = JarvisRules.keptAlarms(context).filter { it.hour == hour }.toSet()
+            push("Put your ${hourName(hour)} alarms back") { clockSwitch(null, !on, hour = hour); "Switching them back." }
+            return Reply(say("Certainly, sir.", "On it.", "OK."), afterSpeech = true, then = { clockSwitch(null, on, except = if (!on) kept else emptySet(), hour = hour) },
+                card = Card("⏰", "ALARMS", "${hourName(hour).uppercase()}S", "switching ${if (on) "on" else "off"} in the Clock", tone = Tone.GOLD))
+        }
         val what = time?.let { "your ${it.format(tf)} alarm" } ?: "all your alarms"
         // Alarms you said always stay on: never switched off without a yes.
         val kept = JarvisRules.keptAlarms(context)
@@ -1803,6 +1814,99 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 actions = listOf(Action("✋ ENABLE HANDS", primary = true, run = { start(JarvisHands.settingsIntent()) })))
         }
         return needHands("switching all your alarms")
+    }
+
+    /**
+     * Deletes alarms in the Clock (there's no other way to): asks first, then long-presses one to start
+     * selecting, ticks the ones you meant (scrolling for more), unticks any others, and presses Delete.
+     * Ones you said always stay on are left alone.
+     */
+    private fun deleteAlarms(time: LocalTime?, hour: Int?, checked: Boolean = false): Reply {
+        if (!handsOnClock()) return needHands("deleting alarms")
+        val what = when {
+            time != null -> "your ${time.format(tf)} alarm"
+            hour != null -> "all your ${hourName(hour)} alarms, ${"%02d".format(hour)}:00 to ${"%02d".format(hour)}:59"
+            else -> "all your alarms"
+        }
+        val kept = JarvisRules.keptAlarms(context)
+        if (!checked) {
+            pending = Pending.Confirm({ deleteAlarms(time, hour, checked = true) }, "Very well, they stay.")
+            return Reply("Delete $what for good${sir()}?" + if (kept.isNotEmpty() && time == null && hour == null) " I'll keep your ${kept.sorted().joinToString(" and ") { it.format(tf) }}, as you told me." else "",
+                listen = true, card = Card("⏰", "DELETE ALARMS?", time?.format(tf) ?: hour?.let { hourName(it).uppercase() + "S" } ?: "ALL", "deleted from the Clock", tone = Tone.HOT),
+                actions = listOf(Action("DELETE", "yes", primary = true), Action("KEEP THEM", "no")))
+        }
+        fun wanted(t: LocalTime) = t !in kept && when {
+            time != null -> t == time
+            hour != null -> t.hour == hour
+            else -> true
+        }
+        var stage = 0
+        var cool = 0
+        var scrolls = 0
+        var deleted = emptyList<LocalTime>()
+        val job = {
+            JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), "I couldn't delete them in the Clock, sir.", timeout = 45_000) { root, tries ->
+                if (cool > 0) {
+                    cool--
+                    return@custom null
+                }
+                val rows = JarvisReaders.alarms(root)
+                if (rows.isEmpty() && tries < 6) return@custom null
+                when (stage) {
+                    // The list: long-press the first one to delete, which starts selecting.
+                    0 -> {
+                        if (JarvisReaders.clockSelecting(root)) { stage = 1; return@custom null }
+                        val first = rows.firstOrNull { wanted(it.time) } ?: return@custom "There aren't any alarms ${if (time != null) "at ${time.format(tf)}" else if (hour != null) "at ${hourName(hour)}" else ""} to delete, sir.".replace("  ", " ")
+                        val target = first.row ?: first.switch ?: return@custom "I couldn't get hold of that alarm, sir."
+                        if (!target.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_LONG_CLICK)) {
+                            val b = android.graphics.Rect().also { target.getBoundsInScreen(it) }
+                            JarvisHands.swipe(b.exactCenterX() - b.width() / 4f, b.exactCenterY(), b.exactCenterX() - b.width() / 4f + 1, b.exactCenterY(), 900)
+                        }
+                        stage = 1
+                        cool = 2
+                        null
+                    }
+                    // Selecting: tick the wanted ones, untick the rest, one tap per look; scroll for more.
+                    1 -> {
+                        if (!JarvisReaders.clockSelecting(root)) return@custom if (tries < 20) null else "The Clock didn't let me select them, sir."
+                        rows.firstOrNull { (it.on == true) != wanted(it.time) }?.let { r ->
+                            JarvisHands.press(r.switch ?: r.row ?: return@let)
+                            cool = 1
+                            return@custom null
+                        }
+                        // All right on this screen: more below?
+                        val list = JarvisHands.nodes(root).firstOrNull { it.isScrollable }
+                        if (scrolls < 3 && list != null && list.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) {
+                            scrolls++
+                            cool = 1
+                            return@custom null
+                        }
+                        deleted = JarvisReaders.lastAlarms.filter { wanted(it.time) }.map { it.time }
+                        val del = JarvisReaders.clockDelete(root) ?: return@custom "I couldn't find the Delete button, sir."
+                        JarvisHands.press(del)
+                        stage = 2
+                        cool = 2
+                        null
+                    }
+                    // A confirmation, if the Clock asks; then done.
+                    else -> {
+                        if (JarvisReaders.clockSelecting(root) && tries < 50) {
+                            JarvisReaders.clockDelete(root)?.let { JarvisHands.press(it); cool = 2 }
+                            return@custom null
+                        }
+                        "Done${sir()}. Deleted ${if (deleted.size == 1) "your ${deleted[0].format(tf)} alarm" else "${deleted.size} alarms"}."
+                    }
+                }
+            }
+        }
+        push("Alarms put back (without their days)") {
+            deleted.forEach { t ->
+                start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, t.hour).putExtra(AlarmClock.EXTRA_MINUTES, t.minute).putExtra(AlarmClock.EXTRA_SKIP_UI, true))
+            }
+            "I've set them again: ${deleted.joinToString(", ") { it.format(tf) }}. Their repeat days will need setting in the Clock."
+        }
+        return Reply(say("Deleting them, sir.", "Clearing them out.", "Deleting."), afterSpeech = true, then = { job() },
+            card = Card("⏰", "DELETING", time?.format(tf) ?: hour?.let { hourName(it).uppercase() + "S" } ?: "ALL", "in the Clock", tone = Tone.HOT))
     }
 
     private fun moveAlarm(from: LocalTime?, to: LocalTime): Reply {

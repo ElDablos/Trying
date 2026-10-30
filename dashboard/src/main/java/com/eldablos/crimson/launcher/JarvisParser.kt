@@ -95,7 +95,9 @@ object JarvisParser {
         object Routines : Command()
         object NewRoutine : Command()
         /** "Turn off my 6am alarm", "turn on all my alarms": a [time] of null means every one. */
-        data class AlarmSwitch(val time: LocalTime?, val on: Boolean) : Command()
+        data class AlarmSwitch(val time: LocalTime?, val on: Boolean, val hour: Int? = null) : Command()
+        /** "Delete all the 7am alarms" (an hour), "delete my 7:30 alarm" (a time), "delete all my alarms" (all). */
+        data class DeleteAlarms(val time: LocalTime?, val hour: Int?) : Command()
         /** "Move my 6am alarm to 6:30": [from] null is the next one. */
         data class MoveAlarm(val from: LocalTime?, val to: LocalTime) : Command()
         data class AddHabit(val name: String, val tick: Boolean) : Command()
@@ -520,11 +522,21 @@ object JarvisParser {
                 val to = anyTime(m.groupValues[7])
                 if (to != null) return Command.MoveAlarm(anyTime(m.groupValues[3] + " " + m.groupValues[5]), to)
             }
-            val off = has("off", "disable", "cancel", "delete", "stop", "remove")
+            // Which: "the 7am alarms" (plural, on the hour) is every alarm from 7:00 to 7:59; "the 7:30 alarm" is that one.
+            val time = anyTime(t)
+            val exact = Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(t) && !Regex("\\d{1,2}[:.]00\\b").containsMatchIn(t)
+            val plural = has("alarms")
+            val hour = if (time != null && plural && !exact) time.hour else null
+            val at = if (hour == null) time else null
+            if (has("delete", "remove", "get rid of", "erase", "clear") && !Regex("^(set|wake)").containsMatchIn(t)) {
+                if (at != null || hour != null || has("all", "every")) return Command.DeleteAlarms(at, hour)
+            }
+            val off = has("off", "disable", "cancel", "stop")
             val on = has("on", "enable", "back on")
             if ((off || on) && !Regex("^(set|wake)").containsMatchIn(t)) {
+                if (hour != null) return Command.AlarmSwitch(null, !off, hour)
+                if (at != null) return Command.AlarmSwitch(at, !off)
                 if (has("all", "every", "all my", "all the")) return Command.AlarmSwitch(null, !off)
-                anyTime(t)?.let { return Command.AlarmSwitch(it, !off) }
             }
             if (Regex("\\b(what|which|list|show|read|tell me|how many)\\b").containsMatchIn(t) && has("alarms", "alarm")) return Command.Alarms(null)
         }

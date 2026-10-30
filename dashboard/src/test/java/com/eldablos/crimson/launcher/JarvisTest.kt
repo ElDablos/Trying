@@ -474,6 +474,16 @@ class JarvisTest {
     }
 
     @Test
+    fun deletingAndScopingAlarms() {
+        assertEquals(Command.DeleteAlarms(null, 7), p("delete all the 7am alarms"))
+        assertEquals(Command.DeleteAlarms(LocalTime.of(7, 30), null), p("delete my 7:30 alarm"))
+        assertEquals(Command.DeleteAlarms(null, null), p("delete all my alarms"))
+        assertEquals(Command.AlarmSwitch(null, false, 7), p("turn off all the 7am alarms"))
+        assertEquals(Command.AlarmSwitch(LocalTime.of(7, 0), false), p("turn off my 7am alarm"))
+        assertEquals(Command.AlarmSwitch(null, false), p("turn all my alarms off"))
+    }
+
+    @Test
     fun handsLogAsHeard() {
         assertEquals(Command.HandsLog, p("Send me hands long"))
         assertEquals(Command.HandsLog, p("Hands long"))

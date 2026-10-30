@@ -164,6 +164,27 @@ object JarvisParser {
     enum class Vol { UP, DOWN, MUTE, MAX }
     enum class Play { PLAY, PAUSE, NEXT, PREVIOUS }
 
+    /**
+     * Several commands in one go ("close the app and lock my phone", "turn the heating on, then lock my
+     * phone"): the parts, if every one is a command on its own and the sentence isn't one command that
+     * happens to contain "and" (a note's words, "the third and second", a message). Else null.
+     */
+    fun split(said: String, today: LocalDate = LocalDate.now()): List<String>? {
+        val parts = said.split(Regex("\\s*(?:,\\s*)?\\b(?:and then|and also|then|and)\\b\\s*", RegexOption.IGNORE_CASE)).map { it.trim().trim(',') }.filter { it.isNotEmpty() }
+        if (parts.size < 2 || parts.any { it.split(' ').size < 2 }) return null
+        val whole = parse(said, today)
+        val oneCommand = whole is Command.TickNotes || whole is Command.DeleteNotes || whole is Command.Learn || whole is Command.AddHabit || whole is Command.AddNote ||
+            whole is Command.AddEvent || whole is Command.Remember || whole is Command.KeepRule || whole is Command.HeaterNow || whole is Command.WhatsApp ||
+            whole is Command.Text || whole is Command.EditNote || whole is Command.Change || whole is Command.AlarmSeries || whole is Command.AddShift ||
+            whole is Command.AddCountdown || whole is Command.Travel
+        if (oneCommand) return null
+        val cmds = parts.map { parse(it, today) }
+        if (cmds.any { it is Command.Unknown || it is Command.Yes || it is Command.No || it is Command.FollowUp || it is Command.Greet || it is Command.Thanks }) return null
+        // Something that takes words (a note, a message) swallows the rest.
+        if (cmds.dropLast(1).any { it is Command.AddNote || it is Command.WhatsApp || it is Command.Text || it is Command.Remember || it is Command.NoteAsk }) return null
+        return parts
+    }
+
     /** What [said] asks for, with [today] for working out dates. */
     fun parse(said: String, today: LocalDate = LocalDate.now()): Command {
         val raw = said.trim().trimEnd('.', '!', '?')
@@ -213,6 +234,7 @@ object JarvisParser {
         }
         // The phone itself.
         if (Regex("^(lock|lock up)( my| the)?( phone| screen| device| mobile)?( now)?$|\\b(lock (my|the) (phone|screen|device))\\b|^(turn|switch) (off )?the screen( off)?$|^screen off$").containsMatchIn(t)) return Command.PhoneAction("lock")
+        if (Regex("^(?:close|exit|quit|leave|get out of|shut|kill|minimi[sz]e)(?: down)? (?:the |this |that |my )?(?:open |current |last )?(?:app|application|window)(?: (?:i'm|that's|i am) (?:in|on|using))?$|^(?:close|exit|quit) (?:it|this|that)$").matches(t)) return Command.PhoneAction("close")
         if (Regex("\\b(take a |grab a |take )?(screenshot|screen shot|screen grab|screengrab)\\b").containsMatchIn(t)) return Command.PhoneAction("screenshot")
         if (Regex("\\b(show|open|pull down|check)( me)?( my| the)? notifications?\\b|\\bnotification (shade|panel|bar)\\b").containsMatchIn(t)) return Command.PhoneAction("notifications")
         if (has("quick settings", "control centre", "control center", "quick panel")) return Command.PhoneAction("quick settings")

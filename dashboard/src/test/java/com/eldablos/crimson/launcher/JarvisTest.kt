@@ -446,6 +446,18 @@ class JarvisTest {
     }
 
     @Test
+    fun severalCommandsAtOnce() {
+        assertEquals(Command.PhoneAction("close"), p("close the app"))
+        assertEquals(Command.PhoneAction("close"), p("close the open app"))
+        assertEquals(listOf("close the app", "lock my phone"), JarvisParser.split("close the app and lock my phone"))
+        assertEquals(listOf("turn the heating on", "lock my phone"), JarvisParser.split("turn the heating on, then lock my phone"))
+        assertEquals(null, JarvisParser.split("add a note buy milk and eggs"))
+        assertEquals(null, JarvisParser.split("tick off the third and second"))
+        assertEquals(null, JarvisParser.split("remove third and second note"))
+        assertEquals(null, JarvisParser.split("what's the weather"))
+    }
+
+    @Test
     fun handsLogAsHeard() {
         assertEquals(Command.HandsLog, p("Send me hands long"))
         assertEquals(Command.HandsLog, p("Hands long"))

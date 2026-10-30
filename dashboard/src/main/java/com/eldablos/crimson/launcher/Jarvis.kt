@@ -271,6 +271,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (!inRoutine) JarvisRoutines.match(JarvisRoutines.all(context), text)?.let { return styled(runRoutine(it)).also { r -> lastReply = r } }
         // Something you've said before that he learnt the meaning of.
         val meant = if (inRoutine) null else JarvisMemory.meaning(context, text)
+        // Several at once: "close the app and lock my phone".
+        if (!inRoutine && meant == null) JarvisParser.split(text)?.let { parts -> return styled(several(parts)).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         // Straight after the heater: "that's 22 actually, set it to 23", "you went down by one", "go up one".
         if (!inRoutine && meant == null && heaterContext()) heaterTalk(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         val parsed = JarvisParser.parse(meant ?: text)
@@ -1097,6 +1099,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "quick settings" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS to say("Quick settings, sir.", "The switches.", "Quick settings.")
             "recents" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS to say("Your recent apps, sir.", "Where were we?", "Recents.")
             "home" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME to say("Home, sir.", "Home sweet home.", "Home.")
+            // Android doesn't let one app close another: leaving it for the home screen is as close as it gets.
+            "close" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME to say("Closed, sir.", "Out of there.", "Closed.")
             "power" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_POWER_DIALOG to say("The power menu, sir. I'll leave the big decisions to you.", "Power menu. Choose wisely.", "Power menu.")
             "split" -> android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN to say("Split screen, sir.", "Two for one.", "Split screen.")
             else -> return Reply("I can't do that one yet${sir()}.", failed = true)
@@ -2683,6 +2687,23 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 Row(step.replaceFirstChar { it.uppercase() }, if (rep.failed) "skipped" else "", ok = !rep.failed)
             }, tone = Tone.GREEN),
             actions = listOf(Action("EDIT ROUTINES", "my routines")),
+        )
+    }
+
+    /** Several commands said together: each answered, said as one, and done in turn (a moment apart, so each settles). */
+    private fun several(parts: List<String>): Reply {
+        val replies = parts.map { it to answer(it, inRoutine = true) }
+        val spoken = replies.filter { !it.second.failed }.map { it.second.say }
+            .map { it.replace(Regex("^(Certainly, sir\\.|Right away\\.|Of course\\.|Consider it done\\.|On it\\.)\\s*"), "") }.filter { it.isNotBlank() }
+        val failed = replies.filter { it.second.failed }
+        val thens = replies.filter { !it.second.failed }.mapNotNull { it.second.then }
+        val h = android.os.Handler(android.os.Looper.getMainLooper())
+        return Reply(
+            (spoken.joinToString(" ") + failed.joinToString("") { " I couldn't do \"${it.first}\": ${it.second.say}" }).trim().ifEmpty { "Done${sir()}." },
+            then = { thens.forEachIndexed { i, run -> h.postDelayed({ run() }, i * 1200L) } },
+            afterSpeech = replies.any { it.second.afterSpeech },
+            end = replies.any { it.second.end },
+            card = Card("⚡", "${parts.size} AT ONCE", sub = "done in order", rows = replies.map { (p, r) -> Row(p.replaceFirstChar { it.uppercase() }, if (r.failed) "couldn't" else "", ok = !r.failed) }, tone = Tone.GOLD),
         )
     }
 

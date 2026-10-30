@@ -149,6 +149,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         class NoteEdit(val ref: String?) : Pending()
         /** He asked what the heater's set to now (Air+ doesn't show it to him), to set it to [degrees] or by [by]. */
         class AirNow(val degrees: Double?, val by: Double) : Pending()
+        /** He couldn't answer [query] himself and offered Google (yes) or Claude. */
+        class Lookup(val query: String) : Pending()
         /** He asked when a countdown's for. */
         class CountdownWhen(val name: String) : Pending()
         /** A message written but not sent yet: you can add to it, change it, send it or scrap it. */
@@ -260,6 +262,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 return styled(setTemp(p.degrees, p.by)).also { lastReply = it }
             }
             if (JarvisParser.parse(text) == Command.No) return styled(Reply("Very well, I'll leave it."))
+        }
+        (pending as? Pending.Lookup)?.let { p ->
+            pending = null
+            val t = text.lowercase().trim().trimEnd('.', '!', '?')
+            when {
+                Regex("claude|cloud|the ai").containsMatchIn(t) -> return styled(askClaude(p.query))
+                JarvisParser.parse(text) == Command.Yes || Regex("^(google|google it|search|search it|look it up|chrome|web|the web|do it|go on)").containsMatchIn(t) -> return styled(webSearch(p.query))
+                JarvisParser.parse(text) == Command.No -> return styled(Reply(say("Very well.", "Fair enough.", "OK.")))
+            }
         }
         if (pending == Pending.NoteText) {
             pending = null
@@ -753,6 +764,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         }
         is Command.ItAction -> itAction(cmd.kind)
         is Command.KeepRule -> keepRule(cmd.subject, cmd.keep)
+        is Command.WebSearch -> webSearch(cmd.query)
+        is Command.AskClaude -> askClaude(cmd.query)
         is Command.PhoneAction -> phoneAction(cmd.kind)
         is Command.Ringer -> ringer(cmd.mode)
         is Command.HeaterNow -> {
@@ -885,7 +898,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Command.Settings -> Reply(say("Here are my settings, sir.", "Under the hood. Mind your fingers.", "Settings."), sheet = Sheet.SETTINGS)
         Command.Routines -> Reply("Your routines. Say any of their phrases and I'll run the lot.", sheet = Sheet.ROUTINES)
         Command.NewRoutine -> Reply("Let's build one. Give it a name, the phrases that start it, and what I should do, one line each.", sheet = Sheet.NEW_ROUTINE)
-        is Command.Unknown -> {
+        // A question he can't answer from the phone: Google it (or ask Claude), rather than shrug.
+        is Command.Unknown -> if (looksLikeQuestion(cmd.text)) lookupOffer(cmd.text) else {
             val close = closest(cmd.text)
             Reply(
                 if (close.isNotEmpty()) {
@@ -1147,6 +1161,33 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             card = Card("✦", "RULE · KEPT ON", name.removePrefix("your ").removePrefix("the ").uppercase(), "I'll ask before switching it off", tone = Tone.BLUE),
             actions = listOf(Action("MY RULES", "what do you know about me")))
     }
+
+    /** A question rather than an order: "how do I…", "what's the…", "who won…", "is it true that…". */
+    private fun looksLikeQuestion(t: String): Boolean {
+        val s = t.lowercase().trim()
+        return s.endsWith("?") || Regex("^(how|what|what's|whats|why|when|where|who|who's|which|whose|is|are|was|were|can|could|does|do|did|should|will|would|tell me|explain|define|what does|how do|how to|how much|how many|whats the|is there|are there)\\b").containsMatchIn(s) && s.split(' ').size >= 3
+    }
+
+    /** "Not one I know, sir. Shall I Google it?": yes opens Chrome, "Claude" asks Claude. */
+    private fun lookupOffer(q: String): Reply {
+        pending = Pending.Lookup(q)
+        return Reply(say("That's not one I know, sir. Shall I Google it? Or I can ask Claude.", "Beyond my circuits, that one. Google it, or shall I ask Claude?", "Google it, or ask Claude?"),
+            listen = true,
+            card = Card("⌕", "LOOK IT UP", sub = q.take(80), tone = Tone.BLUE),
+            actions = listOf(Action("⌕ GOOGLE IT", run = { pending = null; webSearch(q).then?.invoke() }, primary = true), Action("✳ ASK CLAUDE", run = { pending = null; askClaude(q).then?.invoke() })))
+    }
+
+    /** A Google search in Chrome (or the browser), after he's said so. */
+    private fun webSearch(q: String): Reply {
+        val url = "https://www.google.com/search?q=" + android.net.Uri.encode(q)
+        return Reply(say("Googling it, sir.", "To the internet.", "Searching."), afterSpeech = true, then = {
+            start(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).setPackage("com.android.chrome"), Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+        }, card = Card("⌕", "GOOGLE", sub = q.take(80), tone = Tone.BLUE))
+    }
+
+    /** The question handed to Claude. */
+    private fun askClaude(q: String): Reply = Reply(say("Asking Claude, sir.", "Over to Claude.", "Asking Claude."), afterSpeech = true,
+        then = { ClaudeLink.ask(context, q) }, card = Card("✳", "CLAUDE", sub = q.take(80), tone = Tone.GOLD))
 
     /** "Delete it", "tick it off": the note he just read, wrote or changed. */
     private fun itAction(kind: String): Reply {

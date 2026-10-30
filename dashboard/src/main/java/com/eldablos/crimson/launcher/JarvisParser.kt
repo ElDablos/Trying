@@ -149,6 +149,10 @@ object JarvisParser {
         data class AlarmSeries(val count: Int, val gap: Int, val from: LocalTime?) : Command()
         /** What Hands did and saw last time, to send on. */
         object HandsLog : Command()
+        /** "Google how to…", "look up…": a web search in Chrome. */
+        data class WebSearch(val query: String) : Command()
+        /** "Ask Claude…": the question handed to Claude. */
+        data class AskClaude(val query: String) : Command()
         /** The phone itself, through his hands: lock, screenshot, notifications, quick settings, recent apps, home, power menu. */
         data class PhoneAction(val kind: String) : Command()
         /** Ring, vibrate or silent. */
@@ -244,6 +248,9 @@ object JarvisParser {
                 if (Regex("^(set|make|give me|wake me)").containsMatchIn(t)) return Command.AlarmSeries(a.count, a.gap, a.from)
             }
         }
+        // Out to the web or to Claude, when you say so.
+        Regex("^(?:ask claude|claude|ask the ai|ask ai)(?: about| to| if| whether|,|:)?\\s+(.+)$").find(t)?.let { return Command.AskClaude(orig(it.groupValues[1])) }
+        Regex("^(?:google|search google for|search the web for|search the internet for|search online for|look up|look online for|web search|search for|find out|find online)(?: for| about)?[,:]?\\s+(.+)$").find(t)?.let { return Command.WebSearch(orig(it.groupValues[1])) }
         // The phone itself.
         if (Regex("^(lock|lock up)( my| the)?( phone| screen| device| mobile)?( now)?$|\\b(lock (my|the) (phone|screen|device))\\b|^(turn|switch) (off )?the screen( off)?$|^screen off$").containsMatchIn(t)) return Command.PhoneAction("lock")
         if (Regex("^(?:close|exit|quit|leave|get out of|shut|kill|minimi[sz]e)(?: down)? (?:the |this |that |my )?(?:open |current |last )?(?:app|application|window)(?: (?:i'm|that's|i am) (?:in|on|using))?$|^(?:close|exit|quit) (?:it|this|that)$").matches(t)) return Command.PhoneAction("close")

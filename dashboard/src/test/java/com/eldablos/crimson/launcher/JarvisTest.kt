@@ -466,6 +466,14 @@ class JarvisTest {
     }
 
     @Test
+    fun webAndClaude() {
+        assertEquals(Command.WebSearch("how to unlock decals in Modern Warfare 4"), p("Google how to unlock decals in Modern Warfare 4"))
+        assertEquals(Command.WebSearch("the Arsenal score"), p("look up the Arsenal score"))
+        assertEquals(Command.AskClaude("how black holes form"), p("ask Claude how black holes form"))
+        assertTrue(p("how do I unlock decals and stickers one two three four weapons in Modern Warfare 4") is Command.Unknown)
+    }
+
+    @Test
     fun handsLogAsHeard() {
         assertEquals(Command.HandsLog, p("Send me hands long"))
         assertEquals(Command.HandsLog, p("Hands long"))

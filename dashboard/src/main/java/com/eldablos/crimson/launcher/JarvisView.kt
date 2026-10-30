@@ -343,6 +343,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             }
         }.start()
         (lp as? LinearLayout.LayoutParams)?.topMargin = dp(if (on) 6f else 22f)
+        // The strip shows his mode itself.
+        status.visibility = if (on) GONE else VISIBLE
     }
 
     /** Puts [text] to Jarvis and shows, says and does his answer. */
@@ -1314,10 +1316,16 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         private val wave = FloatArray(48)
 
         override fun onDraw(canvas: Canvas) {
-            // Drawn for its full height, and scaled down with it when the conversation needs the room.
-            val shrink = (height / dp(258f).toFloat()).coerceIn(.3f, 1f)
+            // Full size, or (when the conversation needs the room) a strip: the reactor small on the left and
+            // the readouts and waveform across the rest. [k] blends between the two as it shrinks.
+            val fullH = dp(258f).toFloat()
+            val smallH = dp(118f).toFloat()
+            val k = ((fullH - height) / (fullH - smallH)).coerceIn(0f, 1f)
+            val sc = 1f - .52f * k
             canvas.save()
-            canvas.scale(shrink, shrink, width / 2f, 0f)
+            canvas.translate(width / 2f + (64 * u - width / 2f) * k, 120 * u + (height / 2f - 120 * u) * k)
+            canvas.scale(sc, sc)
+            canvas.translate(-width / 2f, -120 * u)
             val t = (SystemClock.uptimeMillis() - start) / 1000f
             val cx = width / 2f
             val cy = 120 * u
@@ -1425,6 +1433,13 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             canvas.drawCircle(cx, cy, cr * 1.5f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 shader = RadialGradient(cx, cy, cr * 1.5f, intArrayOf(Color.WHITE, Color.WHITE, holo, Color.TRANSPARENT), floatArrayOf(0f, .25f, .55f, 1f), Shader.TileMode.CLAMP)
             })
+            canvas.restore()
+            if (k > 0f) drawStrip(canvas, t, k, energy)
+            if (k >= 1f) {
+                if (isShown) postInvalidateDelayed(33)
+                return
+            }
+            canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), (255 * (1 - k)).toInt())
             // Readouts round it.
             val lab = Hud.text(5.5f * u, Hud.alpha(holo, .65f), Hud.MONO, .14f)
             val v = Hud.text(9f * u, Color.WHITE, Hud.MONO_BOLD, .06f)
@@ -1463,6 +1478,69 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             }
             canvas.restore()
             if (isShown) postInvalidateDelayed(33)
+        }
+
+        /**
+         * The compact strip, beside the small reactor: a frame with a lit edge, the four readouts in a row,
+         * the waveform under them, and a scale of ticks, so the whole width is in use.
+         */
+        private fun drawStrip(canvas: Canvas, t: Float, k: Float, energy: Float) {
+            val holo = Hud.HOT
+            val alpha = (255 * k).toInt()
+            canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), alpha)
+            val left = 128 * u
+            val right = width - 16 * u
+            val top = height / 2f - 40 * u
+            val bottom = height / 2f + 40 * u
+            val panel = RectF(left, top, right, bottom)
+            canvas.drawPath(Hud.cut(panel, 10 * u), Hud.fill(Hud.alpha(Hud.tint(0xFF0A0506.toInt()), .55f)))
+            canvas.drawPath(Hud.cut(panel, 10 * u), Hud.stroke(Hud.alpha(holo, .35f), u))
+            canvas.drawLine(left + 14 * u, top, left + 44 * u, top, Hud.glow(Hud.stroke(holo, 2 * u), 5 * u, holo))
+            // A line from the reactor to the panel.
+            canvas.drawLine(64 * u + 50 * u, height / 2f, left, height / 2f, Hud.stroke(Hud.alpha(holo, .35f), u))
+            // Readouts in a row.
+            val lab = Hud.text(5.5f * u, Hud.alpha(holo, .65f), Hud.MONO, .14f)
+            val v = Hud.text(9.5f * u, Color.WHITE, Hud.MONO_BOLD, .06f)
+            val items = listOf(
+                "MODE" to when (state) { State.IDLE -> "IDLE"; State.LISTENING -> "LISTEN"; State.THINKING -> "PROC"; State.SPEAKING -> "VOICE" },
+                "VOX" to "%.2f".format(java.util.Locale.ROOT, if (state == State.LISTENING) level else energy * .3f),
+                "MEM" to "%03d".format(JarvisMemory.facts(context).size + JarvisMemory.phrases(context).size),
+                "LINK" to if (JarvisHands.instance != null) "HANDS" else "LOCAL",
+            )
+            val cell = (panel.width() - 24 * u) / items.size
+            items.forEachIndexed { i, (l, value) ->
+                val x = panel.left + 12 * u + i * cell
+                canvas.drawText(l, x, top + 16 * u, lab)
+                canvas.drawText(value, x, top + 30 * u, v)
+                if (i > 0) canvas.drawLine(x - 6 * u, top + 9 * u, x - 6 * u, top + 33 * u, Hud.stroke(Hud.alpha(holo, .2f), u))
+            }
+            // The waveform.
+            val wy = bottom - 16 * u
+            val wx = panel.left + 12 * u
+            val ww = panel.width() - 24 * u
+            for (i in wave.indices) {
+                val target = when (state) {
+                    State.LISTENING -> level * (.3f + .7f * abs(sin(t * 11 + i * .6).toFloat()))
+                    State.SPEAKING -> .25f + .55f * abs(sin(t * 8 + i * .45).toFloat() * cos(t * 3 + i * .2).toFloat())
+                    State.THINKING -> .12f + .1f * abs(sin(t * 6 + i * .3).toFloat())
+                    State.IDLE -> .04f + .03f * abs(sin(t * 2 + i * .5).toFloat())
+                }
+                wave[i] += (target - wave[i]) * .35f
+            }
+            val bw = ww / wave.size
+            val bar = Hud.glow(Hud.fill(Hud.alpha(holo, .85f)), 3 * u, holo)
+            for (i in wave.indices) {
+                val bh = (1f + wave[i] * 6) * u
+                canvas.drawRect(wx + i * bw + bw * .2f, wy - bh, wx + (i + 1) * bw - bw * .2f, wy + bh, bar)
+            }
+            // Ticks along the bottom edge, drifting.
+            val tick = Hud.stroke(Hud.alpha(holo, .3f), u)
+            var x = panel.left + 12 * u + (t * 8 * u) % (8 * u)
+            while (x < panel.right - 12 * u) {
+                canvas.drawLine(x, bottom - 4 * u, x, bottom - 1 * u, tick)
+                x += 8 * u
+            }
+            canvas.restore()
         }
     }
 }

@@ -171,6 +171,8 @@ object JarvisParser {
             .replace(Regex("^(actually|no wait|wait|sorry|um|uh|so|right|okay so|ok so)[,]?\\s+"), "")
             .replace(Regex("^(can|could|would|will|can't|won't) (you|u)( just)?\\s+"), "")
             .replace(Regex("^(i want you to|i need you to|i'd like you to|i would like you to)\\s+"), "")
+            // "I want to finish my second note": the wanting aside ("I need to…" stays: it can be a lesson).
+            .replace(Regex("^(i want to|i wanna|i'd like to|i would like to|let me|can i|could i)\\s+"), "")
             .replace(Regex("\\s+instead$"), "")
             .replace(Regex("\\s+"), " ").trim()
             // Letters typed or heard one by one ("t i c k my notes"): the word they spell.
@@ -371,6 +373,16 @@ object JarvisParser {
         // notes", "I've finished my notes", "mark them all done".
         if (Regex("^(?:tick|tic|tik|take|mark|cross|complete|finish|check)(?: off)? (?:all(?: of)?(?: my| the)? notes|all of them|them all|all|everything(?: on my list)?|my notes|the notes|my list|all my list|them|the lot)(?: off| done| as done| as complete| complete)?$").matches(t) ||
             Regex("^(?:i(?:'ve| have)? (?:done|completed|finished|ticked off|done all)|i'm done with|all done with) (?:all )?(?:of )?(?:my |the )?(?:notes|list|to-?do( list)?)$|^(?:my )?notes are (?:all )?(?:done|complete|finished)$").matches(t)) return Command.TickAllNotes
+        // One by number, said any natural way: "finish my second note", "I completed the last one", "the first
+        // one's done", "mark the third as done", "I've done note 2", "check off the last item".
+        val doneVerb = "(?:tick|ticked|tick off|ticked off|finish|finished|complete|completed|do|done|did|mark|marked|cross|crossed|cross off|crossed off|check|checked|check off|checked off|close|closed|sort|sorted|knock off|knocked off|get through|got through)"
+        val thing = "(?: one| note| item| task| thing| on the list| on my list| on my notes)?"
+        Regex("^(?:i(?:'ve| have| just)? |i've just |just )?$doneVerb(?: off)? (?:the |my )?(?:$ord$thing|note (?:number |no\\.? )?$ord)(?: off| as done| done| as complete| as finished)?$").find(t)?.let { m ->
+            return Command.TickNote(noteRef(m.groupValues[1].ifEmpty { m.groupValues[2] }))
+        }
+        Regex("^(?:the |my )?(?:$ord$thing|note (?:number |no\\.? )?$ord)(?: is|'s| has been| was)? (?:done|finished|complete|completed|ticked off|ticked|sorted|crossed off)$").find(t)?.let { m ->
+            return Command.TickNote(noteRef(m.groupValues[1].ifEmpty { m.groupValues[2] }))
+        }
         // "Take the second note off" is "tick" misheard.
         Regex("^(take) (the |my )?($ord note|note (number |no\\.? )?$ord)( off| as done)$").find(t)?.let { m ->
             return Command.TickNote(noteRef(m.groupValues[4].ifEmpty { m.groupValues[6] }))

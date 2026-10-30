@@ -56,7 +56,7 @@ object JarvisMemory {
 
     // --- Apps and people he's learnt ---
 
-    fun app(context: Context, query: String): String? = prefs(context).getString("app:$query", null)
+    fun app(context: Context, query: String): String? = prefs(context).getString("app:${query.lowercase().trim()}", null)
 
     fun rememberApp(context: Context, query: String, component: String) =
         prefs(context).edit().putString("app:${query.lowercase().trim()}", component).apply()
@@ -73,6 +73,18 @@ object JarvisMemory {
         val e = p.edit()
         p.all.keys.filter { !it.startsWith("set:") }.forEach { e.remove(it) }
         e.apply()
+    }
+
+    // --- What you meant ---
+
+    private fun phraseKey(said: String) = "meant:" + said.lowercase().replace(Regex("[^a-z0-9' ]"), " ").replace(Regex("\\s+"), " ").trim()
+
+    /** The wording he learnt [said] means, from you putting it another way after he didn't follow. */
+    fun meaning(context: Context, said: String): String? = prefs(context).getString(phraseKey(said), null)
+
+    fun learnMeaning(context: Context, said: String, meant: String) {
+        if (said.trim().length < 3 || said.equals(meant, true)) return
+        prefs(context).edit().putString(phraseKey(said), meant).apply()
     }
 
     // --- Facts you've asked him to remember ---

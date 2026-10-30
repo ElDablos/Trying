@@ -215,10 +215,19 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         personaTag.text = JarvisMemory.persona(context).label
         setChips(JarvisMemory.suggestions(context))
         askForNotifications()
-        if (!greet) {
+        // A new session after half an hour away: a clean slate, with a marker.
+        val now = System.currentTimeMillis()
+        if (log.childCount > 0 && now - lastActive > SESSION_MS) {
+            log.removeAllViews()
+            greetedAt = 0L
+        }
+        lastActive = now
+        // He says hello once a session, not every time you open him.
+        if (!greet || now - greetedAt < SESSION_MS) {
             if (listen) listen()
             return
         }
+        greetedAt = now
         setState(State.THINKING)
         Thread {
             val opening = jarvis.opening()
@@ -231,6 +240,9 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         input.requestFocus()
         context.getSystemService(InputMethodManager::class.java)?.showSoftInput(input, 0)
     }
+
+    private var greetedAt = 0L
+    private var lastActive = 0L
 
     /** Back from working another app: says how it went. */
     fun note(text: String) {
@@ -279,6 +291,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
 
     /** Puts [text] to Jarvis and shows, says and does his answer. */
     fun submit(text: String) {
+        lastActive = System.currentTimeMillis()
         bubble(text, mine = true)
         setState(State.THINKING)
         heard.animate().alpha(0f).setDuration(200).start()
@@ -358,7 +371,9 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 showHeard(if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) "Didn't catch that. Tap the core to try again." else "")
             }
             override fun onResults(results: Bundle?) {
-                val said = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()
+                // Of everything it might have heard, the one he can act on ("Claude" over "cloud").
+                val heardAll = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
+                val said = if (heardAll.size > 1) jarvis.bestHeard(heardAll) else heardAll.firstOrNull().orEmpty()
                 if (said.isNotEmpty()) {
                     JarvisSound.play(context, JarvisSound.Cue.HEARD)
                     submit(said)
@@ -377,12 +392,18 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             // On the phone when it can be: faster, and nothing leaves it.
             .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            // Listen out for the names on this phone: apps, and words he knows.
+            .putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(biasing()))
         setState(State.LISTENING)
         showHeard("")
         JarvisSound.play(context, JarvisSound.Cue.LISTEN)
         r.startListening(intent)
         performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
     }
+
+    private fun biasing(): List<String> = (listOf("Jarvis", "Claude", "Tapo", "WhatsApp", "Even Us", "shift", "briefing", "note", "alarm") +
+        AppCatalog.apps().map { it.label } + JarvisRoutines.all(context).map { it.name } + JarvisHands.skills(context).map { it.name }).distinct().take(200)
 
     private fun showHeard(text: String) {
         heard.text = text
@@ -742,6 +763,10 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             }
         }
         body.addView(wipe, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14f) })
+    }
+
+    private companion object {
+        const val SESSION_MS = 30 * 60_000L
     }
 
     // --- Drawn parts ---

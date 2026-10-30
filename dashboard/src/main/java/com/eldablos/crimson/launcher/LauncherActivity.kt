@@ -570,6 +570,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         }
 
         override fun ask(permissions: Array<String>) = requestPermissions(permissions, JARVIS_REQUEST)
+
+        override fun briefingActive() = deck.visibility == View.VISIBLE && (deck.readingBriefing || deck.briefingPaused)
     }
 
     /** Shuts the other panels at once, so the deck can open for the briefing. */

@@ -130,4 +130,45 @@ class JarvisTest {
         assertEquals(44_100 * 180 / 1000, chime.size)
         assertTrue(chime.maxOf { it.toInt() } < Short.MAX_VALUE * .3)
     }
+
+    /** Everything from the 1.31 screenshots that he got wrong. */
+    @Test
+    fun whatWentWrongIn131() {
+        assertEquals(Command.NoteAsk, p("Can you make a note"))
+        assertEquals(Command.NoteAsk, p("Take a note"))
+        assertEquals(Command.AddNote("do laundry"), p("Add a note to do laundry"))
+        assertEquals(Command.AddNote("do my laundry today"), p("Can you add a note to do my laundry today"))
+        assertEquals(Command.AddNote("the boiler man comes Friday"), p("Make a note that the boiler man comes Friday"))
+        assertEquals(Command.Help, p("What can you do?"))
+        assertEquals(Command.Alarms(true), p("Turn on my alarms"))
+        assertEquals(Command.Alarms(null), p("When's my alarm?"))
+        assertEquals(Command.Correct("claude ai"), p("It's called Claude AI"))
+        assertEquals(Command.Correct("tom"), p("No, I meant Tom"))
+        assertEquals(Command.OpenApp("cloud"), p("Open Cloud app"))
+        assertEquals(Command.OpenApp("tapo"), p("Open tapo app"))
+        assertEquals(Command.Weather(0), p("Could you tell me the weather"))
+        assertEquals(Jarvis.soundex("claude"), Jarvis.soundex("cloud"))
+        assertEquals("C430", Jarvis.soundex("Claude"))
+    }
+
+    /** Everyday ways of saying things: every one of these must mean something to him. */
+    @Test
+    fun everydayPhrasing() {
+        val phrases = listOf(
+            "Hey Jarvis what's the plan for today", "What's happening tomorrow", "Do I have work tomorrow", "Am I off on Sunday",
+            "What time do I start tomorrow", "Wake me up at half six", "Set alarm 7am", "Cancel my alarm", "Set a 5 minute timer",
+            "Remind me in 10 minutes to check the oven", "Put milk on my shopping list", "Delete my notes", "Did anyone text me",
+            "Call my mum", "Tell Tom I'm running late", "Text mum I'm home", "Take a photo", "Dim the lights", "Skip this song",
+            "Is it cold outside", "Weather this weekend", "Days until my birthday", "You're brilliant", "Turn on wifi",
+            "Silence my phone", "Tell me a joke", "Set a timer for quarter of an hour", "Remind me in a few minutes to call back",
+        )
+        for (s in phrases) assertTrue(s, p(s) !is Command.Unknown)
+        assertEquals(Command.Alarm(LocalTime.of(6, 30)), p("Wake me up at half six"))
+        assertEquals(Command.Alarm(LocalTime.of(6, 45)), p("Set an alarm for quarter to seven"))
+        assertEquals(Command.Timer(600, "check the oven"), p("Remind me in ten minutes to check the oven"))
+        assertEquals(Command.Music(JarvisParser.Play.NEXT), p("Skip this song"))
+        assertEquals(Command.WhatsApp("tom", "I'm running late"), p("Tell Tom I'm running late"))
+        assertEquals(Command.Text("mum", "I'm home"), p("Text mum I'm home"))
+        assertEquals(Command.AddEvent("call the dentist", today.plusDays(1), LocalTime.of(9, 0)), p("Remind me tomorrow at 9 to call the dentist"))
+    }
 }

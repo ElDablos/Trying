@@ -50,6 +50,8 @@ class Jarvis(private val context: Context, private val host: Host) {
         fun briefing(control: JarvisParser.Control?, chapter: String?): Boolean
         fun launch(component: ComponentName)
         fun ask(permissions: Array<String>)
+        /** Whether the briefing is being read or paused part-way, so "stop" and "carry on" mean it. */
+        fun briefingActive(): Boolean = false
     }
 
     enum class Tone { GOLD, HOT, GREEN, BLUE }
@@ -99,11 +101,22 @@ class Jarvis(private val context: Context, private val host: Host) {
 
     private var last: Command? = null
     private var lastFollowed: Command? = null
+
+    /** Only wordings without your own words in them (a note, a message, a time) are worth learning. */
+    private fun learnable(c: Command) = when (c) {
+        is Command.AddNote, is Command.AddEvent, is Command.WhatsApp, is Command.Text, is Command.Remember, is Command.Timer, is Command.Alarm,
+        is Command.Amend, is Command.FollowUp, is Command.Correct, Command.Yes, Command.No, Command.Undo, Command.Repeat -> false
+        else -> true
+    }
     private var lastReply: Reply? = null
     private var lastPerson: String? = null
     private var lastDevice: String? = null
     private var amendable: Amendable? = null
     private var pending: Pending? = null
+    /** The name he just couldn't find, so "it's called …" can put it right (and he learns it). */
+    private var missed: Pair<String, String>? = null
+    /** What he didn't understand, so if you rephrase and he gets it, he learns your first wording too. */
+    private var notUnderstood: Pair<String, Long>? = null
     private val undos = ArrayDeque<Undo>()
 
     private class Undo(val label: String, val run: () -> String)
@@ -118,6 +131,8 @@ class Jarvis(private val context: Context, private val host: Host) {
         class Confirm(val yes: () -> Reply, val no: String) : Pending()
         /** He asked which app something's in. */
         class WhichApp(val name: String) : Pending()
+        /** He asked what the note should say. */
+        object NoteText : Pending()
     }
 
     private fun push(label: String, run: () -> String) {
@@ -171,8 +186,16 @@ class Jarvis(private val context: Context, private val host: Host) {
             val app = findApp(text.lowercase().removePrefix("it's in ").removePrefix("in ").removePrefix("the ").removeSuffix(" app"))
             if (app != null) return styled(teach(p.name, app))
         }
+        if (pending == Pending.NoteText) {
+            pending = null
+            val c = JarvisParser.parse(text)
+            if (c == Command.No) return styled(Reply(say("Very well, no note.", "Note abandoned.", "Cancelled.")))
+            return styled(addNote(text.trim().trimEnd('.')))
+        }
         if (!inRoutine) JarvisRoutines.match(JarvisRoutines.all(context), text)?.let { return styled(runRoutine(it)).also { r -> lastReply = r } }
-        val cmd = JarvisParser.parse(text)
+        // Something you've said before that he learnt the meaning of.
+        val meant = if (inRoutine) null else JarvisMemory.meaning(context, text)
+        val cmd = JarvisParser.parse(meant ?: text)
         // An answer to "shall I?".
         (pending as? Pending.Confirm)?.let { p ->
             pending = null
@@ -188,6 +211,16 @@ class Jarvis(private val context: Context, private val host: Host) {
             run(cmd)
         } catch (e: Exception) {
             Reply("Something went wrong there${sir()}. ${e.message ?: ""}".trim(), failed = true)
+        }
+        // Not understood, then understood when put another way: he learns the first way.
+        if (!inRoutine) {
+            val nu = notUnderstood
+            if (reply.failed && cmd is Command.Unknown) {
+                notUnderstood = text to System.currentTimeMillis()
+            } else if (nu != null && !reply.failed && System.currentTimeMillis() - nu.second < 90_000 && learnable(cmd)) {
+                JarvisMemory.learnMeaning(context, nu.first, meant ?: text)
+                notUnderstood = null
+            }
         }
         when (cmd) {
             is Command.FollowUp -> lastFollowed?.let { last = it }
@@ -207,7 +240,19 @@ class Jarvis(private val context: Context, private val host: Host) {
         Command.WhoAreYou -> Reply("I'm Jarvis, $name. I look after your day: shifts, calendar, notes, messages, email, the weather and the news. I work the phone and your apps for you, and I learn as we go, all on this phone.")
         Command.Help -> help()
         Command.Briefing -> Reply(say(pick("Of course. Here's your briefing.", "Right away, $name."), pick("Grab a coffee. Here's your day.", "Here's what you're up against."), "Briefing."), silent = true, then = { host.briefing(null, null) })
-        is Command.BriefingControl -> briefingControl(cmd)
+        is Command.BriefingControl -> when {
+            // With no briefing going, "pause", "stop" and "carry on" are about the music.
+            host.briefingActive() || cmd.kind == JarvisParser.Control.CHAPTER -> briefingControl(cmd)
+            cmd.kind == JarvisParser.Control.STOP -> music(JarvisParser.Play.PAUSE)
+            cmd.kind == JarvisParser.Control.RESUME -> music(JarvisParser.Play.PLAY)
+            cmd.kind == JarvisParser.Control.SKIP -> music(JarvisParser.Play.NEXT)
+            else -> briefingControl(cmd)
+        }
+        Command.Joke -> Reply(JOKES[Random.nextInt(JOKES.size)], listOf("Another one", "Thanks"))
+        Command.Camera -> Reply(say("Camera's up, sir.", "Smile.", "Camera."), then = {
+            start(Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA), Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE))
+        }, afterSpeech = true)
+        is Command.Setting -> setting(cmd.kind, cmd.on)
         Command.Time -> Reply("It's ${LocalTime.now().format(tf)}${sir()}.", card = Card("◷", "TIME", LocalTime.now().format(tf), LocalDate.now().format(dayName)))
         Command.Date -> Reply("It's ${LocalDate.now().format(dayName)}.", card = Card("▦", "DATE", LocalDate.now().format(DateTimeFormatter.ofPattern("d MMM")), LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE · 'week' w"))))
         is Command.Weather -> weather(cmd)
@@ -217,6 +262,12 @@ class Jarvis(private val context: Context, private val host: Host) {
         is Command.Agenda -> agenda(cmd.day)
         is Command.AddEvent -> addEvent(cmd)
         is Command.AddNote -> addNote(cmd.text)
+        Command.NoteAsk -> {
+            pending = Pending.NoteText
+            Reply(say("Of course. What should the note say, sir?", "Go on, I'm writing.", "What should it say?"), listen = true)
+        }
+        is Command.Alarms -> alarms(cmd.on)
+        is Command.Correct -> correct(cmd.name)
         Command.ReadNotes -> readNotes()
         Command.ClearNotes -> {
             pending = Pending.Confirm({ clearNotes() }, "Very well, I'll leave them.")
@@ -225,7 +276,7 @@ class Jarvis(private val context: Context, private val host: Host) {
         is Command.Emails -> emails(cmd.company)
         Command.Messages -> messages()
         Command.Battery -> battery()
-        is Command.Timer -> timer(cmd.seconds)
+        is Command.Timer -> timer(cmd.seconds, cmd.label)
         is Command.Alarm -> alarm(cmd.time, cmd.day)
         is Command.Torch -> torch(cmd.on)
         is Command.Dnd -> dnd(cmd.on)
@@ -263,10 +314,14 @@ class Jarvis(private val context: Context, private val host: Host) {
         Command.Settings -> Reply(say("Here are my settings, sir.", "Under the hood. Mind your fingers.", "Settings."), sheet = Sheet.SETTINGS)
         Command.Routines -> Reply("Your routines. Say any of their phrases and I'll run the lot.", sheet = Sheet.ROUTINES)
         Command.NewRoutine -> Reply("Let's build one. Give it a name, the phrases that start it, and what I should do, one line each.", sheet = Sheet.NEW_ROUTINE)
-        is Command.Unknown -> Reply(
-            say(pick("I'm afraid I can't do that one yet, $name.", "I didn't quite follow that, sir."), pick("That's beyond me, and I don't say that lightly.", "You've lost me there, sir."), "Can't do that."),
-            listOf("What can you do?"), claude = cmd.text, failed = true,
-        )
+        is Command.Unknown -> {
+            val close = closest(cmd.text)
+            Reply(
+                if (close.isNotEmpty()) say("I didn't quite follow, sir. Did you mean one of these?", "Close, but not quite. One of these?", "Did you mean:")
+                else say(pick("I'm afraid I can't do that one yet, $name.", "I didn't quite follow that, sir."), pick("That's beyond me, and I don't say that lightly.", "You've lost me there, sir."), "Can't do that."),
+                close + "What can you do?", claude = cmd.text, failed = true,
+            )
+        }
     }
 
     private fun greeting() = when (LocalTime.now().hour) {
@@ -617,15 +672,21 @@ class Jarvis(private val context: Context, private val host: Host) {
         }, card = Card("▮", "BATTERY", "$level%", if (charging) full?.let { "charging · full in ${duration(it)}" } ?: "charging" else "on battery", tone = if (level <= 20) Tone.HOT else Tone.GREEN))
     }
 
-    private fun timer(seconds: Int): Reply {
+    private fun timer(seconds: Int, about: String? = null): Reply {
         val label = Speech.speakable(DeckView.duration(seconds * 1000L).ifBlank { "${seconds}s" })
         push("Timer cancelled") {
             start(Intent(AlarmClock.ACTION_DISMISS_TIMER).putExtra(AlarmClock.EXTRA_SKIP_UI, true))
             "Timer cancelled."
         }
-        return Reply("${say("Timer set for", "Timer's running:", "Timer:")} $label.", then = {
-            start(Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, seconds).putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, "Jarvis"))
-        }, card = Card("◔", "TIMER", DeckView.duration(seconds * 1000L), "ends at ${LocalTime.now().plusSeconds(seconds.toLong()).format(tf)}", tone = Tone.GOLD), actions = listOf(undoAction))
+        val what = about?.replaceFirstChar { it.uppercase() }
+        return Reply(
+            if (what != null) "I'll remind you in $label${sir()}: ${what.replaceFirstChar { it.lowercase() }}." else "${say("Timer set for", "Timer's running:", "Timer:")} $label.",
+            then = {
+                start(Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, seconds).putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, what ?: "Jarvis"))
+            },
+            card = Card("◔", if (what != null) "REMINDER" else "TIMER", DeckView.duration(seconds * 1000L), (what?.let { "$it · " } ?: "") + "at ${LocalTime.now().plusSeconds(seconds.toLong()).format(tf)}", tone = Tone.GOLD),
+            actions = listOf(undoAction),
+        )
     }
 
     private fun alarm(time: LocalTime, day: Int, amended: Boolean = false, label: String = "Jarvis"): Reply {
@@ -715,23 +776,143 @@ class Jarvis(private val context: Context, private val host: Host) {
 
     // --- Apps, and working them ---
 
-    /** The app you meant: one he's learnt you mean by that, the label that matches best, or none. */
+    /**
+     * The app you meant, however it was heard: one he's learnt you mean by that; the label that matches
+     * best, ignoring spaces and words like "app" or "AI"; then one that sounds the same ("cloud" is Claude).
+     */
     fun findApp(query: String): AppEntry? {
-        val q = query.lowercase().replace(Regex("[^a-z0-9 ]"), "").trim()
-        if (q.isEmpty()) return null
-        JarvisMemory.app(context, q)?.let { c -> AppCatalog.apps().firstOrNull { it.component.flattenToString() == c }?.let { return it } }
+        val q0 = norm(query).replace(Regex("\\b(app|application|the|my)\\b"), " ").replace(Regex("\\s+"), " ").trim()
+        if (q0.isEmpty()) return null
+        JarvisMemory.app(context, q0)?.let { c -> AppCatalog.apps().firstOrNull { it.component.flattenToString() == c }?.let { return it } }
         val apps = AppCatalog.apps()
-        fun norm(s: String) = s.lowercase().replace(Regex("[^a-z0-9 ]"), "").trim()
-        return apps.firstOrNull { norm(it.label) == q }
-            ?: apps.firstOrNull { norm(it.label).startsWith(q) }
-            ?: apps.firstOrNull { norm(it.label).contains(q) }
-            ?: apps.firstOrNull { q.split(' ').all { w -> norm(it.label).contains(w) } }
-            ?: apps.minByOrNull { levenshtein(norm(it.label), q) }?.takeIf { levenshtein(norm(it.label), q) <= maxOf(1, q.length / 4) }
+        val q = SPOKEN[q0] ?: q0
+        // Each shorter form of what was said: "claude ai" then "claude".
+        val words = q.split(' ')
+        for (n in words.size downTo 1) {
+            val part = words.take(n).joinToString(" ")
+            val tight = part.replace(" ", "")
+            apps.firstOrNull { norm(it.label) == part || norm(it.label).replace(" ", "") == tight }?.let { return it }
+            if (n == words.size) {
+                apps.firstOrNull { norm(it.label).startsWith(part) }?.let { return it }
+                apps.firstOrNull { part.length >= 4 && norm(it.label).replace(" ", "").contains(tight) }?.let { return it }
+                apps.firstOrNull { part.split(' ').all { w -> norm(it.label).contains(w) } }?.let { return it }
+            }
+        }
+        apps.minByOrNull { levenshtein(norm(it.label), q) }?.takeIf { levenshtein(norm(it.label), q) <= maxOf(1, q.length / 4) }?.let { return it }
+        // Sounds the same: speech recognition writes what it hears.
+        val sound = soundex(words.first())
+        return apps.filter { soundex(norm(it.label).split(' ').first()) == sound }.minByOrNull { levenshtein(norm(it.label), q) }
+    }
+
+    /** Apps close to [query], to offer when none matched. */
+    private fun nearApps(query: String): List<AppEntry> {
+        val q = norm(query)
+        return AppCatalog.apps().map { it to levenshtein(norm(it.label), q) }.filter { it.second <= maxOf(2, q.length / 2) }.sortedBy { it.second }.take(3).map { it.first }
+    }
+
+    private fun norm(s: String) = s.lowercase().replace(Regex("[^a-z0-9 ]"), "").replace(Regex("\\s+"), " ").trim()
+
+    /** "It's called Claude": tries again, and remembers what you meant by the first name. */
+    private fun correct(name: String): Reply {
+        val (kind, first) = missed ?: return run(JarvisParser.parse("open $name"))
+        missed = null
+        return when (kind) {
+            "app" -> {
+                val app = findApp(name) ?: return openApp(name)
+                JarvisMemory.rememberApp(context, norm(first), app.component.flattenToString())
+                JarvisMemory.rememberApp(context, norm(name), app.component.flattenToString())
+                Reply("${app.label}, got it. I'll remember that \"$first\" means ${app.label}.", then = { host.launch(app.component) }, afterSpeech = true)
+            }
+            else -> withPerson(name, { "call $it" }) { p ->
+                JarvisMemory.rememberPerson(context, first.lowercase().removePrefix("my ").trim(), p.name, p.number)
+                Reply("${p.name}. I'll remember that's who you mean by $first${sir()}. What would you like to do: call or message?",
+                    actions = listOf(Action("✆ CALL", "call ${p.name}", primary = true), Action("WHATSAPP", "whatsapp ${p.name}"), Action("TEXT", "text ${p.name}")))
+            }
+        }
+    }
+
+    /** The alarm list: Android lets only the Clock switch alarms on and off, so he shows it, with the next one. */
+    private fun alarms(on: Boolean?): Reply {
+        val next = nextAlarm()
+        val nextText = next?.let { "Your next alarm is ${whenText(at(it).toLocalDate(), at(it).toLocalTime())}." } ?: "You've no alarms on at the moment."
+        val open = { start(Intent(AlarmClock.ACTION_SHOW_ALARMS).setPackage("com.sec.android.app.clockpackage"), Intent(AlarmClock.ACTION_SHOW_ALARMS)) }
+        if (on == false && next != null) {
+            val time = at(next).toLocalTime()
+            pending = Pending.Confirm({
+                dismissAlarm(time)
+                push("${time.format(tf)} alarm back on") {
+                    start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, time.hour).putExtra(AlarmClock.EXTRA_MINUTES, time.minute).putExtra(AlarmClock.EXTRA_SKIP_UI, true))
+                    "Your ${time.format(tf)} alarm is back on."
+                }
+                Reply("Done. Your ${time.format(tf)} alarm is off.", actions = listOf(undoAction))
+            }, "Very well, it stays on.")
+            return Reply("Switch off your ${time.format(tf)} alarm${sir()}?", listen = true,
+                card = Card("⏰", "NEXT ALARM", time.format(tf), whenText(at(next).toLocalDate(), null).replaceFirstChar { it.uppercase() }, tone = Tone.GOLD),
+                actions = listOf(Action("SWITCH OFF", "yes", primary = true), Action("KEEP", "no"), Action("ALL ALARMS", run = { open() })))
+        }
+        return Reply(
+            when (on) {
+                null -> nextText
+                else -> "$nextText Only the Clock can switch alarms ${if (on) "on" else "off"}, so I've opened them for you${sir()}."
+            },
+            then = if (on != null) open else null, afterSpeech = on != null,
+            card = Card("⏰", "ALARMS", next?.let { at(it).format(tf) } ?: "NONE", next?.let { whenText(at(it).toLocalDate(), null).replaceFirstChar { c -> c.uppercase() } } ?: "no alarm set", tone = Tone.GOLD),
+            actions = listOfNotNull(if (on == null) Action("OPEN ALARMS", run = { open() }) else null, Action("+ NEW ALARM", "set an alarm for "), Action("⏰ FOR MY SHIFT", "set an alarm for my next shift")),
+        )
+    }
+
+    /** Wi-Fi and friends: Android keeps those switches for you, so he puts the right one in front of you. */
+    private fun setting(kind: String, on: Boolean?): Reply {
+        val (panel, label) = when (kind) {
+            "wifi" -> Intent(android.provider.Settings.Panel.ACTION_WIFI) to "Wi-Fi"
+            "bluetooth" -> Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS) to "Bluetooth"
+            "mobile data" -> Intent(android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY) to "mobile data"
+            "airplane mode" -> Intent(android.provider.Settings.ACTION_AIRPLANE_MODE_SETTINGS) to "airplane mode"
+            "location" -> Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS) to "location"
+            "hotspot" -> Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS) to "the hotspot"
+            "nfc" -> Intent(android.provider.Settings.Panel.ACTION_NFC) to "NFC"
+            else -> Intent(android.provider.Settings.ACTION_DISPLAY_SETTINGS) to "brightness"
+        }
+        val verb = when (on) { true -> "on"; false -> "off"; null -> "" }
+        return Reply(
+            say("Android keeps the $label switch for you alone, sir, so here it is${if (verb.isNotEmpty()) "; tap to turn it $verb" else ""}.",
+                "Android won't let me touch $label. Rules. Here's the switch.", "Here's $label."),
+            then = { start(panel) }, afterSpeech = true,
+        )
+    }
+
+    /** For something he didn't understand: the things he can do that share its words. */
+    private fun closest(said: String): List<String> {
+        val words = norm(said).split(' ').filter { it.length > 2 && it !in STOP }.map { it.take(5) }.toSet()
+        if (words.isEmpty()) return emptyList()
+        return EXAMPLES.map { ex -> ex to norm(ex).split(' ').filter { it.length > 2 && it !in STOP }.map { it.take(5) }.count { it in words } }
+            .filter { it.second > 0 }.sortedByDescending { it.second }.take(3).map { it.first }
+    }
+
+    /** Of what speech recognition thought it heard, the one he can act on. */
+    fun bestHeard(alternatives: List<String>): String {
+        val first = alternatives.firstOrNull().orEmpty()
+        if (JarvisRoutines.match(JarvisRoutines.all(context), first) != null) return first
+        for (a in alternatives) {
+            when (val c = JarvisParser.parse(a)) {
+                is Command.Unknown -> continue
+                is Command.OpenApp -> if (findApp(c.name) != null) return a
+                else -> return a
+            }
+        }
+        return first
     }
 
     private fun openApp(name: String): Reply {
         if (name == "comms") return Reply("Opening comms.", then = { host.launch(ComponentName(context, CommsActivity::class.java)) })
-        val app = findApp(name) ?: return Reply("I couldn't find an app called $name, sir.", failed = true)
+        val app = findApp(name)
+        if (app == null) {
+            missed = "app" to name
+            val near = nearApps(name)
+            return Reply("I couldn't find an app called $name${sir()}." + if (near.isNotEmpty()) " Did you mean ${near.joinToString(" or ") { it.label }}?" else " What's it called on the phone?",
+                listen = true, actions = near.map { Action(it.label.uppercase(), "open ${it.label}") }, failed = true)
+        }
+        missed = null
         JarvisMemory.rememberApp(context, name, app.component.flattenToString())
         return Reply(pick("Opening ${app.label}.", "${app.label}, coming up.", "${app.label}, sir."), then = { host.launch(app.component) }, afterSpeech = true)
     }
@@ -844,7 +1025,10 @@ class Jarvis(private val context: Context, private val host: Host) {
         }
         val (p, options) = resolve(who)
         if (p == null) {
-            if (options.isEmpty()) return Reply("I couldn't find $who in your contacts.", failed = true)
+            if (options.isEmpty()) {
+                missed = "person" to who
+                return Reply("I couldn't find $who in your contacts. Who do you mean${sir()}?", listen = true, failed = true)
+            }
             return Reply("Which $who${sir()}?", listen = true, actions = options.map { Action(it.name.uppercase(), again(it.name)) })
         }
         lastPerson = p.name.lowercase()
@@ -1052,6 +1236,64 @@ class Jarvis(private val context: Context, private val host: Host) {
         const val DONE = "[x] "
         const val WHATSAPP = "com.whatsapp"
         const val TAPO = "com.tplink.iot"
+
+        private val JOKES = listOf(
+            "I would tell you a UDP joke, sir, but you might not get it.",
+            "Why did the scarecrow win an award? Because he was outstanding in his field.",
+            "I told my phone a joke about battery life. It didn't get the charge of it.",
+            "Why don't skeletons fight each other? They haven't got the guts.",
+            "I asked the gym instructor if he could teach me to do the splits. He said, how flexible are you? I said, I can't make Tuesdays.",
+            "Parallel lines have so much in common. It's a shame they'll never meet.",
+            "I'm reading a book about anti-gravity, sir. It's impossible to put down.",
+            "Why did the shift worker bring a ladder? He heard the job came with a step up.",
+            "What do you call a fish with no eyes? A fsh.",
+            "I'd make a joke about the weather in Molde, but it'd only rain on your parade.",
+        )
+
+        /** How speech recognition tends to write app names. */
+        private val SPOKEN = mapOf(
+            "cloud" to "claude", "clawed" to "claude", "clod" to "claude", "claud" to "claude", "cloud ai" to "claude", "claude ai" to "claude",
+            "whats app" to "whatsapp", "what's app" to "whatsapp", "what sap" to "whatsapp", "you tube" to "youtube", "insta" to "instagram",
+            "tap o" to "tapo", "tapa" to "tapo", "top o" to "tapo", "tempo" to "tapo", "smart things" to "smartthings", "g mail" to "gmail",
+            "face book" to "facebook", "snap" to "snapchat", "messenger" to "messenger", "spot if i" to "spotify", "spot of i" to "spotify",
+            "chat gpt" to "chatgpt", "tik tok" to "tiktok", "play store" to "play store", "google play" to "play store",
+        )
+
+        private val STOP = setOf("the", "and", "you", "can", "could", "please", "for", "with", "that", "this", "what", "how", "jarvis", "want", "would", "like", "need", "just", "some", "are", "was", "its", "it's")
+
+        /** Things he can do, to offer when he didn't follow. */
+        val EXAMPLES = listOf(
+            "Make a note", "Read my notes", "Add dentist on Monday at 3pm to my calendar", "What's on tomorrow", "Am I working tomorrow?",
+            "When's my next shift?", "Set an alarm for 7", "Set an alarm for my next shift", "Show my alarms", "Set a timer for 10 minutes",
+            "What's the weather?", "Will it rain tomorrow?", "Any emails from Even Us?", "Any messages?", "Open Spotify", "Call Mum",
+            "WhatsApp Mum saying on my way", "Turn on the bedroom light", "Turn on the torch", "Turn on do not disturb", "Turn the volume up",
+            "Play music", "Brief me", "Read me the news", "How's bitcoin?", "Start a focus session", "Remember my locker code is 1234",
+            "What do you know about me?", "Good night", "Battery", "Learn the bedroom light", "My routines", "Jarvis settings",
+        )
+
+        /** Soundex: names that sound alike share a code ("cloud" and "Claude" are both C430). */
+        fun soundex(word: String): String {
+            val w = word.lowercase().filter { it in 'a'..'z' }
+            if (w.isEmpty()) return ""
+            fun code(c: Char) = when (c) {
+                'b', 'f', 'p', 'v' -> '1'
+                'c', 'g', 'j', 'k', 'q', 's', 'x', 'z' -> '2'
+                'd', 't' -> '3'
+                'l' -> '4'
+                'm', 'n' -> '5'
+                'r' -> '6'
+                else -> '0'
+            }
+            val out = StringBuilder().append(w[0].uppercaseChar())
+            var prev = code(w[0])
+            for (c in w.drop(1)) {
+                val k = code(c)
+                if (k != '0' && k != prev) out.append(k)
+                if (c != 'h' && c != 'w') prev = k
+                if (out.length == 4) break
+            }
+            return out.toString().padEnd(4, '0')
+        }
 
         fun levenshtein(a: String, b: String): Int {
             val d = IntArray(b.length + 1) { it }

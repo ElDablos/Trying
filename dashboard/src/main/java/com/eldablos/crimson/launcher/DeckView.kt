@@ -254,6 +254,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
     fun stopBriefing() = stopSpeaking()
 
+    /** A briefing stopped part-way, waiting to carry on. */
+    val briefingPaused: Boolean get() = paused
+
     /** The briefing is being read out right now. */
     val readingBriefing: Boolean get() = speaking
 

@@ -31,7 +31,7 @@ object JarvisParser {
         data class Emails(val company: Boolean?) : Command()
         object Messages : Command()
         object Battery : Command()
-        data class Timer(val seconds: Int) : Command()
+        data class Timer(val seconds: Int, val label: String? = null) : Command()
         data class Alarm(val time: LocalTime, val day: Int = 0) : Command()
         data class Torch(val on: Boolean) : Command()
         data class Dnd(val on: Boolean) : Command()
@@ -43,6 +43,10 @@ object JarvisParser {
         data class Music(val action: Play) : Command()
         data class Crypto(val name: String?) : Command()
         object News : Command()
+        object Joke : Command()
+        object Camera : Command()
+        /** Wi-Fi, Bluetooth and the like: only you can flip them, so he opens the switch. */
+        data class Setting(val kind: String, val on: Boolean?) : Command()
         data class Countdown(val name: String?) : Command()
         data class Habit(val name: String) : Command()
         data class Focus(val minutes: Int) : Command()
@@ -74,6 +78,12 @@ object JarvisParser {
         // Himself.
         data class Persona(val mode: String) : Command()
         object Settings : Command()
+        /** "Make a note": he asks what it should say. */
+        object NoteAsk : Command()
+        /** "Turn on my alarms", "when's my alarm": the alarm list. */
+        data class Alarms(val on: Boolean?) : Command()
+        /** "It's called Claude", "I meant Tom": a correction to the name he just couldn't find. */
+        data class Correct(val name: String) : Command()
         object Routines : Command()
         object NewRoutine : Command()
         data class Unknown(val text: String) : Command()
@@ -90,10 +100,14 @@ object JarvisParser {
         val t = raw.lowercase()
             .replace(Regex("^(hey |ok |okay |hi |hello )?jarvis[,!.]?\\s*"), "")
             .replace(Regex("[,]?\\s*jarvis$"), "")
-            .replace(Regex("\\b(please|could you|can you|would you|will you|for me|kindly)\\b"), " ")
-            .replace(Regex("^(actually|no wait|wait|sorry)[,]?\\s+"), "")
+            // Courtesies, but only as openers: "what can you do" keeps its "can you".
+            .replace(Regex("\\b(please|kindly|for me)\\b"), " ")
+            .replace(Regex("^(actually|no wait|wait|sorry|um|uh|so|right|okay so|ok so)[,]?\\s+"), "")
+            .replace(Regex("^(can|could|would|will|can't|won't) (you|u)( just)?\\s+"), "")
+            .replace(Regex("^(i want you to|i need you to|i'd like you to|i would like you to)\\s+"), "")
             .replace(Regex("\\s+instead$"), "")
             .replace(Regex("\\s+"), " ").trim()
+            .let { spokenNumbers(it) }
         if (t.isEmpty()) return Command.Greet
         fun has(vararg words: String) = words.any { Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(t) }
         // Words to keep as you said them (a message, a note), in their own capitals.
@@ -101,6 +115,9 @@ object JarvisParser {
             val i = raw.lowercase().lastIndexOf(part)
             return if (i >= 0) raw.substring(i, i + part.length).clean() else part.clean()
         }
+
+        // A correction to a name he couldn't find.
+        Regex("^(?:no,? (?:it's called|it's|its|i mean|i meant|i said)|it's called|it is called|its called|it's named|the app is called|i mean|i meant|i said)\\s+(the )?(.+?)( app)?$").find(t)?.let { return Command.Correct(it.groupValues[2].clean()) }
 
         // Yes, no, undo: answers to him.
         if (Regex("^(yes|yeah|yep|yup|sure|do it|go ahead|go for it|please do|confirm|ok|okay|alright|correct|that's right|affirmative)( (do it|go ahead|thanks))?$").matches(t)) return Command.Yes
@@ -159,10 +176,19 @@ object JarvisParser {
 
         // Small talk.
         if (Regex("^(hi|hello|hey|yo|good (morning|afternoon|evening)|morning|evening)$").matches(t)) return Command.Greet
-        if (has("thanks", "thank you", "cheers", "nice one")) return Command.Thanks
+        if (has("thanks", "thank you", "cheers", "nice one", "good job", "well done", "good work", "love you", "legend") ||
+            Regex("^you('re| are) (brilliant|amazing|the best|great|awesome|a star|a legend|so good|smart|clever)").containsMatchIn(t)) return Command.Thanks
+        if (has("joke", "make me laugh", "something funny")) return Command.Joke
         if (has("how are you", "how's it going", "how you doing")) return Command.HowAreYou
         if (has("who are you", "what are you", "your name")) return Command.WhoAreYou
         if (has("what can you do", "help", "commands")) return Command.Help
+
+        // Music first, so "skip this song" skips the song, not the briefing.
+        if (has("song", "track", "tune")) {
+            if (has("next", "skip", "another")) return Command.Music(Play.NEXT)
+            if (has("previous", "last", "back", "again")) return Command.Music(Play.PREVIOUS)
+            if (has("pause", "stop")) return Command.Music(Play.PAUSE)
+        }
 
         // The briefing, and steering it.
         if (has("continue", "carry on", "resume", "keep going", "go on")) {
@@ -175,11 +201,17 @@ object JarvisParser {
         if (has("go back", "back a bit", "say that again", "repeat that", "what was that")) return Command.BriefingControl(Control.BACK)
         if (has("skip", "next part", "move on")) return Command.BriefingControl(Control.SKIP)
         if (Regex("^(stop|pause|quiet|shut up|enough|be quiet|hold on)$").matches(t)) return Command.BriefingControl(Control.STOP)
-        if (has("briefing", "brief me", "brief", "my day", "what's my day", "rundown", "catch me up", "what's happening today")) return Command.Briefing
+        if (has("briefing", "brief me", "brief", "what's my day", "how's my day", "rundown", "catch me up", "what's happening today", "morning report", "daily report")) return Command.Briefing
 
-        // Notes.
+        // Notes: "make a note", "add a note to do my laundry", "note that the boiler's booked".
+        Regex("^(add|make|take|create|write|jot|jot down|leave|put|new|start)( me| down)? ?(a |an |another )?(quick |new )?note( for me| down)?(?:[,:]?\\s*(?:to say|saying|that says|that|to|about|of|for|reading|:)?\\s*(.+))?$").find(t)?.let { m ->
+            val text = m.groupValues[6].trim()
+            return if (text.isEmpty()) Command.NoteAsk else Command.AddNote(orig(text))
+        }
+        Regex("^(add|put|write) (to|on|in) (my )?(notes?|list|to-?do( list)?)[:,]?\\s+(.+)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[6])) }
         Regex("^(add|put|write|note|jot down)\\s+(.+?)\\s+(to|on|in)\\s+(my )?(notes?|list|to-?do( list)?|shopping list)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[2])) }
         Regex("^(note|make a note|take a note|remember)( that| to)?[:,]?\\s+(.+)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[3])) }
+        if (Regex("\\b(clear|delete|wipe|empty|remove|tidy)( all)? (my |the )?(notes|list|to-?do( list)?|ticked)\\b").containsMatchIn(t) || has("clear done", "clear the ticked")) return Command.ClearNotes
         if (has("read my notes", "my notes", "what's on my list", "my list", "to do list", "todo list")) return Command.ReadNotes
         if (has("clear my notes", "clear done", "clear the ticked")) return Command.ClearNotes
 
@@ -187,6 +219,9 @@ object JarvisParser {
         Regex("^(add|put|book|schedule|create)\\s+(an? )?(event |appointment |meeting )?(.+?)\\s+(to|in|on) (my |the )?calendar(.*)$").find(t)?.let { m ->
             val (date, time) = whenIn(m.groupValues[4] + " " + m.groupValues[7], today)
             return Command.AddEvent(orig(stripWhen(m.groupValues[4])), date ?: today, time)
+        }
+        Regex("^remind me in (\\d+) ?(seconds?|secs?|minutes?|mins?|hours?|hrs?)( to| about| that)?\\s*(.*)$").find(t)?.let { m ->
+            return Command.Timer(m.groupValues[1].toInt() * unitSeconds(m.groupValues[2]), orig(m.groupValues[4]).ifBlank { null })
         }
         Regex("^(remind me to|remind me|add|book|schedule)\\s+(.+)$").find(t)?.let { m ->
             val (date, time) = whenIn(m.groupValues[2], today)
@@ -202,14 +237,27 @@ object JarvisParser {
             return Command.Timer(m.groupValues[1].toInt() * unitSeconds(m.groupValues[2]))
         }
         if (has("alarm", "wake me") && has("shift", "work", "my shift")) return Command.ShiftAlarm
+        if (Regex("\\b(my|the|all|all my|all the) alarms\\b|\\b(next|my) alarm\\b|^alarms?$|when's my alarm|what time('s| is) my alarm").containsMatchIn(t) && whenIn(t, today).second == null) {
+            return Command.Alarms(if (has("off", "disable", "cancel")) false else if (has("on", "enable")) true else null)
+        }
         if (has("alarm", "wake me")) {
             val (date, time) = whenIn(t, today)
             if (time != null) return Command.Alarm(time, if (date != null && date != today) 1 else 0)
         }
 
+        // The camera; and switches only you can flip, which he opens for you.
+        if (has("take a photo", "take a picture", "take a selfie", "selfie", "open the camera", "camera")) return Command.Camera
+        Regex("\\b(wi-?fi|wifi|bluetooth|mobile data|airplane mode|aeroplane mode|flight mode|location|gps|hotspot|nfc|brightness)\\b").find(t)?.let { m ->
+            if (has("turn", "switch", "put", "on", "off", "enable", "disable", "open", "settings", "toggle", "up", "down")) {
+                val kind = when (m.value) { "wi-fi", "wifi", "wi fi" -> "wifi"; "gps" -> "location"; "aeroplane mode", "flight mode" -> "airplane mode"; else -> m.value }
+                return Command.Setting(kind, if (has("off", "disable")) false else if (has("on", "enable")) true else null)
+            }
+        }
+
         // Phone controls.
         if (has("torch", "flashlight", "flash light")) return Command.Torch(!has("off"))
         if (has("do not disturb", "dnd", "silent mode", "don't disturb")) return Command.Dnd(!has("off", "disable"))
+        if (has("silence my phone", "silence the phone", "silence", "put my phone on silent", "phone on silent", "go quiet")) return Command.Dnd(true)
         if (has("volume", "louder", "quieter", "mute", "unmute")) return Command.Volume(
             when {
                 has("mute") && !has("unmute") -> Vol.MUTE
@@ -221,7 +269,7 @@ object JarvisParser {
         if (has("light", "lights", "lamp", "bulb")) {
             val on = if (has("off")) false else if (has("on")) true else null
             val named = Regex("\\b(?:the |my )?([a-z' ]+?) (light|lights|lamp|bulb)\\b").find(t.replace(Regex("\\b(turn|switch|put) (on|off)\\b|\\b(on|off)$"), " ").replace(Regex("\\s+"), " ").trim())
-                ?.groupValues?.get(1)?.replace(Regex("^((the|my|turn|switch|put)\\s+)+"), "")?.trim()?.takeIf { it.isNotBlank() && it !in setOf("the", "my", "on", "off") }
+                ?.groupValues?.get(1)?.replace(Regex("^((the|my|turn|switch|put|dim|brighten|all)\\s+)+"), "")?.trim()?.takeIf { it.isNotBlank() && it !in setOf("the", "my", "on", "off", "dim", "brighten", "all") }
             return Command.Lights(on, named?.let { "$it ${Regex("\\b(light|lights|lamp|bulb)\\b").find(t)!!.value}" })
         }
         Regex("^(turn|switch|put) (on|off) (the |my )?(.+)$").find(t)?.let { return Command.Switch(it.groupValues[4].clean(), it.groupValues[2] == "on") }
@@ -238,36 +286,44 @@ object JarvisParser {
             return Command.WhatsApp(m.groupValues[3].clean(), orig(m.groupValues[6]))
         }
         Regex("^(text|sms) (.+?)( saying| that says| to say|:)\\s+(.+)$").find(t)?.let { return Command.Text(it.groupValues[2].clean(), orig(it.groupValues[4])) }
-        Regex("^(text|sms) (.+)$").find(t)?.let { return Command.Text(it.groupValues[2].clean(), null) }
+        // "Text mum I'm home": the first word (or "my …") is who, the rest the message.
+        Regex("^(text|sms) ((?:my )?[a-z]+)(?: (.+))?$").find(t)?.let { return Command.Text(it.groupValues[2].clean(), it.groupValues[3].ifBlank { null }?.let { m -> orig(m) }) }
+        // "Tell Tom I'm running late" goes by WhatsApp.
+        Regex("^tell ((?:my )?[a-z]+) (that |i said )?(.+)$").find(t)?.takeIf { !Regex("^tell (me|us|you)\\b").containsMatchIn(t) }?.let { m ->
+            return Command.WhatsApp(m.groupValues[1].clean(), orig(m.groupValues[3]))
+        }
         Regex("^(whatsapp|message) (.+?)( on whatsapp)?$").find(t)?.let { return Command.WhatsApp(it.groupValues[2].clean(), null) }
         Regex("^(call|ring|phone|dial) (.+)$").find(t)?.let { return Command.Call(it.groupValues[2].clean()) }
 
         // Questions about the day.
+        val dayAhead0 = whenIn(t, today).first?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() }
+        if (has("start", "finish", "clock in", "clock off", "get off", "done at") && has("what time", "when do i", "when am i", "when will i", "what time am i")) return Command.Shift(dayAhead0 ?: 0)
+        if (Regex("^am i (off|free|working|on)\\b|^do i (work|have work|have a shift)|^have i got (work|a shift)").containsMatchIn(t)) return Command.Shift(dayAhead0)
         if (has("time is it", "the time", "what time")) return Command.Time
         if (has("date", "what day is it", "what's today")) return Command.Date
         val dayAhead = whenIn(t, today).first?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() }
-        if (has("weather", "rain", "umbrella", "coat", "temperature", "how cold", "how warm", "forecast")) {
+        if (has("weather", "rain", "raining", "umbrella", "coat", "temperature", "how cold", "how warm", "forecast", "cold outside", "hot outside", "warm outside", "sunny", "snow", "snowing", "windy", "jacket", "degrees")) {
             return Command.Weather(dayAhead ?: 0, rainOnly = has("rain", "umbrella", "coat"))
         }
         if (has("next week") && has("shift", "shifts", "work", "hours")) return Command.ShiftWeek(next = true)
         if (has("this week", "hours") && has("shift", "shifts", "work", "working")) return Command.ShiftWeek(next = false)
         if (has("shift", "shifts", "working", "work")) return Command.Shift(dayAhead)
-        if (has("calendar", "schedule", "agenda", "what's on", "plans", "appointments", "events", "am i doing", "busy")) return Command.Agenda(dayAhead ?: 0)
+        if (has("calendar", "schedule", "agenda", "what's on", "plans", "plan for", "the plan", "appointments", "events", "am i doing", "busy", "happening", "anything on", "got on")) return Command.Agenda(dayAhead ?: 0)
         if (has("email", "emails", "mail", "inbox")) return Command.Emails(if (has("even us", "work", "company", "business")) true else if (has("personal")) false else null)
-        if (has("messages", "notifications", "texts", "anyone message", "who messaged")) return Command.Messages
+        if (has("messages", "notifications", "texts", "anyone message", "who messaged", "anyone text", "text me", "texted me", "messaged me", "message me", "missed")) return Command.Messages
         if (has("battery", "charge", "charging")) return Command.Battery
         if (has("news", "headlines")) return Command.News
         if (has("bitcoin", "btc", "ethereum", "eth", "solana", "crypto", "portfolio", "coin")) {
             return Command.Crypto(listOf("bitcoin", "ethereum", "solana").firstOrNull { has(it) } ?: when { has("btc") -> "bitcoin"; has("eth") -> "ethereum"; else -> null })
         }
         if (has("countdown", "countdowns", "how long until", "how many days until", "days until", "how long till")) {
-            return Command.Countdown(Regex("(until|till|to) (.+)$").find(t)?.groupValues?.get(2)?.clean())
+            return Command.Countdown(Regex("(until|till|to) (my |the )?(.+)$").find(t)?.groupValues?.get(3)?.clean())
         }
         Regex("^(i (went to|did|finished|done|had)|tick( off)?|done) (the |my )?(.+)$").find(t)?.let { return Command.Habit(it.groupValues[5].clean()) }
         Regex("\\bfocus( session| mode)?( for)? ?(\\d+)? ?(minutes?|mins?)?\\b").find(t)?.let { return Command.Focus(it.groupValues[3].toIntOrNull() ?: 25) }
 
         // A fact he was asked to remember: "what's my locker code", "when is tom's birthday".
-        Regex("^(what's|what is|what are|whats|tell me) (my |the )?(.+)$").find(t)?.let { return Command.Recall(key(it.groupValues[3])) }
+        Regex("^(what's|what is|what are|whats) (my |the )?(.+)$").find(t)?.let { return Command.Recall(key(it.groupValues[3])) }
         Regex("^when('s| is) (.+)$").find(t)?.let { return Command.Recall(key(it.groupValues[2])) }
 
         // Opening apps comes last: "open spotify", "launch tapo", "start whatsapp".
@@ -276,6 +332,31 @@ object JarvisParser {
     }
 
     private fun String.clean() = trim().trimEnd('.', ',', '!', '?').trim()
+
+    private val NUMS = mapOf(
+        "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5, "six" to 6, "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10,
+        "eleven" to 11, "twelve" to 12, "fifteen" to 15, "twenty" to 20, "twenty five" to 25, "thirty" to 30, "forty" to 40,
+        "forty five" to 45, "fifty" to 50, "sixty" to 60, "ninety" to 90, "a" to 1, "an" to 1, "a couple of" to 2, "a few" to 3,
+    )
+    private const val HOUR = "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\\d{1,2}"
+    private const val AMOUNT = "a couple of|a few|twenty five|forty five|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|sixty|ninety|an|a"
+
+    private fun num(w: String) = NUMS[w] ?: w.toIntOrNull() ?: 0
+
+    /** Times and amounts as they're said, into figures: "half six" → 6:30, "quarter to seven" → 6:45, "ten minutes" → 10 minutes. */
+    fun spokenNumbers(t: String): String = t
+        .replace(Regex("\\b(half an|half a) hour\\b"), "30 minutes")
+        .replace(Regex("\\b(a )?quarter of an hour\\b"), "15 minutes")
+        .replace(Regex("\\b(an|1) hour and a half\\b"), "90 minutes")
+        .replace(Regex("\\bhalf (?:past )?($HOUR)\\b")) { "${num(it.groupValues[1])}:30" }
+        .replace(Regex("\\bquarter past ($HOUR)\\b")) { "${num(it.groupValues[1])}:15" }
+        .replace(Regex("\\bquarter to ($HOUR)\\b")) { "${(num(it.groupValues[1]) + 10) % 12 + 1}:45" }
+        .replace(Regex("\\b($HOUR) (o'clock|oclock)\\b")) { "${num(it.groupValues[1])}:00" }
+        .replace(Regex("\\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) (fifteen|thirty|forty five|forty-five|fifty|twenty|ten|forty)\\b")) {
+            "${num(it.groupValues[1])}:%02d".format(num(it.groupValues[2].replace('-', ' ')))
+        }
+        .replace(Regex("\\b(at|for|until|till|by) (one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\b")) { "${it.groupValues[1]} ${num(it.groupValues[2])}" }
+        .replace(Regex("\\b($AMOUNT) (seconds?|secs?|minutes?|mins?|hours?|hrs?)\\b")) { "${num(it.groupValues[1])} ${it.groupValues[2]}" }
 
     /** A memory's key: "my locker code" and "the locker code" are both "locker code". */
     fun key(s: String): String = s.lowercase().trim().trimEnd('?', '.', '!')
@@ -325,6 +406,11 @@ object JarvisParser {
         when {
             Regex("\\btomorrow\\b").containsMatchIn(t) -> date = today.plusDays(1)
             Regex("\\btoday|tonight|this (morning|afternoon|evening)\\b").containsMatchIn(t) -> date = today
+            Regex("\\b(this |the |at the )?weekend\\b").containsMatchIn(t) -> {
+                var x = today
+                while (x.dayOfWeek != DayOfWeek.SATURDAY && x.dayOfWeek != DayOfWeek.SUNDAY) x = x.plusDays(1)
+                date = x
+            }
         }
         Regex("\\b(on |next |this )?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b").find(t)?.let { m ->
             val d = WEEKDAYS.getValue(m.groupValues[2])
@@ -374,4 +460,5 @@ object JarvisParser {
         .replace(Regex("\\b(at )?(noon|midday|midnight)\\b"), "")
         .replace(Regex("\\bthis (morning|afternoon|evening)\\b"), "")
         .replace(Regex("\\s+"), " ").trim()
+        .removePrefix("to ").trim()
 }

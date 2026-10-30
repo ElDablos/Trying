@@ -252,7 +252,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         }
         when (cmd) {
             is Command.FollowUp -> lastFollowed?.let { last = it }
-            Command.Repeat, Command.Yes, Command.No, Command.Undo -> {}
+            Command.Repeat, Command.Yes, Command.No, Command.Undo, is Command.ChangeIt -> {}
             else -> last = cmd
         }
         lastAt = System.currentTimeMillis()
@@ -395,6 +395,44 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "It's back."
         }
         return Reply("Deleted \"${gone.removePrefix(DONE)}\" from your notes.", card = notesCard(lines, null, "NOTES"), actions = listOf(undoAction))
+    }
+
+    /** "Change it to …": "it" is whatever you were just dealing with. */
+    private fun changeIt(value: String): Reply {
+        val today = LocalDate.now()
+        val date = JarvisParser.dateIn(value, today) ?: JarvisParser.whenIn(value.lowercase(), today).first
+        val time = JarvisParser.whenIn(value.lowercase(), today).second ?: JarvisParser.anyTime(value)
+        return when (val l = last) {
+            is Command.AddNote, is Command.EditNote, Command.ReadNotes, is Command.DeleteNote, Command.NoteAsk, Command.ClearNotes -> {
+                val open = openNotes().filter { !it.startsWith(DONE) }
+                // After reading several notes, "it" is only clear if there's one, or one he just wrote.
+                if (l == Command.ReadNotes && open.size > 1 && lastNote == null) {
+                    Reply("Which note, sir?", listen = true, actions = open.take(4).map { Action(it.take(24).uppercase(), "change my note from $it to $value") })
+                } else {
+                    if (lastNote == null && open.size == 1) lastNote = open.first()
+                    editNote(null, value)
+                }
+            }
+            is Command.AddEvent, is Command.Amend -> if (date != null || time != null) amend(Command.Amend(date, time)) else {
+                val e = amendable as? Amendable.Event ?: return Reply("Change what${sir()}?", listen = true)
+                change(e.title + " event", value)
+            }
+            is Command.Alarm, Command.ShiftAlarm, is Command.MoveAlarm -> time?.let { amend(Command.Amend(null, it)) } ?: Reply("What time should it be${sir()}?", listen = true)
+            is Command.Remember -> remember(l.key, value)
+            is Command.Recall -> JarvisMemory.recall(context, l.key)?.let { remember(it.key, value) } ?: Reply("Change what${sir()}?", listen = true)
+            is Command.AddHabit, is Command.Habit, is Command.RenameHabit, is Command.Untick -> lastHabit?.let { renameHabit(it, value.replaceFirstChar { c -> c.uppercase() }) }
+                ?: Reply("Which habit${sir()}?", listen = true)
+            is Command.AddCountdown, is Command.Countdown -> DeckStore.countdowns(context).lastOrNull { l is Command.AddCountdown && it.name == l.name || l is Command.Countdown }
+                ?.let { change(it.name + " countdown", value) } ?: Reply("Which countdown${sir()}?", listen = true)
+            is Command.AddShift -> date?.let { d -> time?.let { Reply("Say the times, sir: \"change my shift on ${d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())} to 8 till 4\".") } }
+                ?: Reply("Say it with the times, sir: \"change my Monday shift to 8 till 4\".")
+            is Command.SetTemp, is Command.Climate -> Regex("(\\d{1,2}(?:[.,]5)?)").find(value)?.let { setTemp(it.value.replace(',', '.').toDouble(), 0.0) }
+                ?: Reply("What temperature${sir()}?", listen = true)
+            is Command.Brightness -> Regex("(\\d{1,3})").find(value)?.let { lightControl("brightness", it.value.toInt().coerceIn(1, 100), 0, null) }
+                ?: Reply("What brightness${sir()}?", listen = true)
+            is Command.LightColour -> lightControl("colour", null, 0, value.lowercase())
+            else -> lastNote?.let { editNote(null, value) } ?: Reply("Change what${sir()}? Tell me what it is, like \"change my note to …\".", listen = true)
+        }
     }
 
     private fun renameHabit(old: String, new: String): Reply {
@@ -629,6 +667,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.Change -> change(cmd.subject, cmd.value)
         is Command.DeleteThing -> deleteThing(cmd.subject)
         is Command.RenameHabit -> renameHabit(cmd.old, cmd.new)
+        is Command.ChangeIt -> changeIt(cmd.value)
         is Command.Brightness -> lightControl("brightness", cmd.percent, cmd.by, null)
         is Command.LightColour -> lightControl("colour", null, 0, cmd.colour)
         is Command.Climate -> climate(cmd.on, cmd.mode)

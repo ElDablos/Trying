@@ -263,4 +263,13 @@ class JarvisTest {
         assertEquals(Command.AddCountdown("Gym competition", null), p("Add a countdown to gym competition"))
         assertEquals(Command.Countdown("christmas"), p("How long until Christmas"))
     }
+
+    @Test
+    fun changeIt() {
+        assertEquals(Command.ChangeIt("do my laundry"), p("Can you change it to do my laundry"))
+        assertEquals(Command.ChangeIt("do my laundry"), p("That should say do my laundry"))
+        assertEquals(Command.ChangeIt("Dentist check-up"), p("Rename it to Dentist check-up"))
+        assertEquals(Command.Amend(null, LocalTime.of(6, 30)), p("Change it to 6:30"))
+        assertEquals(Command.Amend(LocalDate.of(2026, 11, 6), null), p("Move it to Friday"))
+    }
 }

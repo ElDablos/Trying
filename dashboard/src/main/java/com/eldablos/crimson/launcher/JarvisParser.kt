@@ -114,6 +114,8 @@ object JarvisParser {
         /** "Delete/cancel/remove X": whatever X is. */
         data class DeleteThing(val subject: String) : Command()
         data class RenameHabit(val old: String, val new: String) : Command()
+        /** "Change it to …": whatever "it" is from the conversation (the note just read, the event just added…). */
+        data class ChangeIt(val value: String) : Command()
         /** The heating or air con in Air+: on or off, and heat or cool. */
         data class Climate(val on: Boolean?, val mode: String? = null) : Command()
         /** "Set it to 28 degrees"; [by] for "warmer"/"two degrees down". */
@@ -222,6 +224,8 @@ object JarvisParser {
             if (d != null || time != null) return Command.Amend(d, time)
             Regex("(\\d+) ?(seconds?|secs?|minutes?|mins?|hours?|hrs?)").find(m.groupValues[3])?.let { return Command.Timer(it.groupValues[1].toInt() * unitSeconds(it.groupValues[2])) }
         }
+        Regex("^(change|edit|update|correct|fix|rename|make|turn|set|reword) (it|that|this|that one|this one|the last one)( one)? (to|into|so it says|to say|say|read|to read)[:,]? (.+)$").find(t)?.let { return Command.ChangeIt(orig(it.groupValues[5])) }
+        Regex("^(it|that) should (say|be|read) (.+)$").find(t)?.let { return Command.ChangeIt(orig(it.groupValues[3])) }
 
         // "Open …" names an app, even one called Messages or Notes.
         Regex("^(open|launch)\\s+(the )?(.+?)( app)?$").find(t)?.let { return Command.OpenApp(it.groupValues[3].clean()) }

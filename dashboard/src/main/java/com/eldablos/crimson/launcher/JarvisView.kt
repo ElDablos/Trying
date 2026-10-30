@@ -363,7 +363,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 State.IDLE -> .35f + .1f * sin(t * 1.6).toFloat()
             }
             val color = if (state == State.LISTENING) hot else gold
-            val r = 62 * u
+            val r = 54 * u
             // Glow behind.
             canvas.drawCircle(cx, cy, r * 1.6f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 shader = RadialGradient(cx, cy, r * 1.6f, Hud.alpha(color, .35f * energy), Color.TRANSPARENT, Shader.TileMode.CLAMP)
@@ -394,7 +394,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 val bars = Hud.stroke(Hud.alpha(hot, .9f), 2 * u)
                 for (k in 0 until 32) {
                     val a = Math.toRadians(k * 11.25)
-                    val len = (6 + 22 * level * (.5f + .5f * sin(t * 12 + k).toFloat())) * u
+                    val len = (4 + 16 * level * (.5f + .5f * sin(t * 12 + k).toFloat())) * u
                     val r0 = r + 22 * u
                     canvas.drawLine(cx + r0 * cos(a).toFloat(), cy + r0 * sin(a).toFloat(), cx + (r0 + len) * cos(a).toFloat(), cy + (r0 + len) * sin(a).toFloat(), bars)
                 }

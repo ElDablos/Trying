@@ -345,7 +345,7 @@ class Jarvis(private val context: Context, private val host: Host) {
     private fun lights(on: Boolean?): Reply {
         val tapo = AppCatalog.apps().firstOrNull { it.component.packageName == TAPO } ?: findApp("tapo")
         val what = when (on) { true -> "turn the light on"; false -> "turn the light off"; null -> "sort the lights" }
-        return if (tapo != null) Reply("I can't flick the switch myself just yet, sir, but I've opened Tapo so you can $what.", then = { host.launch(tapo.component) })
+        return if (tapo != null) Reply("Certainly, sir. I can't flick the switch myself just yet, so I've opened Tapo for you to $what.", then = { host.launch(tapo.component) })
         else Reply("I'd need the Tapo app to $what, sir.")
     }
 

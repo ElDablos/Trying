@@ -101,6 +101,14 @@ object JarvisParser {
         /** "Which lights are on?": he looks in Tapo. */
         object LightsStatus : Command()
         object ScreenTime : Command()
+        /** "Change my note from X to Y", "change the last note to Y" ([old] null: the last one). */
+        data class EditNote(val old: String?, val new: String) : Command()
+        data class DeleteNote(val text: String?) : Command()
+        /** "Change/rename/move X to Y": whatever X is (a note, habit, countdown, event, something remembered). */
+        data class Change(val subject: String, val value: String) : Command()
+        /** "Delete/cancel/remove X": whatever X is. */
+        data class DeleteThing(val subject: String) : Command()
+        data class RenameHabit(val old: String, val new: String) : Command()
         /** The heating or air con in Air+: on or off, and heat or cool. */
         data class Climate(val on: Boolean?, val mode: String? = null) : Command()
         /** "Set it to 28 degrees"; [by] for "warmer"/"two degrees down". */
@@ -242,6 +250,18 @@ object JarvisParser {
         if (Regex("^(stop|pause|quiet|shut up|enough|be quiet|hold on)$").matches(t)) return Command.BriefingControl(Control.STOP)
         if (has("briefing", "brief me", "brief", "what's my day", "how's my day", "rundown", "catch me up", "what's happening today", "morning report", "daily report")) return Command.Briefing
 
+        // Editing notes: "change my note from dim my laundry to do my laundry", "change the last note to …",
+        // "replace milk with oat milk on my list", "delete buy milk from my notes", "delete the last note".
+        Regex("^(change|edit|update|correct|fix|rename|replace|amend)( my| the)?( last| latest)? note( from| that says| saying| about)? (.+?) (to|with|into|so it says|to say) (.+)$").find(t)?.let { m ->
+            return Command.EditNote(m.groupValues[5].clean(), orig(m.groupValues[7]))
+        }
+        Regex("^(change|edit|update|correct|fix|amend)( my| the)?( last| latest)? note (to|so it says|to say)[:,]? (.+)$").find(t)?.let { return Command.EditNote(null, orig(it.groupValues[5])) }
+        Regex("^(change|replace|swap) (.+?) (to|with|for) (.+?) (in|on) (my |the )?(notes?|list|to-?do( list)?)$").find(t)?.let { m ->
+            return Command.EditNote(m.groupValues[2].clean(), orig(m.groupValues[4]))
+        }
+        Regex("^(delete|remove|take|cross|scratch|get rid of) (out |off )?(.+?) (from|off) (my |the )?(notes?|list|to-?do( list)?)$").find(t)?.let { return Command.DeleteNote(it.groupValues[3].clean()) }
+        Regex("^(delete|remove|scrap|undo) (my |the )?(last|latest|previous) note$").find(t)?.let { return Command.DeleteNote(null) }
+
         // Notes: "make a note", "add a note to do my laundry", "note that the boiler's booked".
         Regex("^(add|make|take|create|write|jot|jot down|leave|put|new|start)( me| down)? ?(a |an |another )?(quick |new )?note( for me| down)?(?:[,:]?\\s*(?:to say|saying|that says|that|to|about|of|for|reading|:)?\\s*(.+))?$").find(t)?.let { m ->
             val text = m.groupValues[6].trim()
@@ -373,6 +393,11 @@ object JarvisParser {
             val (start, end) = shiftTimes(m.groupValues[6], m.groupValues[8])
             if (date != null && start != null && end != null) return Command.AddShift(date, start, end)
         }
+        Regex("^(change|move|update|make|switch) (my )?(shift (on|for) )?(.+?)( shift)? (to )?(from )?(\\d{1,2}(?::\\d{2})? ?(?:am|pm)?) ?(till|until|to|-|through) ?(\\d{1,2}(?::\\d{2})? ?(?:am|pm)?)$").find(t)?.takeIf { has("shift") }?.let { m ->
+            val date = whenIn(m.groupValues[5], today).first ?: dateIn(m.groupValues[5], today)
+            val (start, end) = shiftTimes(m.groupValues[9], m.groupValues[11])
+            if (date != null && start != null && end != null) return Command.AddShift(date, start, end)
+        }
         Regex("^(i'm|i am|im) (off|not working|not in)( on)? (.+)$|^(remove|delete|cancel|clear) (my |the )?shift( on| for)? (.+)$").find(t)?.let { m ->
             val day = m.groupValues[4].ifEmpty { m.groupValues[8] }
             val date = whenIn(day, today).first ?: dateIn(day, today)
@@ -401,6 +426,7 @@ object JarvisParser {
             return Command.AddHabit(orig(m.groupValues[5]).replaceFirstChar { it.uppercase() }, m.groupValues[6].isNotEmpty())
         }
         Regex("^(start tracking|track) (.+)$").find(t)?.let { return Command.AddHabit(orig(it.groupValues[2]).replaceFirstChar { c -> c.uppercase() }, false) }
+        Regex("^(rename|change) (the |my )?(.+?) habit (to|into) (.+)$").find(t)?.let { return Command.RenameHabit(it.groupValues[3].clean(), orig(it.groupValues[5]).replaceFirstChar { c -> c.uppercase() }) }
         Regex("^(remove|delete|drop|stop tracking)( the| my)? (habit )?(.+?)( habit)?$").find(t)?.takeIf { has("habit") || it.groupValues[1] == "stop tracking" }?.let { return Command.RemoveHabit(it.groupValues[4].clean()) }
         Regex("^(untick|un-tick|unmark|undo) (the |my )?(.+?)( habit)?$").find(t)?.takeIf { !Regex("^undo (that|it)$").matches(t) }?.let { return Command.Untick(it.groupValues[3].clean()) }
         if (has("my habits", "habit streaks", "how are my habits", "habits")) return Command.Habits
@@ -412,11 +438,19 @@ object JarvisParser {
         Regex("^(remove|delete|drop|cancel)( the| my)? (countdown (to |for )?(.+)|(.+?) countdown)$").find(t)?.let { m ->
             return Command.RemoveCountdown((m.groupValues[5].ifEmpty { m.groupValues[6] }).clean())
         }
+        Regex("^(change|move|update|rename|push) (the |my )?(.+?) countdown (to|for|into|until) (.+)$").find(t)?.let { return Command.Change(it.groupValues[3].clean() + " countdown", orig(it.groupValues[5])) }
         if (has("countdown", "countdowns", "how long until", "how many days until", "days until", "how long till")) {
             return Command.Countdown(Regex("(until|till|to) (my |the )?(.+)$").find(t)?.groupValues?.get(3)?.clean())
         }
         Regex("^(i (went to|did|finished|done|had)|tick( off)?|done) (the |my )?(.+)$").find(t)?.let { return Command.Habit(it.groupValues[5].clean()) }
         Regex("\\bfocus( session| mode)?( for)? ?(\\d+)? ?(minutes?|mins?)?\\b").find(t)?.let { return Command.Focus(it.groupValues[3].toIntOrNull() ?: 25) }
+
+        // Anything else to change or get rid of: he works out what it is.
+        Regex("^(change|rename|update|move|edit|reschedule|push|switch|correct|set) (my |the )?(.+?) (to|into|until|for) (.+)$").find(t)?.let { m ->
+            val subject = m.groupValues[3].clean()
+            if (subject !in setOf("it", "that", "this")) return Command.Change(subject, orig(m.groupValues[5]))
+        }
+        Regex("^(delete|remove|cancel|get rid of|scrap|bin|clear) (my |the )?(.+)$").find(t)?.let { return Command.DeleteThing(it.groupValues[3].clean()) }
 
         // "Add milk", "add call the bank tomorrow": on your notes.
         Regex("^(add|put down|write down|jot down|stick)\\s+(.+)$").find(t)?.let { return Command.AddNote(orig(it.groupValues[2])) }

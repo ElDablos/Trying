@@ -219,4 +219,24 @@ class JarvisTest {
         assertEquals(Command.Weather(0), p("What's the temperature"))
         assertEquals(Command.Amend(null, LocalTime.of(6, 30)), p("Make it 6:30"))
     }
+
+    @Test
+    fun editingByVoice() {
+        assertEquals(Command.EditNote("dim my laundry", "do my laundry"), p("Change my note from dim my laundry to do my laundry"))
+        assertEquals(Command.EditNote(null, "do my laundry"), p("Change the last note to do my laundry"))
+        assertEquals(Command.EditNote("milk", "oat milk"), p("Replace milk with oat milk on my list"))
+        assertEquals(Command.DeleteNote("buy milk"), p("Delete buy milk from my notes"))
+        assertEquals(Command.DeleteNote(null), p("Delete the last note"))
+        assertEquals(Command.RenameHabit("gym", "Gym session"), p("Rename the gym habit to gym session"))
+        assertEquals(Command.AddShift(LocalDate.of(2026, 11, 2), LocalTime.of(8, 0), LocalTime.of(16, 0)), p("Change my shift on Monday to 8 till 4"))
+        assertEquals(Command.Change("dentist", "Friday at 2"), p("Move the dentist to Friday at 2"))
+        assertEquals(Command.Change("locker code", "9921"), p("Change my locker code to 9921"))
+        assertEquals(Command.Change("holiday countdown", "5 March"), p("Change the holiday countdown to 5 March"))
+        assertEquals(Command.DeleteThing("dentist"), p("Cancel the dentist"))
+        // Still what they were.
+        assertEquals(Command.MoveAlarm(LocalTime.of(6, 0), LocalTime.of(6, 30)), p("Move my 6am alarm to 6:30"))
+        assertEquals(Command.ClearNotes, p("Clear my notes"))
+        assertEquals(Command.Undo, p("Undo that"))
+        assertEquals(Command.No, p("Cancel"))
+    }
 }

@@ -790,7 +790,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         private var hex: android.graphics.Path? = null
         private val bm = context.getSystemService(android.os.BatteryManager::class.java)
         private val clock = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")
-        private val stream = List(28) { i -> "%04X  %02X %02X %02X".format((i * 2654435761L % 65536).toInt(), (i * 37 + 11) % 256, (i * 91 + 7) % 256, (i * 53 + 3) % 256) }
+        private val stream = List(28) { i -> "%04X %02X".format((i * 2654435761L % 65536).toInt(), (i * 37 + 11) % 256) }
 
         private fun lattice(w: Int, h: Int): android.graphics.Path {
             val p = android.graphics.Path()
@@ -845,7 +845,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             val small = Hud.text(6.5f * u, Hud.alpha(holo, .85f), Hud.MONO, .14f)
             val blink = if ((t * 2).toInt() % 2 == 0) 1f else .25f
             canvas.drawCircle(20 * u, ry - 2.5f * u, 2.5f * u, Hud.glow(Hud.fill(Hud.alpha(Hud.tint(0xFF3DDC84.toInt()), blink)), 4 * u))
-            canvas.drawText("SYSTEMS ONLINE  ·  LOCAL CORE  ·  ${JarvisMemory.persona(context).label}", 28 * u, ry, small)
+            canvas.drawText("SYSTEMS ONLINE  ·  LOCAL CORE", 28 * u, ry, small)
             val level = bm?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 0
             small.textAlign = Paint.Align.RIGHT
             canvas.drawText("${java.time.LocalTime.now().format(clock)}  ·  PWR $level%", w - 18 * u, ry, small)

@@ -281,6 +281,10 @@ class Jarvis(private val context: Context, private val host: Host) {
         } else if (parsed !is Command.Unknown) {
             return null
         }
+        // Put right straight after a note: "no, do my laundry", "not that, …" (speech gets words wrong).
+        if (last is Command.AddNote && System.currentTimeMillis() - lastAt < 120_000L) {
+            Regex("^(?:no|nope|not that|not them|not then|no then|no it's|no its|no i said|wrong|that's wrong)\\b[,.!]?\\s+(?:it's |it should be |it should say |i said |i meant )?(.+)$", RegexOption.IGNORE_CASE).find(low)?.let { return null to editNote(null, it.groupValues[1]) }
+        }
         // Just more words straight after a note ("eggs", "and bread"): they go on it.
         if (m == null && last is Command.AddNote && System.currentTimeMillis() - lastAt < 60_000L && rest.split(' ').size <= 5) return null to appendNote(rest)
         if (rest.isEmpty()) return null
@@ -310,6 +314,176 @@ class Jarvis(private val context: Context, private val host: Host) {
             }
             else -> null
         }
+    }
+
+    // --- Editing ---
+
+    private fun words(s: String) = s.lowercase().replace(Regex("[^a-z0-9 ]"), " ").split(' ').filter { it.length > 1 }
+
+    /** The note line that best matches [what]: containing it, or sharing most of its words. */
+    private fun findNote(what: String?): Int {
+        val lines = openNotes()
+        if (what == null) return lastNote?.let { lines.lastIndexOf(it) }?.takeIf { it >= 0 } ?: lines.indexOfLast { !it.startsWith(DONE) }
+        val q = what.lowercase().trim()
+        lines.indexOfFirst { it.removePrefix(DONE).lowercase() == q }.takeIf { it >= 0 }?.let { return it }
+        lines.indexOfFirst { it.lowercase().contains(q) }.takeIf { it >= 0 }?.let { return it }
+        val w = words(q)
+        if (w.isEmpty()) return -1
+        val best = lines.withIndex().maxByOrNull { (_, l) -> words(l).count { it in w } } ?: return -1
+        return if (words(best.value).count { it in w } * 2 >= w.size) best.index else -1
+    }
+
+    private fun notesCard(lines: List<String>, highlight: String?, title: String) = Card("✎", title, sub = "${lines.count { !it.startsWith(DONE) }} open",
+        rows = lines.takeLast(6).map { Row(it.removePrefix(DONE), if (it == highlight) "EDITED" else "", ok = if (it.startsWith(DONE)) true else null) }, tone = Tone.GOLD)
+
+    /** Changes a note: [old] names it (or the last one); a word inside it ("milk" to "oat milk") changes just that. */
+    private fun editNote(old: String?, new: String): Reply {
+        val lines = openNotes().toMutableList()
+        if (lines.isEmpty()) return addNote(new)
+        val i = findNote(old)
+        if (i < 0) return Reply("I couldn't find a note about $old${sir()}.", actions = listOf(Action("READ MY NOTES", "read my notes")), failed = true)
+        val before = DeckData.note(context)
+        val line = lines[i]
+        val done = line.startsWith(DONE)
+        val body = line.removePrefix(DONE)
+        val replaced = if (old != null && !body.equals(old, true) && body.lowercase().contains(old.lowercase())) {
+            val at = body.lowercase().indexOf(old.lowercase())
+            body.substring(0, at) + new + body.substring(at + old.length)
+        } else {
+            new.trim().trimEnd('.').replaceFirstChar { it.uppercase() }
+        }
+        val updated = (if (done) DONE else "") + replaced
+        lines[i] = updated
+        DeckData.setNote(context, lines.joinToString("\n"))
+        lastNote = updated
+        push("Note put back as it was") {
+            DeckData.setNote(context, before)
+            lastNote = line
+            "Put it back: $body."
+        }
+        return Reply(say("Changed. It now says: $replaced.", "Fixed: $replaced.", "Changed: $replaced."), card = notesCard(lines, updated, "NOTE EDITED"),
+            actions = listOf(undoAction, Action("CHANGE AGAIN", "change the last note to ")))
+    }
+
+    private fun deleteNote(what: String?): Reply {
+        val lines = openNotes().toMutableList()
+        val i = findNote(what)
+        if (i < 0) return Reply(if (what == null) "There aren't any notes to delete${sir()}." else "I couldn't find a note about $what${sir()}.", failed = true)
+        val before = DeckData.note(context)
+        val gone = lines.removeAt(i)
+        DeckData.setNote(context, lines.joinToString("\n"))
+        if (lastNote == gone) lastNote = null
+        push("Note back") {
+            DeckData.setNote(context, before)
+            "It's back."
+        }
+        return Reply("Deleted \"${gone.removePrefix(DONE)}\" from your notes.", card = notesCard(lines, null, "NOTES"), actions = listOf(undoAction))
+    }
+
+    private fun renameHabit(old: String, new: String): Reply {
+        val before = DeckStore.habits(context)
+        val h = findHabit(old) ?: return Reply("I couldn't find a habit called $old${sir()}.", failed = true)
+        val renamed = DeckStore.Habit(new, h.done)
+        DeckStore.setHabits(context, before.map { if (it === h) renamed else it })
+        lastHabit = new
+        push("${h.name} named back") {
+            DeckStore.setHabits(context, before)
+            "Named back to ${h.name}."
+        }
+        return Reply("Renamed ${h.name} to $new; your streak comes with it.", card = habitCard(renamed, "HABIT RENAMED"), actions = listOf(undoAction))
+    }
+
+    /** The calendar event you mean by [title], in the next two months. */
+    private fun findEvent(title: String): DeckData.Event? {
+        if (context.checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return null
+        val shiftIds = Shifts.eventIds(context).values.toSet()
+        val events = DeckData.agenda(context, limit = 200, hours = 24 * 62).filter { it.id !in shiftIds }
+        val q = title.lowercase()
+        return events.firstOrNull { it.title.equals(title, true) } ?: events.firstOrNull { it.title.lowercase().contains(q) || q.contains(it.title.lowercase()) }
+            ?: events.firstOrNull { e -> words(q).let { w -> w.isNotEmpty() && w.all { it in words(e.title) } } }
+    }
+
+    /**
+     * "Change X to Y" for anything: a countdown, habit, something remembered, a calendar event (a new time
+     * moves it, otherwise it's renamed) or a note, whichever X turns out to be.
+     */
+    private fun change(subject: String, value: String): Reply {
+        val hint = Regex("\\s+(countdown|habit|note|event|appointment|meeting)$").find(subject)?.groupValues?.get(1)
+        val name = subject.replace(Regex("\\s+(countdown|habit|note|event|appointment|meeting)$"), "").trim()
+        val today = LocalDate.now()
+        val newDate = JarvisParser.dateIn(value, today) ?: JarvisParser.whenIn(value.lowercase(), today).first
+        val newTime = JarvisParser.whenIn(value.lowercase(), today).second ?: JarvisParser.anyTime(value)
+        // A countdown: a date moves it, words rename it.
+        if (hint == null || hint == "countdown") {
+            val list = DeckStore.countdowns(context)
+            list.firstOrNull { it.name.equals(name, true) || it.name.lowercase().contains(name.lowercase()) }?.let { c ->
+                val updated = if (newDate != null) DeckStore.Countdown(c.name, newDate, c.added) else DeckStore.Countdown(value.replaceFirstChar { it.uppercase() }, c.date, c.added)
+                DeckStore.setCountdowns(context, list.map { if (it === c) updated else it })
+                push("${c.name} countdown put back") {
+                    DeckStore.setCountdowns(context, list)
+                    "Put back."
+                }
+                val days = ChronoUnit.DAYS.between(today, updated.date)
+                return Reply(if (newDate != null) "${c.name} is now ${updated.date.format(dayName)}, $days days away." else "Renamed it to ${updated.name}.",
+                    card = Card("★", "COUNTDOWN CHANGED", "$days", "days to ${updated.name}", tone = Tone.GOLD), actions = listOf(undoAction))
+            }
+        }
+        if (hint == null || hint == "habit") findHabit(name)?.let { return renameHabit(it.name, value.replaceFirstChar { c -> c.uppercase() }) }
+        // Something he was told to remember.
+        if (hint == null) JarvisMemory.recall(context, JarvisParser.key(name))?.takeIf { it.key == JarvisParser.key(name) || name.contains(it.key) }?.let { f ->
+            return remember(f.key, value)
+        }
+        // A calendar event: moved to a new day or time, or renamed.
+        if (hint == null || hint in setOf("event", "appointment", "meeting")) findEvent(name)?.let { e ->
+            if (!Shifts.canWrite(context)) return Reply("I'll need access to your calendar first, sir.", then = { host.ask(arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)) })
+            val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id)
+            val start = at(e.begin)
+            val v = ContentValues()
+            val whenSaid = newDate != null || newTime != null
+            if (whenSaid) {
+                val begin = (newDate ?: start.toLocalDate()).atTime(newTime ?: start.toLocalTime()).atZone(zone).toInstant().toEpochMilli()
+                v.put(CalendarContract.Events.DTSTART, begin)
+                v.put(CalendarContract.Events.DTEND, begin + (e.end - e.begin).coerceAtLeast(30 * 60_000L))
+            } else {
+                v.put(CalendarContract.Events.TITLE, value.replaceFirstChar { it.uppercase() })
+            }
+            context.contentResolver.update(uri, v, null, null)
+            push("${e.title} put back") {
+                context.contentResolver.update(uri, ContentValues().apply {
+                    put(CalendarContract.Events.DTSTART, e.begin)
+                    put(CalendarContract.Events.DTEND, e.end)
+                    put(CalendarContract.Events.TITLE, e.title)
+                }, null, null)
+                "Put back as it was."
+            }
+            val nowWhen = if (whenSaid) whenText(newDate ?: start.toLocalDate(), newTime ?: start.toLocalTime()) else whenText(start.toLocalDate(), start.toLocalTime())
+            return Reply(if (whenSaid) "Moved. ${e.title} is now $nowWhen." else "Renamed it to ${value.replaceFirstChar { it.uppercase() }}.",
+                card = Card("▦", "EVENT CHANGED", if (whenSaid) e.title else value.replaceFirstChar { it.uppercase() }, nowWhen.replaceFirstChar { it.uppercase() }, tone = Tone.GREEN), actions = listOf(undoAction))
+        }
+        // A note.
+        if (hint == null || hint == "note") if (findNote(name) >= 0) return editNote(name, value)
+        return Reply("I couldn't find anything called $name to change${sir()}. It could be a note, habit, countdown, event or something you've told me.",
+            listOf("Read my notes", "How are my habits?", "What's on tomorrow?"), failed = true)
+    }
+
+    /** "Delete X" for anything: a note, habit, countdown, calendar event or something remembered. */
+    private fun deleteThing(subject: String): Reply {
+        val name = subject.replace(Regex("\\s+(countdown|habit|note|event|appointment|meeting|from my calendar|from the calendar)$"), "").trim()
+        val hint = Regex("(countdown|habit|note|event|appointment|meeting|calendar)$").find(subject)?.value
+        if (hint == null || hint == "countdown") DeckStore.countdowns(context).firstOrNull { it.name.equals(name, true) || it.name.lowercase().contains(name.lowercase()) }?.let { return removeCountdown(it.name) }
+        if (hint == null || hint == "habit") findHabit(name)?.let { return removeHabit(it.name) }
+        if (hint == null || hint in setOf("event", "appointment", "meeting", "calendar")) findEvent(name)?.let { e ->
+            pending = Pending.Confirm({
+                context.contentResolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, e.id), null, null)
+                Reply("Done. ${e.title} is off your calendar.")
+            }, "Very well, it stays.")
+            return Reply("Delete ${e.title}, ${whenText(at(e.begin).toLocalDate(), if (e.allDay) null else at(e.begin).toLocalTime())}, from your calendar${sir()}?", listen = true,
+                card = Card("▦", "DELETE EVENT?", e.title, whenText(at(e.begin).toLocalDate(), null).replaceFirstChar { it.uppercase() }, tone = Tone.HOT),
+                actions = listOf(Action("DELETE", "yes", primary = true), Action("KEEP", "no")))
+        }
+        if (hint == null || hint == "note") if (findNote(name) >= 0) return deleteNote(name)
+        if (hint == null) JarvisMemory.recall(context, JarvisParser.key(name))?.let { return forget(it.key) }
+        return Reply("I couldn't find anything called $name to delete${sir()}.", failed = true)
     }
 
     /** "And ask about the mortgage": onto the note he just wrote. */
@@ -430,6 +604,11 @@ class Jarvis(private val context: Context, private val host: Host) {
         is Command.RemoveShift -> setShift(cmd.date, null)
         Command.LightsStatus -> lightsStatus()
         Command.ScreenTime -> screenTime()
+        is Command.EditNote -> editNote(cmd.old, cmd.new)
+        is Command.DeleteNote -> deleteNote(cmd.text)
+        is Command.Change -> change(cmd.subject, cmd.value)
+        is Command.DeleteThing -> deleteThing(cmd.subject)
+        is Command.RenameHabit -> renameHabit(cmd.old, cmd.new)
         is Command.Climate -> climate(cmd.on, cmd.mode)
         is Command.SetTemp -> setTemp(cmd.degrees, cmd.by)
         is Command.Correct -> correct(cmd.name)
@@ -988,7 +1167,8 @@ class Jarvis(private val context: Context, private val host: Host) {
 
     /** "It's called Claude": tries again, and remembers what you meant by the first name. */
     private fun correct(name: String): Reply {
-        val (kind, first) = missed ?: return run(JarvisParser.parse("open $name"))
+        val (kind, first) = missed ?: return if (last is Command.AddNote || lastNote != null && System.currentTimeMillis() - lastAt < 120_000L) editNote(null, name)
+        else run(JarvisParser.parse("open $name"))
         missed = null
         return when (kind) {
             "app" -> {

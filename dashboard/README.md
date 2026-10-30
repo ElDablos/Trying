@@ -154,6 +154,11 @@ back to One UI Home the same way at any time.
     "add a countdown to holiday on 3 March", "I'm working Monday 7 till 3" (saved, synced to the calendar),
     "I'm off on Friday", "tick off buy milk". Also "which lights are on?" (reads Tapo) and "what's my
     screen time?".
+  - **Editing anything**: "change my note from dim my laundry to do my laundry", "change the last note to …",
+    "no, do my laundry" straight after a note, "replace milk with oat milk on my list", "delete buy milk from my
+    notes"; "rename the gym habit to gym session"; "change my Monday shift to 8 till 4"; "move the dentist to
+    Friday at 2"; "change my locker code to 9921"; "change the holiday countdown to 5 March"; "cancel the
+    dentist" (he checks first). All undoable.
   - **Heating (Air+)**: "turn on the heating" (or "I'm cold"), "heating off", "turn on the air con", "set it to
     28 degrees", "warmer", "turn the heat down two", and "and 24" right after. Hands open Air+, press power,
     the mode and + / − until it reads your number, then come back. "Learn the heating in Air+" if it can't

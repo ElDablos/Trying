@@ -144,6 +144,8 @@ object JarvisParser {
         data class Climate(val on: Boolean?, val mode: String? = null) : Command()
         /** "Set it to 28 degrees"; [by] for "warmer"/"two degrees down". */
         data class SetTemp(val degrees: Double?, val by: Double = 0.0) : Command()
+        /** "The heater's on 23": what it's set to now, so he can work from there. */
+        data class HeaterNow(val degrees: Double) : Command()
         data class Unknown(val text: String) : Command()
     }
 
@@ -226,6 +228,9 @@ object JarvisParser {
         }
 
         // Heating and air con: "turn on the heating", "set it to 28 degrees", "warmer", "turn the heat down two".
+        Regex("^(?:the )?(?:heater|heating|air\\+|temperature)(?:'s| is)(?: currently| already| now)? (?:on|at|set to|set at|showing) (\\d{1,2}(?:[.,]5)?)(?: ?(?:degrees|°c?))?$").find(t)?.let {
+            return Command.HeaterNow(it.groupValues[1].replace(',', '.').toDouble())
+        }
         val climateWords = has("heating", "heater", "heat", "air con", "aircon", "air conditioning", "ac", "thermostat", "air+", "air plus", "temperature", "temp")
         Regex("\\b(\\d{1,2}(?:[.,]5)?) ?(degrees|degree|°c?|deg|celsius)\\b").find(t)?.takeIf { climateWords || Regex("^(set|make|change|put|turn)").containsMatchIn(t) }?.let { m ->
             if (!has("weather", "outside", "forecast")) return Command.SetTemp(m.groupValues[1].replace(',', '.').toDouble())

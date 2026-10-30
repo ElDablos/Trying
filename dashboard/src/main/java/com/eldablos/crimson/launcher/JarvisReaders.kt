@@ -230,6 +230,10 @@ object JarvisReaders {
         return items.minBy { kotlin.math.abs(it.second.centerY() - mid) }.first.toDouble()
     }
 
+    /** Where the temperature wheel is on screen (philips_control_sheet_picker), to turn it by position. */
+    fun airPickerBox(root: AccessibilityNodeInfo): android.graphics.Rect? =
+        JarvisHands.nodes(root).firstOrNull { airId(it) == "philips_control_sheet_picker" }?.let { bounds(it) }?.takeIf { it.height() > 0 }
+
     /** The "Set the preferred temperature" wheel is showing. */
     fun airPickerOpen(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).count { Regex("^\\d{1,2}\\s*°\\s*c$", RegexOption.IGNORE_CASE).matches(textOf(it)) } >= 3 ||
         JarvisHands.nodes(root).any { textOf(it).contains("preferred temperature", true) }

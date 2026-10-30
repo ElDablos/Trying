@@ -350,6 +350,13 @@ class JarvisTest {
     }
 
     @Test
+    fun tellingHimWhatTheHeaterIsOn() {
+        assertEquals(Command.HeaterNow(23.0), p("The heater's on 23"))
+        assertEquals(Command.HeaterNow(25.0), p("heating is set to 25 degrees"))
+        assertEquals(Command.SetTemp(22.0), p("set the heating to 22"))
+    }
+
+    @Test
     fun handsLogAsHeard() {
         assertEquals(Command.HandsLog, p("Send me hands long"))
         assertEquals(Command.HandsLog, p("Hands long"))

@@ -147,6 +147,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         object NoteText : Pending()
         /** He read a note back and asked what it should say instead. */
         class NoteEdit(val ref: String?) : Pending()
+        /** He asked what the heater's set to now (Air+ doesn't show it to him), to set it to [degrees] or by [by]. */
+        class AirNow(val degrees: Double?, val by: Double) : Pending()
         /** He asked when a countdown's for. */
         class CountdownWhen(val name: String) : Pending()
         /** A message written but not sent yet: you can add to it, change it, send it or scrap it. */
@@ -249,6 +251,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 return styled(Reply("I didn't catch the new words${sir()}. What should it say?", listen = true))
             }
             return styled(editNote(p.ref, words)).also { lastReply = it }
+        }
+        (pending as? Pending.AirNow)?.let { p ->
+            pending = null
+            val n = Regex("(\\d{1,2}(?:[.,]5)?)").find(text)?.groupValues?.get(1)?.replace(',', '.')?.toDoubleOrNull()
+            if (n != null && n in 5.0..40.0) {
+                airKnown = n
+                return styled(setTemp(p.degrees, p.by)).also { lastReply = it }
+            }
+            if (JarvisParser.parse(text) == Command.No) return styled(Reply("Very well, I'll leave it."))
         }
         if (pending == Pending.NoteText) {
             pending = null
@@ -737,6 +748,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             travel(if (!cmd.dayGiven && prev != null && cmd.line != null) prev.day else cmd.day, cmd.line)
         }
         is Command.ItAction -> itAction(cmd.kind)
+        is Command.HeaterNow -> {
+            airKnown = cmd.degrees
+            Reply("Noted${sir()}: the heater's on ${fmtTemp(cmd.degrees)}. I'll work from there.", actions = listOf(Action("WARMER", "warmer"), Action("COOLER", "cooler")))
+        }
         is Command.CommuteTime -> {
             JarvisMemory.setCommuteMinutes(context, cmd.minutes)
             Reply("Noted, sir: ${cmd.minutes} minutes to work. If the tube's playing up before a shift, I'll tell you in time to leave early.",
@@ -1848,8 +1863,18 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val app = airApp() ?: return Reply("I can't find the Air+ app on the phone, sir.", failed = true)
         if (!handsReady()) return needHands("the temperature", Action("OPEN AIR+", run = { host.launch(app.component) }))
         if (degrees != null && degrees !in 10.0..32.0) return Reply("${fmtTemp(degrees)} degrees? I'd rather not, sir. Somewhere between 10 and 32.")
-        var target = degrees
-        var from: Double? = null
+        // Air+ draws the setting and the wheel without telling Hands the numbers, so he keeps track of what
+        // it's on himself. The first time (or after you've changed it by hand), he asks.
+        val known = airKnown
+        if (known == null) {
+            pending = Pending.AirNow(degrees, by)
+            return Reply("What's the heater set to at the moment${sir()}? It's on the temperature button in Air+, like 25.", listen = true,
+                card = Card("♨", "AIR+ · CURRENT SETTING", "?", "Air+ doesn't let me read it, so I keep track", tone = Tone.HOT))
+        }
+        if (degrees != null && kotlin.math.abs(degrees - known) < .25) return Reply("It's already on ${fmtTemp(known)} degrees${sir()}.")
+        var target: Double? = degrees ?: (known + by)
+        var from: Double? = known
+        var wheelAt: Double = known
         var stage = 0
         var moves = 0
         var waited = 0
@@ -1895,8 +1920,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                         }
                         val heat = JarvisReaders.airHeatButton(root) ?: return@custom if (t < 12) null else "I couldn't find the heat setting in ${app.label}, sir."
                         // The button shows the setting on screen but not to Hands; if it can't be read, the wheel says.
-                        from = JarvisReaders.airSetting(heat)
-                        if (target == null && from != null) target = from!! + by
+                        JarvisReaders.airSetting(heat)?.let { from = it; wheelAt = it; if (degrees == null) target = it + by }
                         target?.let { goal -> if (from != null && kotlin.math.abs(from!! - goal) < .25) return@custom "It's already set to ${fmtTemp(goal)} degrees, sir." }
                         JarvisHands.press(heat)
                         stage = 1
@@ -1935,7 +1959,28 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                                 cool = 1
                                 if (++moves > 30) "I got it as close as I could, sir." else null
                             }
-                            null -> if (++waited < 8) null else "I couldn't turn the temperature wheel, sir."
+                            // The wheel doesn't say its numbers: turn it by position from where he knows it is, a
+                            // row (about a fifth of its height) per degree, a couple at a time, then Apply.
+                            null -> {
+                                val box = JarvisReaders.airPickerBox(root) ?: return@custom if (++waited < 8) null else "I couldn't find the temperature wheel, sir."
+                                val steps = kotlin.math.round(goal - wheelAt).toInt()
+                                if (steps == 0) {
+                                    JarvisReaders.airConfirm(root)?.let { JarvisHands.press(it); applied++ }
+                                    stage = 2
+                                    cool = 2
+                                    return@custom null
+                                }
+                                if (++moves > 30) return@custom "I couldn't get the wheel to ${fmtTemp(goal)}, sir."
+                                val chunk = steps.coerceIn(-2, 2)
+                                val row = box.height() / 5.2f
+                                val x = box.exactCenterX()
+                                val y = box.exactCenterY()
+                                // Higher numbers are below: drag up to bring them to the middle. Slowly, so it doesn't fling.
+                                JarvisHands.swipe(x, y, x, y - chunk * row, 650)
+                                wheelAt += chunk
+                                cool = 2
+                                null
+                            }
                         }
                     }
                     // Back on the page: read what it's set to now.
@@ -1962,7 +2007,14 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             actions = listOf(Action("WARMER", "warmer"), Action("COOLER", "cooler")))
     }
 
-    private fun done(goal: Double, from: Double?) = "Done, sir. The heater's set to ${fmtTemp(goal)} degrees" +
+    /** What the heater's set to, as far as he knows: he sets it, or you tell him. Air+ won't say. */
+    private var airKnown: Double?
+        get() = context.getSharedPreferences("jarvis_hands", Context.MODE_PRIVATE).getFloat("air_set", -1f).takeIf { it > 0f }?.toDouble()
+        set(v) {
+            context.getSharedPreferences("jarvis_hands", Context.MODE_PRIVATE).edit().putFloat("air_set", v?.toFloat() ?: -1f).apply()
+        }
+
+    private fun done(goal: Double, from: Double?) = "Done, sir. The heater's set to ${fmtTemp(goal)} degrees".also { airKnown = goal } +
         (from?.takeIf { kotlin.math.abs(it - goal) >= .25 }?.let { if (goal > it) ", up from ${fmtTemp(it)}." else ", down from ${fmtTemp(it)}." } ?: ".")
 
     private fun fmtTemp(d: Double) = if (d % 1.0 == 0.0) d.toInt().toString() else "%.1f".format(Locale.ROOT, d)

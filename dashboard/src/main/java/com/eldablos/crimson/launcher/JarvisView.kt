@@ -70,7 +70,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     private val sheet = FrameLayout(context)
 
     private val green get() = Hud.tint(0xFF3DDC84.toInt())
-    private val blue get() = Hud.tint(0xFF6CC4FF.toInt())
+    // A lighter shade of the theme colour, for memory and undo: everything follows the theme.
+    private val blue get() = Hud.tint(0xFFFF8FA3.toInt())
     private fun toneColor(t: Tone) = when (t) {
         Tone.GOLD -> Hud.GOLD
         Tone.HOT -> Hud.HOT
@@ -92,7 +93,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         if (solid) setTextColor(Theme.on(color))
         gravity = Gravity.CENTER
         setPadding(dp(13f), dp(8f), dp(13f), dp(8f))
-        background = Cut(if (solid) color else Hud.alpha(Hud.tint(0xFF060A0C.toInt()), .9f), Hud.alpha(color, if (solid) 1f else .6f), 6 * u)
+        background = Cut(if (solid) color else Hud.alpha(Hud.tint(0xFF0C0607.toInt()), .9f), Hud.alpha(color, if (solid) 1f else .6f), 6 * u)
         setOnClickListener {
             performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             act()
@@ -100,7 +101,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     }
 
     init {
-        setBackgroundColor(Hud.alpha(Hud.tint(0xFF030406.toInt()), .97f))
+        setBackgroundColor(Hud.alpha(Hud.tint(0xFF050304.toInt()), .97f))
         isClickable = true
         addView(Frame(), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -175,7 +176,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEND
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            background = Cut(Hud.alpha(Hud.tint(0xFF05090C.toInt()), .95f), Hud.alpha(Hud.HOT, .6f), 10 * u, tick = true)
+            background = Cut(Hud.alpha(Hud.tint(0xFF0A0506.toInt()), .95f), Hud.alpha(Hud.HOT, .6f), 10 * u, tick = true)
             setPadding(dp(14f), dp(11f), dp(14f), dp(11f))
             setOnEditorActionListener { _, a, _ -> if (a == EditorInfo.IME_ACTION_SEND) { send(); true } else false }
         }
@@ -526,7 +527,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18f), dp(14f), dp(18f), dp(22f))
-            background = Cut(Hud.alpha(Hud.tint(0xFF05080B.toInt()), .99f), Hud.alpha(Hud.HOT, .6f), 22 * u, tick = true)
+            background = Cut(Hud.alpha(Hud.tint(0xFF0A0506.toInt()), .99f), Hud.alpha(Hud.HOT, .6f), 22 * u, tick = true)
             isClickable = true
         }
         panel.addView(View(context).apply {

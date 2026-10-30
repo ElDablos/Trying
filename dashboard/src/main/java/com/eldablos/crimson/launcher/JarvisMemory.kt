@@ -182,10 +182,16 @@ object JarvisMemory {
     /**
      * What Vee's already told us, so he knows it from the start: up 2 hours before a shift (5 for a 7 start),
      * 6 alarms 5 minutes apart, out of the door 45 minutes before (6:15 for 7), and the Elizabeth line on
-     * Thursdays. Only where it hasn't been set already; once.
+     * Thursdays; and the heater set to 25. Only where it hasn't been set already; once.
      */
     fun seed(context: Context) {
         val p = prefs(context)
+        // The heater's on 25 (Air+ won't tell him, so he starts from what Vee said).
+        if (!p.getBoolean("seeded:2", false)) {
+            p.edit().putBoolean("seeded:2", true).apply()
+            val hands = context.getSharedPreferences("jarvis_hands", Context.MODE_PRIVATE)
+            if (!hands.contains("air_set")) hands.edit().putFloat("air_set", 25f).apply()
+        }
         if (p.getBoolean("seeded:1", false)) return
         val e = p.edit().putBoolean("seeded:1", true)
         if (!p.contains("set:lead")) e.putInt("set:lead", 120)

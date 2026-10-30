@@ -219,9 +219,21 @@ class JarvisEar : Service() {
         stopWake()
         session = true
         lingering = false
-        JarvisSound.play(this, JarvisSound.Cue.LISTEN)
         showOverlay()
-        listen(followUp = false)
+        // He answers when called, like a person would, then listens (after he's spoken, so he doesn't hear himself).
+        val brief = JarvisMemory.persona(this) == JarvisMemory.Persona.BRIEF
+        val hi = if (brief) "Yes?" else listOf("Yes, sir?", "At your service.", "Sir?", "I'm listening.", "Go ahead, sir.", "How can I help?").random()
+        overlay?.said(hi)
+        overlay?.state = JarvisOverlay.State.SPEAKING
+        Speech.speak(this, listOf("hello" to hi), object : Speech.Listener {
+            override fun onPart(id: String) {}
+            override fun onEnd(finished: Boolean) {
+                if (!session) return
+                overlay?.said("")
+                JarvisSound.play(this@JarvisEar, JarvisSound.Cue.LISTEN)
+                listen(followUp = false)
+            }
+        })
     }
 
     // --- A conversation over any app ---

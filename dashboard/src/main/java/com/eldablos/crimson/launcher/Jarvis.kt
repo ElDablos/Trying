@@ -945,7 +945,14 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     /** What he says when he's come back from working another app. */
-    fun note(text: String): Reply = styled(Reply(text, card = Card("✋", "HANDS", sub = text, tone = Tone.GREEN), actions = if (text.startsWith("Done")) listOf(undoAction) else emptyList()))
+    fun note(text: String): Reply {
+        // Back from the Clock with its list: the alarms as a card, one line each, instead of the words again.
+        val alarms = JarvisReaders.lastAlarms.takeIf { System.currentTimeMillis() - JarvisReaders.lastAlarmsAt < 20_000 && text.startsWith("You've") }
+        val card = if (alarms != null) Card("⏰", "ALARMS", "${alarms.count { it.on == true }} ON", "of ${alarms.size} in the Clock",
+            alarms.map { r -> Row(r.time.format(tf), listOfNotNull(r.label, r.days).joinToString(" · "), ok = r.on) }, Tone.GOLD)
+        else Card("✋", "HANDS", if (text.startsWith("Done")) "DONE" else null, tone = Tone.GREEN)
+        return styled(Reply(text, card = card, actions = if (text.startsWith("Done")) listOf(undoAction) else emptyList()))
+    }
 
     private fun help() = Reply(
         "Here's a taste. Ask about your day, shifts, weather or email; add events and notes; set alarms and timers; call or message people; " +

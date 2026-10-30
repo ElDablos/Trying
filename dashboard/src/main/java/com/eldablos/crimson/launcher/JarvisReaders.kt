@@ -13,7 +13,7 @@ object JarvisReaders {
     const val CLOCK = "com.sec.android.app.clockpackage"
     private val HM = DateTimeFormatter.ofPattern("HH:mm")
 
-    class AlarmRow(val time: LocalTime, val on: Boolean?, val detail: String, val switch: AccessibilityNodeInfo?)
+    class AlarmRow(val time: LocalTime, val on: Boolean?, val detail: String, val switch: AccessibilityNodeInfo?, val label: String? = null, val days: String? = null)
 
     /** The row round [n]: the nearest parent holding a switch. */
     private fun row(n: AccessibilityNodeInfo): Pair<AccessibilityNodeInfo, AccessibilityNodeInfo>? {
@@ -46,19 +46,74 @@ object JarvisReaders {
             if (ampm.startsWith("p") && h < 12) h += 12
             if (ampm.startsWith("a") && h == 12) h = 0
             if (h !in 0..23 || min !in 0..59) continue
-            val detail = texts.filter { it != text && !AMPM.matches(it) && !Regex("^(on|off|alarm)$", RegexOption.IGNORE_CASE).matches(it) && !TIME.matches(it) && it.length < 40 }
-                .distinct().take(3).joinToString(", ")
-            out += AlarmRow(LocalTime.of(h, min), if (sw.isCheckable) sw.isChecked else null, detail, sw)
+            val (label, days) = tidy(texts, text)
+            out += AlarmRow(LocalTime.of(h, min), if (sw.isCheckable) sw.isChecked else null, listOfNotNull(label, days).joinToString(" · "), sw, label, days)
         }
-        return out.sortedBy { it.time }
+        return out.sortedBy { it.time }.also { lastAlarms = it; lastAlarmsAt = System.currentTimeMillis() }
     }
 
-    /** "You've 3 alarms, 2 on: 05:45 on, weekdays; …" */
+    /** The last list read, for the card that goes with what he says. */
+    @Volatile var lastAlarms: List<AlarmRow> = emptyList()
+    @Volatile var lastAlarmsAt = 0L
+
+    private val MONTH = Regex("\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\b", RegexOption.IGNORE_CASE)
+    private val REPEAT = Regex("^(every ?day|daily|weekdays|weekends|every \\w+|mon(day)?s?|tue(sday)?s?|wed(nesday)?s?|thu(rsday)?s?|fri(day)?s?|sat(urday)?s?|sun(day)?s?|tomorrow|today)$", RegexOption.IGNORE_CASE)
+
+    /**
+     * The Clock says each thing twice (shown, and again for accessibility: "Sat, 31 Oct" and "Saturday, 31
+     * October", "07:00" and "07 , Saturday…"). Keeps one of each: the alarm's name ("Jarvis") and its days.
+     */
+    private fun tidy(texts: List<String>, time: String): Pair<String?, String?> {
+        val parts = texts.flatMap { it.split(',') }.map { it.trim() }.filter { it.isNotEmpty() }
+        val keep = texts.filter { t ->
+            t != time && !AMPM.matches(t) && !Regex("^(on|off|alarm|alarms)$", RegexOption.IGNORE_CASE).matches(t) && !TIME.containsMatchIn(t) &&
+                !Regex("\\d{1,2}[:.]\\d{2}").containsMatchIn(t) && !Regex("^\\d{1,2}\\s*,?.*").matches(t.trim()) && t.length < 40
+        }
+        // Days: "Every day", or a date (the short way of writing it), or "M T W T F S S" for some days.
+        val repeat = keep.firstOrNull { REPEAT.matches(it.trim()) }
+        val date = keep.filter { MONTH.containsMatchIn(it) }.minByOrNull { it.length }
+        val letters = keep.firstOrNull { Regex("^([MTWFS]\\s*){3,7}$").matches(it.trim()) }
+        val days = repeat ?: date?.let { relativeDay(it) } ?: letters?.let { "some days" }
+        // A name: whatever's left that isn't a day, a date, a number or a part of one.
+        val label = keep.firstOrNull { t ->
+            !REPEAT.matches(t.trim()) && !MONTH.containsMatchIn(t) && !Regex("^([MTWFS]\\s*){1,7}$").matches(t.trim()) &&
+                !Regex("^(mon|tue|wed|thu|fri|sat|sun)[a-z]*$", RegexOption.IGNORE_CASE).matches(t.trim()) && t.any { it.isLetter() } && parts.count { p -> p == t } <= 2
+        }
+        return label to days
+    }
+
+    /** "Sat, 31 Oct" → "Tomorrow" / "Today" / "Saturday", near enough; else as written. */
+    private fun relativeDay(date: String): String {
+        val today = java.time.LocalDate.now()
+        val day = Regex("(\\d{1,2})").find(date)?.value?.toIntOrNull()
+        val month = MONTH.find(date)?.value?.take(3)?.lowercase()?.let { m -> listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec").indexOf(m) + 1 }
+        if (day == null || month == null || month < 1) return date
+        val d = runCatching { java.time.LocalDate.of(today.year, month, day).let { if (it.isBefore(today.minusDays(1))) it.plusYears(1) else it } }.getOrNull() ?: return date
+        return when (java.time.temporal.ChronoUnit.DAYS.between(today, d)) {
+            0L -> "Today"
+            1L -> "Tomorrow"
+            in 2L..6L -> d.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
+            else -> date
+        }
+    }
+
+    /**
+     * Said the way a person would, grouped: "You've 7 alarms, 6 on. Every day: 7:05, 7:10 and 7:15. Tomorrow:
+     * 7:00, 7:20 and 7:30. Off: 7:40." Names only where they help ("7:30, Jarvis").
+     */
     fun describe(rows: List<AlarmRow>): String {
         if (rows.isEmpty()) return "You haven't any alarms in the Clock, sir."
-        val on = rows.count { it.on == true }
-        val list = rows.joinToString("; ") { r -> "${r.time.format(HM)} ${if (r.on == true) "on" else "off"}" + (r.detail.takeIf { it.isNotBlank() }?.let { ", $it" } ?: "") }
-        return "You've ${rows.size} alarm${if (rows.size == 1) "" else "s"}, $on on. $list."
+        val on = rows.filter { it.on == true }
+        val off = rows.filter { it.on != true }
+        fun t(r: AlarmRow) = r.time.format(HM)
+        fun and(l: List<String>) = if (l.size == 1) l[0] else l.dropLast(1).joinToString(", ") + " and " + l.last()
+        val groups = on.groupBy { it.days ?: "" }.entries.sortedBy { it.value.first().time }.map { (days, list) ->
+            (if (days.isBlank()) "" else "$days: ") + and(list.map { r -> t(r) + (r.label?.let { " ($it)" } ?: "") })
+        }
+        val sb = StringBuilder("You've ${rows.size} alarm${if (rows.size == 1) "" else "s"}, ${on.size} on.")
+        groups.forEach { sb.append(" ").append(it).append(".") }
+        if (off.isNotEmpty()) sb.append(" Off: ").append(and(off.map { t(it) })).append(".")
+        return sb.toString()
     }
 
     class Device(val name: String, val on: Boolean?, val switch: AccessibilityNodeInfo)

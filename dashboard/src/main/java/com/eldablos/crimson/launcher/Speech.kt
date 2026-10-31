@@ -42,7 +42,8 @@ object Speech {
         if (t != null) return
         val app = context.applicationContext
         appContext = app
-        val google = try {
+        // The engine you picked in his settings (Google's, Samsung's, a neural one like VoxSherpa), else Google's.
+        val google = prefs(app).getString("engine", null)?.takeIf { installed(app, it) } ?: try {
             app.packageManager.getPackageInfo(GOOGLE_TTS, 0)
             GOOGLE_TTS
         } catch (e: Exception) {
@@ -171,6 +172,11 @@ object Speech {
     fun voiceLabel(v: Voice): String {
         val country = when (v.locale.country) { "GB" -> "UK"; "US" -> "US"; "AU" -> "Australia"; "IN" -> "India"; "IE" -> "Ireland"; "ZA" -> "South Africa"; else -> v.locale.displayCountry }
         val id = v.name.substringAfter("-x-", "").substringBefore('-')
+        // Kokoro's names ("am_michael", "bm_george"): the name, and its accent and sex from the prefix.
+        Regex("^([ab])([mf])_([a-z]+)", RegexOption.IGNORE_CASE).find(v.name)?.let { m ->
+            val who = m.groupValues[3].replaceFirstChar { it.uppercaseChar() }
+            return "${if (m.groupValues[1].equals("b", true)) "UK" else "US"} · $who, ${if (m.groupValues[2].equals("m", true)) "male" else "female"} · neural, on the phone"
+        }
         val who = (if (id.length >= 3) "Voice ${id.last().uppercaseChar()}" else v.name) + if (male(v)) ", male" else ""
         val kind = when {
             v.isNetworkConnectionRequired -> "natural, online"
@@ -193,12 +199,58 @@ object Speech {
         .let { n -> STYLES.firstOrNull { it.label == n } ?: STYLES[0] }
     fun setStyle(context: Context, label: String) = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).edit().putString("set:voice_style", label).apply()
 
+    private fun installed(context: Context, pkg: String) = try {
+        context.packageManager.getPackageInfo(pkg, 0)
+        true
+    } catch (e: Exception) {
+        false
+    }
+
+    /** Switches to another voice engine (Google's, Samsung's, VoxSherpa…): the old one's let go, the new one starts. */
+    private fun useEngine(context: Context, pkg: String, then: (TextToSpeech) -> Unit) {
+        prefs(context).edit().putString("engine", pkg).remove("voice").apply()
+        runCatching { tts?.stop(); tts?.shutdown() }
+        tts = null
+        ready = false
+        with(context, then)
+    }
+
+    /**
+     * Pick the voice, hearing each as you choose: first the engine when there's more than one (Google's,
+     * Samsung's, a neural one such as VoxSherpa with Kokoro's voices), then its voices. An engine whose
+     * voices it doesn't list speaks in the voice you chose inside it (VoxSherpa's Michael, say).
+     */
     fun chooseVoice(context: Context, name: String) {
         with(context) { t ->
-            val list = voices(t).take(16)
-            if (list.isEmpty()) {
-                Toast.makeText(context, "No English voices installed", Toast.LENGTH_SHORT).show()
-                return@with
+            val engines = t.engines.orEmpty()
+            if (engines.size > 1) {
+                val current = prefs(context).getString("engine", null) ?: t.defaultEngine
+                AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle("◆ VOICE ENGINE")
+                    .setItems(engines.map { (if (it.name == current) "● " else "○ ") + it.label }.toTypedArray()) { _, i ->
+                        val pick = engines[i].name
+                        if (pick == current && tts != null) voiceList(context, name, t) else useEngine(context, pick) { nt -> voiceList(context, name, nt) }
+                    }
+                    .show()
+            } else voiceList(context, name, t)
+        }
+    }
+
+    private fun voiceList(context: Context, name: String, t: TextToSpeech) {
+        run {
+            val list = voices(t).take(24)
+            if (list.size <= 1) {
+                // An engine that keeps its own voice (VoxSherpa's Michael): just hear it.
+                if (list.size == 1) {
+                    prefs(context).edit().putString("voice", list[0].name).apply()
+                    t.voice = list[0]
+                }
+                speak(context, listOf("x:sample" to "Good evening $name. This is how I'll sound from now on."), object : Listener {
+                    override fun onPart(id: String) {}
+                    override fun onEnd(finished: Boolean) {}
+                })
+                Toast.makeText(context, "Using this engine's own voice. Change it inside its app.", Toast.LENGTH_LONG).show()
+                return@run
             }
             AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("◆ JARVIS'S VOICE")

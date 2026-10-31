@@ -319,6 +319,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         // Straight after the heater: "that's 22 actually, set it to 23", "you went down by one", "go up one".
         if (!inRoutine && meant == null && heaterContext()) heaterTalk(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         val parsed = JarvisParser.parse(meant ?: text)
+        // Telling him something, not asking ("I'll be on my lessons soon, so that'll be done too"): he talks back.
+        if (!inRoutine && meant == null && pending == null && remark(text, parsed)) {
+            lastAt = System.currentTimeMillis()
+            return styled(converse(text)).also { lastReply = it }
+        }
         // Adding on to what came before: "and eggs", "and one at 7:30", "at 3pm", "and Friday?".
         if (!inRoutine && pending == null) followOn(text, parsed)?.let { (c, r) ->
             if (r != null) {
@@ -330,6 +335,56 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         // Not sure his rules caught all of it ("the weather for next week" heard as today's): a brain checks first.
         if (!inRoutine && meant == null && pending == null && JarvisBrain.ready(context) && unsure(text, parsed)) return styled(doubleCheck(text, parsed))
         return finish(text, parsed, meant, inRoutine)
+    }
+
+    // --- Conversation ---
+
+    /**
+     * A remark rather than a command: a sentence about yourself or your day, not a question, that his rules
+     * could only match to something to look up (a shift, the weather), or not at all. Requests that change
+     * something (notes, clocking in, the rota) stay commands.
+     */
+    private fun remark(text: String, cmd: Command): Boolean {
+        val t = text.lowercase().trim().replace(Regex("^(hey |ok )?jarvis[,]?\\s*"), "")
+        if (t.split(Regex("\\s+")).size < 5 || looksLikeQuestion(t)) return false
+        if (Regex("^(can|could|would|will) you|^please|\\b(remind me|tell me|show me|let me know|look up|find out|check|what|when|where|how|which)\\b|\\b(want|need|wanna|like|have) to (know|see|hear|check)\\b").containsMatchIn(t)) return false
+        val aboutMe = Regex("^(i|i'll|ill|i'm|im|i am|i've|ive|i have|i had|i was|i will|i just|i think|i feel|i guess|i hope|we|we're|my|so|that|that's|thats|it|it's|its|today|tonight|this morning|honestly|well|yeah|yes|haha|lol|oh|ah|anyway|by the way|btw)\\b").containsMatchIn(t)
+        if (!aboutMe) return false
+        return when (cmd) {
+            is Command.Unknown, is Command.Shift, is Command.ShiftWeek, is Command.Weather, is Command.WeatherWeek, is Command.Agenda, is Command.Travel,
+            Command.Time, Command.Date, Command.Battery, Command.Greet -> true
+            else -> false
+        }
+    }
+
+    /** Talking back: his brain, knowing your day, with maybe one offer to help (yes does it). Without a brain, a kind word. */
+    private fun converse(said: String): Reply {
+        if (!JarvisBrain.ready(context)) return Reply(acknowledge(said))
+        JarvisBrain.chat(context, said, aboutVee(), EXAMPLES + JarvisMemory.suggestions(context)) { out ->
+            if (out == null) {
+                host.later(styled(Reply(acknowledge(said))))
+                return@chat
+            }
+            val offerLine = out.lines().lastOrNull { it.trim().startsWith("OFFER:", ignoreCase = true) }
+            val offer = offerLine?.substringAfter(':')?.trim()?.trim('"', '\'', '.')?.takeIf { it.isNotEmpty() && JarvisParser.parse(it) !is Command.Unknown }
+            val talk = out.lines().filterNot { it.trim().startsWith("OFFER:", ignoreCase = true) }.joinToString(" ").replace(Regex("\\s+"), " ").trim()
+            if (offer != null) pending = Pending.Confirm({ answerNow(offer, false) }, say("Very well.", "As you wish.", "OK."))
+            host.later(styled(Reply(talk.ifBlank { acknowledge(said) }, listen = offer != null || talk.trimEnd().endsWith("?"),
+                actions = if (offer != null) listOf(Action("YES", "yes", primary = true), Action("NO", "no")) else emptyList())))
+        }
+        // He listens and thinks rather than announcing it: the answer is the reply.
+        return Reply("", silent = true, more = true)
+    }
+
+    /** A word back when there's no brain to talk with. */
+    private fun acknowledge(said: String): String {
+        val t = said.lowercase()
+        return when {
+            Regex("\\b(lesson|study|studying|revision|uni|assignment|essay|homework)").containsMatchIn(t) -> say(pick("Very good, sir. Good luck with the lessons.", "Splendid. The mind is a muscle, or so I'm told."), "Noted. Good luck with it.", "Good luck.")
+            Regex("\\b(tired|exhausted|knackered|stressed|long day)").containsMatchIn(t) -> say(pick("Sounds like you've earned a rest, sir.", "Do take it easy, sir."), "Rest is not optional, sir. I checked.", "Take it easy.")
+            Regex("\\b(done|finished|sorted|completed)").containsMatchIn(t) -> say(pick("Excellent work, sir.", "Splendid. One less thing."), "Look at you, being productive.", "Nice work.")
+            else -> say(pick("Very good, sir.", "Noted, sir.", "Understood, sir."), pick("Duly noted.", "I'll take your word for it."), "Noted.")
+        }
     }
 
     // --- Being put right ---
@@ -1506,6 +1561,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             append("- Pay: £${"%.2f".format(Locale.ROOT, setup.hourly)}/hour (basic ${"%.2f".format(Locale.ROOT, setup.basicRate)} + TRONC); this fortnight ${"%.1f".format(Locale.ROOT, slip.hours)}h, about £${"%.0f".format(Locale.ROOT, slip.net)} take-home, paid ${Pay.payday(b)}\n")
         }
         openNotes().take(8).takeIf { it.isNotEmpty() }?.let { append("- Open notes: ${it.joinToString("; ")}\n") }
+        DeckStore.habits(context).takeIf { it.isNotEmpty() }?.let { hs -> append("- Habits today: ${hs.joinToString("; ") { "${it.name} (${if (today in it.done) "done" else "not yet"})" }}\n") }
         JarvisChat.recent(context, 8).takeIf { it.isNotEmpty() }?.let { append("- Recent conversation:\n${it.joinToString("\n") { l -> "  $l" }}\n") }
         append("- Today is ${LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE d MMMM yyyy"))}, time ${LocalTime.now().format(tf)}.\n")
     }
@@ -1538,7 +1594,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 else lookupOffer(said))
             }
         }
-        return Reply(if (JarvisBrain.loading) say("One moment, sir, my brain's waking up.", "Waking the brain.", "Waking up.") else say(pick("One moment, sir.", "Let me think.", "Thinking."), "Cogitating.", "Thinking."), more = true)
+        return if (!JarvisBrain.awake) Reply(say("One moment, sir, my brain's waking up.", "Waking the brain.", "Waking up."), more = true)
+            // Warm: no "one moment" every time, like a person he just answers (the core shows he's thinking).
+            else Reply("", silent = true, more = true)
     }
 
     /** The question handed to Claude. */

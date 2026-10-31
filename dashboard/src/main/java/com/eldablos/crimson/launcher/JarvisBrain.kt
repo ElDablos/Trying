@@ -50,6 +50,8 @@ object JarvisBrain {
     @Volatile private var loadedPath: String? = null
     @Volatile var loading = false
         private set
+    /** A brain's already loaded, so an answer comes in seconds (not after waking one). */
+    val awake: Boolean get() = engine != null && !loading
 
     /** The brain that answered last ("Qwen3-4B-Thinking"), for the card. */
     @Volatile var lastUsed: String = MODEL_NAME
@@ -379,7 +381,18 @@ object JarvisBrain {
 
     /** A short answer to [question], knowing [about] you (facts, routine), as Jarvis: brief, British, helpful. */
     fun answer(context: Context, question: String, about: String, done: (String?) -> Unit) =
-        ask(context, Job.ANSWER, persona(about) + "\n\nAnswer in at most four short sentences, plainly, without markdown or lists.", question, done)
+        ask(context, Job.ANSWER, persona(about) + "\n\nAnswer conversationally, as Jarvis talking to Vee, in at most four short sentences, without markdown or lists. Use the recent conversation for context.", question, done)
+
+    /**
+     * Conversation, not a command: Vee telling him something. A natural reply as Jarvis, using what he knows
+     * [about] them; at most one offer of help, on a last line "OFFER: <one of [commands]>".
+     */
+    fun chat(context: Context, said: String, about: String, commands: List<String>, done: (String?) -> Unit) =
+        ask(context, Job.ANSWER, persona(about) + "\n\nVee is chatting with you, not giving a command. Reply the way a trusted butler who knows them well would talk: " +
+            "warm, natural and a little dry, picking up on what they said and on what you know of their day (shifts, uni, habits, notes). " +
+            "One to three short sentences, no markdown, no lists. You may ask one short follow-up question. " +
+            "Only if there's an obviously useful thing to do, end with a separate last line \"OFFER: <command>\" where the command is written like one of these:\n" +
+            commands.take(60).joinToString("\n") { "- $it" } + "\nand phrase the offer as a question in your reply.", "Vee: $said", done)
 
     /** Something to work through ("why…", a plan, a comparison): the Think brain, a little more room, still plain. */
     fun reason(context: Context, question: String, about: String, done: (String?) -> Unit) =

@@ -2975,8 +2975,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 }
                 // Which row is the chosen one: where this alarm's own time sits when it opens (06 and 25 for
                 // 06:25), found once; from then on, whatever number sits at that height.
-                if (level == null) level = nums[1].levelOf(job.first.minute) ?: nums[0].levelOf(job.first.hour)
-                val at = level
+                val boxed = nums[0].boxed && nums[1].boxed
+                if (level == null && !boxed) level = nums[1].levelOf(job.first.minute) ?: nums[0].levelOf(job.first.hour)
+                val at = if (boxed) null else level
                 val hour = (if (at != null) nums[0].at(at) else null) ?: nums[0].number!!
                 val minute = (if (at != null) nums[1].at(at) else null) ?: nums[1].number!!
                 // Opened, and not showing the alarm's own time: he's reading the wheels wrong, so hands off.
@@ -3078,6 +3079,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 opened = 0
                 named = false
                 fresh = true
+                // Each alarm read afresh: nothing carried over from the one before.
+                level = null
+                last = ""
+                stuck = 0
+                drag = false
                 cool = 2
                 return@custom null
             }

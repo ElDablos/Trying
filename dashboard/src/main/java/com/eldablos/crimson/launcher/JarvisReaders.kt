@@ -69,7 +69,7 @@ object JarvisReaders {
      * A time wheel in the Clock's alarm editor: the wheel, what it seems to show ("05", "30", "AM"), and
      * every number on it with its height on screen ([marks]), so the chosen one can be told by where it sits.
      */
-    class Wheel(val node: AccessibilityNodeInfo, val value: String, val area: android.graphics.Rect, val step: Float, val marks: List<Pair<String, Int>>) {
+    class Wheel(val node: AccessibilityNodeInfo, val value: String, val area: android.graphics.Rect, val step: Float, val marks: List<Pair<String, Int>>, val boxed: Boolean = false) {
         val number: Int? get() = value.toIntOrNull()
 
         /** The number sitting at [level] (the height of the chosen row). */
@@ -80,8 +80,9 @@ object JarvisReaders {
     }
 
     private fun marks(nodes: List<AccessibilityNodeInfo>) = nodes.mapNotNull { n ->
-        val t = n.text?.toString()?.trim().orEmpty()
-        if (Regex("^\\d{1,2}$").matches(t) && bounds(n).height() > 0) t to bounds(n).centerY() else null
+        // "06", or the chosen one's own box as newer Clocks label it ("06, Hour").
+        val t = Regex("^(\\d{1,2})(?:,.*)?$").find(n.text?.toString()?.trim().orEmpty())?.groupValues?.get(1).orEmpty()
+        if (t.isNotEmpty() && bounds(n).height() > 0) t to bounds(n).centerY() else null
     }
 
     /** The alarm editor (after tapping an alarm): its Save button, or null when it isn't showing. */
@@ -112,7 +113,8 @@ object JarvisReaders {
             val raw = (box?.text ?: w.text ?: w.contentDescription)?.toString()?.trim().orEmpty()
             val v = Regex("^(\\d{1,2}|am|pm|a\\.m\\.|p\\.m\\.)", RegexOption.IGNORE_CASE).find(raw)?.value?.replace(".", "") ?: return@mapNotNull null
             val b = bounds(w)
-            Wheel(w, v, b, b.height() / 3f, marks(JarvisHands.nodes(w).drop(1)))
+            // Its own text box says exactly what's chosen: read straight from it, never by row height.
+            Wheel(w, v, b, b.height() / 3f, marks(JarvisHands.nodes(w).drop(1)), boxed = box != null)
         }.distinctBy { it.area.left to it.area.top }.sortedBy { it.area.left }
         if (found.count { it.number != null } >= 2) return found
         // Wheels that don't say what they are (Samsung Clock's "05 / 06 / 07" and "59 / 00 / 01"): the big

@@ -313,6 +313,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             pending = null
             val c = JarvisParser.parse(text)
             if (c == Command.No) return styled(Reply(say("Very well, no note.", "Note abandoned.", "Cancelled.")))
+            // "Undo", "stop", "never mind": said to him, not the note's words.
+            if (c == Command.Undo || c == Command.Dismiss || c == Command.Repeat) return styled(finish(text, c, null, inRoutine))
+            // Asked him to write it ("anything witty and silly", "you write it"): his brain composes it, for the request before.
+            if (Regex("^(you (write|choose|decide|pick)|write (it|something)|anything|something|surprise me|up to you|your choice|use (the )?ai)").containsMatchIn(text.lowercase().trim()) && JarvisBrain.ready(context)) {
+                val asked = lastAsked
+                if (asked != null) creative("$asked. Style: $text", force = true)?.let { return styled(it).also { r -> lastReply = r } }
+            }
             return styled(addNote(text.trim().trimEnd('.')))
         }
         (pending as? Pending.Draft)?.let { d -> draftAnswer(d, text)?.let { return styled(it).also { r -> lastReply = r } } }
@@ -2381,7 +2388,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      */
     private fun creative(text: String, force: Boolean = false): Reply? {
         val t = text.lowercase()
-        val writing = Regex("\\b(write|compose|draft|come up with|make up|think of|give me|create|help me write)\\b.{0,60}?\\b(note|notes|message|messages|card|poem|poems|wish|wishes|speech|toast|caption|captions|text|email|letter|joke|jokes|story|limerick|rap|song|bio|post|reply|apology|excuse|greeting|shout ?out|roast|riddle|haiku|verse)\\b").containsMatchIn(t)
+        val asks = Regex("\\b(write|compose|draft|come up with|make up|think of|give me|create|help me write)\\b(.{0,160}?)\\b(note|notes|message|messages|card|poem|poems|wish|wishes|speech|toast|caption|captions|text|email|letter|joke|jokes|story|limerick|rap|song|bio|post|reply|apology|excuse|greeting|shout ?out|roast|riddle|haiku|verse|paragraph|words)\\b").find(t)
+        // A note, text or message can be one of yours to keep or send ("write a note to buy milk"): something to
+        // compose only when it has a tone or an occasion ("a silly birthday note", "a sweet message for Mum").
+        val plain = asks?.groupValues?.get(3) in setOf("note", "notes", "text", "message", "messages") && asks?.groupValues?.get(1) !in setOf("compose", "draft", "help me write") &&
+            !Regex("\\b(silly|funny|witty|cheeky|sweet|nice|kind|heartfelt|romantic|sarcastic|formal|polite|short|long|stupid|friendly|cute|lovely|birthday|thank|thanks|congrat\\w*|sorry|apolog\\w*|wedding|leaving|goodbye|anniversary|valentine|christmas|wishing|wish|banter|roast|taking the piss|piss|words?|paragraph|creative|poetic|motivational|encouraging|get well|condolence)\\b").containsMatchIn(t)
+        val writing = asks != null && !plain
         if (!force && (!writing || Regex("\\b(write down|note down|jot down|to my notes|in my notes|on my notes|add (a )?note|take a note|make a note that|remind me)\\b").containsMatchIn(t))) return null
         if (!JarvisBrain.ready(context)) return null
         val noted = rememberDates(text)

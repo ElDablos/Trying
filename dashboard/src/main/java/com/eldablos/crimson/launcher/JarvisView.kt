@@ -1131,6 +1131,15 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 item(body, k.said.replaceFirstChar { it.uppercase() }, "Always stays on", "FORGET", onButton = { JarvisRules.remove(context, k.kind, k.key); openSheet(Jarvis.Sheet.MEMORY) })
             }
         }
+        val docs = Documents.recent(context)
+        if (docs.isNotEmpty()) {
+            heading(body, "YOUR DOCUMENTS", "What I've made for you, newest first. All in Downloads, in the Jarvis folder.")
+            val fmt = java.time.format.DateTimeFormatter.ofPattern("d MMM, HH:mm")
+            docs.forEach { d ->
+                item(body, d.name.substringBeforeLast('.'), "${d.kind.label} · ${java.time.Instant.ofEpochMilli(d.at).atZone(java.time.ZoneId.systemDefault()).format(fmt)}", "OPEN",
+                    onButton = { Documents.open(context, d.uri, d.kind) })
+            }
+        }
         val meanings = JarvisMemory.meanings(context)
         if (meanings.isNotEmpty()) {
             heading(body, "WHAT YOU MEANT", "When you put me right, I remember. Forget any I've got wrong.")

@@ -126,9 +126,16 @@ class DocumentsTest {
         assertEquals(Command.MakeDoc("pdf", "revision timetable for november"), p("can you make a revision timetable for november as a pdf"))
         assertEquals(Command.MakeDoc("word", "the history of the london underground"), p("write a document about the history of the London Underground"))
         assertEquals(Command.MakeDoc("pdf", "it"), p("make it a pdf instead"))
+        // One request, even with "and" in it: never split into two.
+        val both = "create a PDF from my payslip and my work for this weekend last week"
+        assertTrue(p(both) is Command.MakeDoc)
+        assertNull(JarvisParser.split(both))
+        assertEquals(Command.OpenDoc(false), p("open the pdf"))
+        assertEquals(Command.OpenDoc(false), p("open my last document"))
+        assertEquals(Command.OpenDoc(true), p("my documents"))
+        assertEquals(Command.OpenDoc(true), p("where are my files"))
         // Not documents.
         assertTrue(p("change the bed sheets") !is Command.MakeDoc)
-        assertTrue(p("open the pdf") !is Command.MakeDoc)
         assertTrue(p("when's my next shift") !is Command.MakeDoc)
     }
 }

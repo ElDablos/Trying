@@ -506,6 +506,25 @@ object Documents {
         null
     }
 
+    class Saved(val uri: Uri, val name: String, val kind: Kind, val at: Long)
+
+    /** The documents he's made, newest first (from Downloads/Jarvis). */
+    fun recent(context: Context, max: Int = 6): List<Saved> = try {
+        val out = ArrayList<Saved>()
+        val col = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        context.contentResolver.query(col, arrayOf(android.provider.MediaStore.Downloads._ID, android.provider.MediaStore.Downloads.DISPLAY_NAME, android.provider.MediaStore.Downloads.DATE_ADDED),
+            "${android.provider.MediaStore.Downloads.RELATIVE_PATH} LIKE ?", arrayOf("%Jarvis%"), "${android.provider.MediaStore.Downloads.DATE_ADDED} DESC")?.use { c ->
+            while (c.moveToNext() && out.size < max) {
+                val name = c.getString(1) ?: continue
+                val kind = Kind.values().firstOrNull { name.endsWith(".${it.ext}", true) } ?: continue
+                out += Saved(android.content.ContentUris.withAppendedId(col, c.getLong(0)), name, kind, c.getLong(2) * 1000)
+            }
+        }
+        out
+    } catch (e: Exception) {
+        emptyList()
+    }
+
     fun open(context: Context, uri: Uri, kind: Kind) {
         val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, kind.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         try {

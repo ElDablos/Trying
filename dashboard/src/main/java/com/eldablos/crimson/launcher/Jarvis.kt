@@ -424,6 +424,24 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         return Reply(say("Looking into it, sir. I'll write it up for you.", "Researching. Then writing. Then basking.", "Looking it up."), more = true)
     }
 
+    /** The last document he made, opened; or the latest few, each with OPEN. */
+    private fun openDocs(all: Boolean): Reply {
+        val docs = Documents.recent(context)
+        if (docs.isEmpty()) return Reply("I haven't made any documents yet${sir()}. Try \"put my shifts and pay in a spreadsheet\".",
+            actions = listOf(Action("SHIFTS & PAY", "put my shifts and pay in a spreadsheet", primary = true)))
+        val when_ = DateTimeFormatter.ofPattern("d MMM HH:mm")
+        fun label(d: Documents.Saved) = d.name.substringBeforeLast('.')
+        if (!all) {
+            val d = docs.first()
+            return Reply("Opening ${label(d)}${sir()}.", then = { Documents.open(context, d.uri, d.kind) }, afterSpeech = true,
+                card = Card("▤", "${d.kind.label} · OPENING", sub = label(d), tone = Tone.GREEN),
+                actions = listOf(Action("SHARE", run = { Documents.share(context, d.uri, d.kind) }), Action("ALL MY DOCUMENTS", "my documents")))
+        }
+        return Reply("Your latest documents${sir()}. They're all in Downloads, in the Jarvis folder.",
+            card = Card("▤", "DOCUMENTS", "${docs.size}", "newest first", docs.map { Row(it.kind.label, "${label(it).take(34)} · ${at(it.at).format(when_)}") }, Tone.GREEN),
+            actions = docs.take(4).mapIndexed { i, d -> Action("OPEN ${if (i == 0) "LATEST" else d.kind.label + " " + (i + 1)}", primary = i == 0, run = { Documents.open(context, d.uri, d.kind) }) })
+    }
+
     /** Saved and handed over: a card with what's in it, to open or send (or have in another format). */
     private fun deliver(doc: Documents.Doc, kind: Documents.Kind): Reply {
         lastDoc = doc
@@ -1159,6 +1177,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.Weather -> weather(cmd)
         is Command.WeatherWeek -> weatherWeek(cmd.weekend, cmd.rainOnly)
         is Command.MakeDoc -> makeDoc(cmd.kind, cmd.what)
+        is Command.OpenDoc -> openDocs(cmd.all)
         is Command.Travel -> {
             // "And the Central?" after asking about tomorrow: still tomorrow.
             val prev = last as? Command.Travel
@@ -4445,6 +4464,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             afterSpeech = replies.any { it.second.afterSpeech },
             end = replies.any { it.second.end },
             card = Card("⚡", "${parts.size} AT ONCE", sub = "done in order", rows = replies.map { (p, r) -> Row(p.replaceFirstChar { it.uppercase() }, if (r.failed) "couldn't" else "", ok = !r.failed) }, tone = Tone.GOLD),
+            // Their buttons (OPEN a document, UNDO…) stay.
+            actions = replies.flatMap { it.second.actions }.distinctBy { it.label }.take(4),
         )
     }
 

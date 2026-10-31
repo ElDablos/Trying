@@ -73,6 +73,8 @@ object JarvisParser {
         data class MakeCommand(val description: String) : Command()
         /** The days ahead's weather ("next week", "this weekend"). */
         data class WeatherWeek(val weekend: Boolean, val rainOnly: Boolean) : Command()
+        /** "Open my last document", "my documents": the files he's made ([all] lists them). */
+        data class OpenDoc(val all: Boolean) : Command()
         /** A document made for you: [kind] "word", "excel", "pdf" (or null: he picks), about [what]. */
         data class MakeDoc(val kind: String?, val what: String) : Command()
         /** "What did I miss?": your notifications, summed up. */
@@ -239,7 +241,7 @@ object JarvisParser {
         val oneCommand = whole is Command.TickNotes || whole is Command.DeleteNotes || whole is Command.Learn || whole is Command.AddHabit || whole is Command.AddNote || whole is Command.AddNotes ||
             whole is Command.AddEvent || whole is Command.Remember || whole is Command.KeepRule || whole is Command.HeaterNow || whole is Command.WhatsApp ||
             whole is Command.Text || whole is Command.EditNote || whole is Command.Change || whole is Command.AlarmSeries || whole is Command.AddShift || whole is Command.AddShifts || whole is Command.ClockIn || whole is Command.ClockOut || whole is Command.AddUni ||
-            whole is Command.AddCountdown || whole is Command.Travel
+            whole is Command.AddCountdown || whole is Command.Travel || whole is Command.MakeDoc || whole is Command.OpenDoc
         if (oneCommand) return null
         val cmds = parts.map { parse(it, today) }
         if (cmds.any { it is Command.Unknown || it is Command.Yes || it is Command.No || it is Command.FollowUp || it is Command.Greet || it is Command.Thanks }) return null
@@ -315,6 +317,9 @@ object JarvisParser {
         // A document: "make me a PDF of my shifts", "put my pay in a spreadsheet", "summarise that into a Word doc",
         // "create a study plan for my exams".
         makeDoc(t)?.let { return it }
+        if (Regex("^(open|show|show me|get|find|where'?s|where is|where are)( me)? (my |the |that )?(last |latest |new |newest |recent )?(document|doc|pdf|spreadsheet|excel|word doc|file|report)s?( you (just )?made| you made| again)?$").matches(t))
+            return Command.OpenDoc(Regex("(document|doc|pdf|spreadsheet|file|report)s$").containsMatchIn(t) || t.startsWith("where"))
+        if (Regex("^(my|all my|list my|show my) (documents|docs|files|pdfs|spreadsheets)$").matches(t)) return Command.OpenDoc(true)
         // Maths: anything that's all sum ("what's 12 times 7", "15% of 80", "square root of 144").
         com.eldablos.crimson.launcher.Calc.read(raw)?.let { return Command.Calc(it) }
         // Clocking in and out: the real start and end of today's shift.

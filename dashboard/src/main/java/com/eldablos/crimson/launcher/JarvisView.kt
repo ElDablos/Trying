@@ -883,10 +883,10 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         val leads = listOf(45, 60, 75, 90, 120)
         body.addView(TextView(context).apply { text = "Shift alarm, before the start"; setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(11f) * u); setTextColor(Hud.SOFT); setPadding(0, dp(10f), 0, dp(6f)) })
         choice(body, leads.map { "${it}m" }, leads.indexOf(JarvisMemory.alarmLead(context)).coerceAtLeast(0)) { JarvisMemory.setAlarmLead(context, leads[it]) }
-        heading(body, "JARVIS BRAIN", "Google's ${JarvisBrain.MODEL_NAME}, running on this phone: he works out what you mean when his own rules don't, learns the phrasing for next time, answers anything else, and sums up what he looks up on the web. Nothing you ask leaves the phone. A one-off download of about 4.4 GB.")
+        heading(body, "JARVIS BRAIN", "Google's ${JarvisBrain.MODEL_NAME}, the newest Gemma for phones, running on this phone: he works out what you mean when his own rules don't, learns the phrasing for next time, answers anything else, and sums up what he looks up on the web. Nothing you ask leaves the phone. A one-off download of a few GB.")
         val installed = JarvisBrain.installed(context)
-        item(body, if (installed) "Installed · ${"%.1f".format(java.util.Locale.ROOT, JarvisBrain.modelFile(context).length() / 1e9)} GB" else "Not installed yet",
-            if (installed) "Ready. He'll use it for anything his own rules don't cover." else "1. GET IT: sign in on the page, accept Google's licence, download gemma-3n-E4B-it-int4.task. 2. LOAD FILE: pick it from Downloads.",
+        item(body, if (installed) "${JarvisBrain.installedName(context) ?: JarvisBrain.MODEL_NAME} · ${"%.1f".format(java.util.Locale.ROOT, JarvisBrain.modelFile(context).length() / 1e9)} GB" else "Not installed yet",
+            if (installed) "Ready. He'll use it for anything his own rules don't cover." else "1. GET IT: sign in on the page, accept Google's licence, download the .litertlm file. 2. LOAD FILE: pick it from Downloads.",
             if (installed) "REMOVE" else "GET IT", onButton = {
                 if (installed) {
                     JarvisBrain.remove(context)
@@ -903,6 +903,27 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             body.addView(brainStatus)
         } else {
             toggle(body, "Use the brain", "Off: he sticks to what he knows and offers Google instead", JarvisBrain.enabled(context)) { JarvisBrain.setEnabled(context, it) }
+            // A newer Gemma for phones: offered here, to download and load the same way (it replaces this one).
+            val update = TextView(context).apply { setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(10f) * u); setTextColor(Hud.SOFT); setPadding(0, dp(2f), 0, dp(4f)); text = "Checking for a newer brain…" }
+            body.addView(update)
+            body.addView(brainStatus)
+            Thread {
+                val newer = JarvisBrain.newer(context)
+                post {
+                    if (newer == null) update.text = "Up to date: no newer Gemma for phones yet. (Checked daily.)"
+                    else {
+                        update.text = "Newer brain out: ${newer.first}. Download it, then LOAD FILE to swap it in."
+                        update.setTextColor(Hud.GOLD)
+                        val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+                        row.addView(pill("GET THE NEW ONE", Hud.GOLD, true) {
+                            try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(newer.second)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
+                        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(8f) })
+                        row.addView(pill("LOAD FILE", Hud.GOLD, false) { (context as? LauncherActivity)?.pickBrain() })
+                        val i = body.indexOfChild(update)
+                        if (i >= 0) body.addView(row, i + 1)
+                    }
+                }
+            }.start()
         }
         heading(body, "HEY JARVIS", "Say \"Hey Jarvis\" from any app and he answers over it. Listens on the phone only (Android shows its green mic dot while he does). A one-off 40 MB download.")
         val wakeOn = JarvisEar.wakeEnabled(context)

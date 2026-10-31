@@ -40,9 +40,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 
     testOptions {
         // Lets tests build small Android values like ComponentName, which the stub library would refuse.
@@ -50,12 +47,18 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 dependencies {
     // Offline wake word for "Hey Jarvis" (Apache 2.0). The English model is downloaded once, in Jarvis's settings.
     implementation("com.alphacephei:vosk-android:0.3.47@aar")
     implementation("net.java.dev.jna:jna:5.13.0@aar")
-    // Jarvis's brain: Google's on-device LLM inference (runs Gemma on the phone).
-    implementation("com.google.mediapipe:tasks-genai:0.10.24")
+    // Jarvis's brain: Google's LiteRT-LM, running Gemma on the phone (GPU). Needs Kotlin 2.3+ (it carries 2.4 metadata).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
     testImplementation("junit:junit:4.13.2")
     // Android's built-in org.json is a stub in local unit tests.
     testImplementation("org.json:json:20240303")

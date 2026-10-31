@@ -218,8 +218,9 @@ back to One UI Home the same way at any time.
     up and out, whether the work alarms are set, uni, the tube on your line and rain on the way.
   - **He checks his work**: after switching a Tapo light he looks again, and tries once more or tells you
     if it didn't take. "Wake log" shows why he woke when he heard his name.
-  - **His brain (optional, on the phone)**: Google's Gemma 3n E4B (free; a one-off 4.4 GB download, loaded
-    in his settings under Jarvis Brain), run on the phone with Google's MediaPipe. When his own rules don't
+  - **His brain (optional, on the phone)**: Google's Gemma 4 E4B (free; a one-off download of a few GB, loaded
+    in his settings under Jarvis Brain), run on the phone's GPU with Google's LiteRT-LM. He checks daily for a
+    newer Gemma for phones and offers it there. When his own rules don't
     know a request, the brain works out which of his commands you meant; he does it and learns the
     phrasing, so next time he knows it without the brain. Anything else it answers, knowing your routine.
     Nothing you ask leaves the phone.

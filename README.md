@@ -43,7 +43,7 @@ phone itself.
   and your work alarms moved to each shift's time every evening, or switched off on a day off), notes (by number, several at once), habits ("I've placed my orders"),
   countdowns, calendar, weather, email, messages, and the tube for your commute.
 - **Several things at once**: "close the app and lock my phone", "add a note to … and another note to …".
-- **His brain**: optionally Google's Gemma running on the phone (a free 4.4 GB download): he works out what
+- **His brain**: optionally Google's Gemma 4 running on the phone (a free download of a few GB, with newer ones offered as they come out): he works out what
   you meant when his rules don't know it, learns it for next time, answers anything else, and sums up web
   look-ups on a card. Or he asks Claude.
 - **Maths**, said out loud: "what's 15% of 80".

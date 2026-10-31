@@ -4,33 +4,43 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
 import java.io.File
 import java.util.concurrent.Executors
 
 /**
- * Jarvis's brain: Google's Gemma, running on the phone (MediaPipe's LLM inference), for whatever his own
- * rules don't cover. Three jobs:
+ * Jarvis's brain: Google's Gemma 4, running on the phone with Google's LiteRT-LM (on the GPU, the CPU if it
+ * must), for whatever his own rules don't cover. Three jobs:
  * - **Working out what you meant**: a request his rules don't know is matched to one of his own commands.
  *   He does it, and remembers the phrasing ([JarvisMemory.learnMeaning]), so next time his rules know it
  *   straight away, without the brain. He learns from it the more you use him.
  * - **Answering** anything else, knowing who you are (your facts and routine).
  * - **Summarising** what a web look-up found ([WebLookup]).
- * The model is a file you download once (Gemma 3n E4B, about 4.4 GB) and load from the phone's storage.
- * Nothing you ask leaves the phone; one question at a time, on its own thread.
+ * The model is a file you download once (Gemma 4 E4B, a .litertlm of a few GB) and load from the phone's
+ * storage; he checks now and then for a newer Gemma ([newer]). Nothing you ask leaves the phone; one
+ * question at a time, on its own thread.
  */
 object JarvisBrain {
-    /** Where to get the model: Google's Gemma for phones (accept the licence, then download the .task file). */
-    const val DOWNLOAD_PAGE = "https://huggingface.co/google/gemma-3n-E4B-it-litert-preview"
-    const val MODEL_NAME = "Gemma 3n E4B"
+    /** Where to get the model: Google's Gemma 4 for phones (accept the licence, then download the .litertlm file). */
+    const val DOWNLOAD_PAGE = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm"
+    const val MODEL_NAME = "Gemma 4 E4B"
 
     private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "jarvis-brain").apply { priority = Thread.NORM_PRIORITY - 1 } }
     private val main = Handler(Looper.getMainLooper())
-    @Volatile private var llm: LlmInference? = null
+    @Volatile private var engine: Engine? = null
     @Volatile var loading = false
         private set
 
-    fun modelFile(context: Context) = File(context.filesDir, "brain/model.task")
+    fun modelFile(context: Context) = File(context.filesDir, "brain/model.litertlm")
+
+    private fun prefs(context: Context) = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
+
+    /** Which model's in ("gemma-4-E4B-it"), from the file you loaded. */
+    fun installedName(context: Context): String? = prefs(context).getString("brain_name", null)
 
     /** Downloaded and in place. */
     fun installed(context: Context) = modelFile(context).let { it.exists() && it.length() > 100_000_000L }
@@ -50,6 +60,9 @@ object JarvisBrain {
      */
     fun install(context: Context, uri: Uri, progress: (Int) -> Unit, done: (Boolean, String?) -> Unit) {
         val app = context.applicationContext
+        val name = runCatching {
+            app.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull()
         Thread {
             val dest = modelFile(app)
             val tmp = File(dest.parentFile, "model.part")
@@ -78,6 +91,8 @@ object JarvisBrain {
                 if (tmp.length() < 100_000_000L) throw IllegalStateException("That file's too small to be the model.")
                 dest.delete()
                 tmp.renameTo(dest)
+                prefs(app).edit().putString("brain_name", name?.substringBeforeLast('.')?.removeSuffix("-int4")?.removeSuffix("_int4") ?: MODEL_NAME).apply()
+                true
             } catch (e: Exception) {
                 tmp.delete()
                 main.post { done(false, e.message) }
@@ -90,35 +105,41 @@ object JarvisBrain {
     fun remove(context: Context) {
         unload()
         modelFile(context).delete()
+        prefs(context).edit().remove("brain_name").apply()
     }
 
     private fun unload() {
-        val l = llm
-        llm = null
-        if (l != null) worker.execute { runCatching { l.close() } }
+        val e = engine
+        engine = null
+        if (e != null) worker.execute { runCatching { e.close() } }
     }
 
-    /** The model, loaded on the brain's thread (a few seconds the first time). */
-    private fun load(context: Context): LlmInference {
-        llm?.let { return it }
+    /** The engine with the model loaded, on the brain's thread (up to ten seconds the first time): the GPU, else the CPU. */
+    private fun load(context: Context): Engine {
+        engine?.let { return it }
         loading = true
         try {
-            val options = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(modelFile(context).absolutePath)
-                .setMaxTokens(1024)
-                .build()
-            return LlmInference.createFromOptions(context.applicationContext, options).also { llm = it }
+            val path = modelFile(context).absolutePath
+            val cache = context.cacheDir.path
+            val e = try {
+                Engine(EngineConfig(modelPath = path, backend = Backend.GPU(), cacheDir = cache)).also { it.initialize() }
+            } catch (t: Throwable) {
+                Engine(EngineConfig(modelPath = path, backend = Backend.CPU(), cacheDir = cache)).also { it.initialize() }
+            }
+            return e.also { engine = it }
         } finally {
             loading = false
         }
     }
 
-    /** Asks the model [prompt] (already in Gemma's turn format); [done] on the main thread with its reply, or null. */
-    private fun ask(context: Context, prompt: String, done: (String?) -> Unit) {
+    /** Asks the model [user], with [system] as its instruction; [done] on the main thread with its reply, or null. */
+    private fun ask(context: Context, system: String, user: String, done: (String?) -> Unit) {
         val app = context.applicationContext
         worker.execute {
             val out = try {
-                load(app).generateResponse(prompt)?.trim()
+                load(app).createConversation(ConversationConfig(systemInstruction = Contents.of(system))).use { c ->
+                    c.sendMessage(user).toString().trim()
+                }
             } catch (e: Throwable) {
                 null
             }
@@ -128,12 +149,44 @@ object JarvisBrain {
 
     /** Warms the model up in the background, so the first real question isn't slow. */
     fun warm(context: Context) {
-        if (!ready(context) || llm != null || loading) return
+        if (!ready(context) || engine != null || loading) return
         val app = context.applicationContext
         worker.execute { runCatching { load(app) } }
     }
 
-    private fun turn(system: String, user: String) = "<start_of_turn>user\n$system\n\n$user<end_of_turn>\n<start_of_turn>model\n"
+    // --- Keeping up to date ---
+
+    /**
+     * A newer Gemma for phones than the one you've got, if Google's put one out (looked up on Hugging Face's
+     * litert-community, at most once a day): its name and page, or null. Off the main thread.
+     */
+    fun newer(context: Context): Pair<String, String>? {
+        val p = prefs(context)
+        val now = System.currentTimeMillis()
+        val cached = p.getString("brain_newer", null)
+        if (now - p.getLong("brain_checked", 0L) < 24 * 3600_000L) return cached?.split('|')?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
+        val found = try {
+            val json = (java.net.URL("https://huggingface.co/api/models?author=litert-community&search=gemma&limit=100").openConnection() as java.net.HttpURLConnection).run {
+                connectTimeout = 6000
+                readTimeout = 8000
+                inputStream.use { String(it.readBytes()) }
+            }
+            val ids = org.json.JSONArray(json).let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("id") } }
+            // Phone models with a version number: "litert-community/gemma-4-E4B-it-litert-lm" → 4.
+            fun version(id: String) = Regex("gemma-?(\\d+(?:\\.\\d+)?)", RegexOption.IGNORE_CASE).find(id)?.groupValues?.get(1)?.toDoubleOrNull()
+            val mine = version(installedName(context) ?: MODEL_NAME.replace(" ", "-")) ?: 0.0
+            ids.filter { Regex("E4B|E2B", RegexOption.IGNORE_CASE).containsMatchIn(it) && Regex("litert", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+                .mapNotNull { id -> version(id)?.let { v -> id to v } }
+                .filter { (_, v) -> v > mine }
+                .sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenByDescending { it.first.contains("E4B", true) })
+                .firstOrNull()?.first
+        } catch (e: Exception) {
+            return cached?.split('|')?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
+        }
+        val result = found?.let { it.substringAfter('/') to "https://huggingface.co/$it" }
+        p.edit().putLong("brain_checked", now).putString("brain_newer", result?.let { "${it.first}|${it.second}" }).apply()
+        return result
+    }
 
     // --- Working out what you meant ---
 
@@ -147,7 +200,7 @@ object JarvisBrain {
             "\n\nReply with ONE command in the same style as the examples, with the request's names, times, places and numbers filled in. " +
             "If the request isn't asking for one of these kinds of commands (a general question, chat, something it can't do), reply exactly NONE. " +
             "Reply with the command only: no quotes, no explanation."
-        ask(context, turn(system, "Request: $said")) { out ->
+        ask(context, system, "Request: $said") { out ->
             val line = out?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()?.removePrefix("-")?.trim()?.trim('"', '\'', '.', '`')
             done(line?.takeIf { it.isNotEmpty() && !it.equals("NONE", true) && it.length < 160 })
         }
@@ -160,7 +213,7 @@ object JarvisBrain {
         val system = "You are Jarvis, a calm, witty British butler-style assistant on Vee's phone. Answer in at most four short sentences, " +
             "plainly, without markdown or lists. If you aren't sure of a fact, or it could have changed recently (news, prices, opening times, " +
             "releases, scores), say so briefly instead of guessing. What you know about Vee:\n$about"
-        ask(context, turn(system, question), done)
+        ask(context, system, question, done)
     }
 
     // --- Summarising a look-up ---
@@ -170,6 +223,6 @@ object JarvisBrain {
         val system = "Answer the question using only the sources below, in two or three plain sentences, without markdown. " +
             "If the sources don't answer it, reply exactly NOTHING.\n\n" +
             sources.mapIndexed { i, p -> "Source ${i + 1} (${p.title}):\n${p.text.take(2500)}" }.joinToString("\n\n")
-        ask(context, turn(system, "Question: $question")) { out -> done(out?.takeIf { !it.trim().equals("NOTHING", true) }) }
+        ask(context, system, "Question: $question") { out -> done(out?.takeIf { !it.trim().equals("NOTHING", true) }) }
     }
 }

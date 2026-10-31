@@ -3326,6 +3326,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val days = (0 until 7).map { shiftWeek.plusDays(it.toLong()) }
             val week = days.mapNotNull { d -> shifts[d]?.let { d to it } }
             val hours = week.sumOf { it.second.minutes } / 60f
+            val rate = JarvisMemory.hourlyRate(context)
+            val weekPay = rate?.takeIf { week.isNotEmpty() }?.let { r -> (hours * r).toDouble().let { g -> val (tax, ni) = Pay.deductions(g, 52); g to g - tax - ni } }
 
             // The summary: how many, how long, what's next, with weeks either side.
             var top = y + 24 * u
@@ -3338,6 +3340,11 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val x2 = r.left + 16 * u + np.measureText("${week.size}") + 6 * u
                 canvas.drawText(if (week.size == 1) "SHIFT" else "SHIFTS", x2, top + 30 * u, Hud.text(7.5f * u, Hud.GOLD, Hud.MONO, .16f))
                 canvas.drawText((if (hours % 1f == 0f) "${hours.toInt()}" else "%.1f".format(Locale.ROOT, hours)) + "H THIS WEEK", x2, top + 44 * u, Hud.text(9 * u, Hud.SOFT, Hud.MONO, .12f))
+                // The week's pay: before tax, and take-home after tax and NI.
+                weekPay?.let { (gross, net) ->
+                    canvas.drawText(Pay.money(net), r.right - 84 * u, top + 30 * u, Hud.text(14 * u, Hud.GOLD, Hud.LIGHT, align = Paint.Align.RIGHT))
+                    canvas.drawText("TAKE-HOME · ${Pay.money(gross)} GROSS", r.right - 84 * u, top + 44 * u, Hud.text(6 * u, Hud.DUST, Hud.MONO, .1f, Paint.Align.RIGHT))
+                }
                 val nx = Shifts.next(shifts, System.currentTimeMillis(), zone)
                 val cur = Shifts.current(shifts, System.currentTimeMillis(), zone)
                 val line = when {
@@ -3411,7 +3418,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     }
                     if (s != null || uni != null) {
                         val label = listOfNotNull(
-                            s?.let { "${it.name} · ${it.times()} · ${it.minutes / 60}H" + (if (it.minutes % 60 != 0L) "${it.minutes % 60}M" else "") },
+                            s?.let { "${it.name} · ${it.times()} · ${it.minutes / 60}H" + (if (it.minutes % 60 != 0L) "${it.minutes % 60}M" else "") + (rate?.let { r -> " · " + Pay.money(it.minutes / 60.0 * r) } ?: "") },
                             uni?.let { "UNI ${it.times()}" },
                         ).joinToString("  ·  ")
                         canvas.drawText(label, bl, row.centerY() + 18 * u, Hud.fit(label, Hud.text(7 * u, if (s == null) UNI_BLUE else Hud.SOFT, Hud.MONO, .1f), br - bl))

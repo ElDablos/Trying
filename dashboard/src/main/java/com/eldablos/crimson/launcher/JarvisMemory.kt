@@ -182,10 +182,15 @@ object JarvisMemory {
     /**
      * What Vee's already told us, so he knows it from the start: up 2 hours before a shift (5 for a 7 start),
      * 6 alarms 5 minutes apart, out of the door 45 minutes before (6:15 for 7), and the Elizabeth line on
-     * Thursdays; and the heater set to 25. Only where it hasn't been set already; once.
+     * Thursdays; the heater set to 25; and £18 an hour. Only where it hasn't been set already; once.
      */
     fun seed(context: Context) {
         val p = prefs(context)
+        // Vee's pay: £18 an hour.
+        if (!p.getBoolean("seeded:4", false)) {
+            p.edit().putBoolean("seeded:4", true).apply()
+            if (!p.contains("set:rate")) p.edit().putFloat("set:rate", 18f).apply()
+        }
         // The 7pm "Place Order" alarm always stays on (it rings every day but Saturday; the Clock keeps its days).
         if (!p.getBoolean("seeded:3", false)) {
             p.edit().putBoolean("seeded:3", true).apply()

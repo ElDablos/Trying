@@ -825,6 +825,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.RemoveUni -> removeUni(cmd.date, cmd.weekly)
         is Command.UniWhen -> uniWhen(cmd.day)
         is Command.Hours -> hours(cmd.period, cmd.pay)
+        Command.PayLog -> payLog()
         is Command.SetRate -> {
             val was = JarvisMemory.hourlyRate(context)
             JarvisMemory.setHourlyRate(context, cmd.perHour)
@@ -1304,7 +1305,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 else say("You're not working $label, sir. A day off.", "Nothing $label. Try to look busy anyway.", "Off $label."),
                 card = Card("⧗", "SHIFT · ${label.removePrefix("on ").uppercase()}", "OFF", date.format(dayName) + (uni?.let { " · uni ${it.times()}" } ?: ""), tone = Tone.GREEN),
             )
-            return Reply("${label.removePrefix("on ").replaceFirstChar { it.uppercase() }} you're working ${s.start.format(tf)} till ${s.end.format(tf)}, ${duration(s.minutes * 60_000L)}.$uniSaid",
+            val paySaid = JarvisMemory.hourlyRate(context)?.let { r ->
+                val g = s.minutes / 60.0 * r
+                " That's ${money(g)} before tax, about ${money(Pay.netShare(context, date, g, r))} after."
+            }.orEmpty()
+            return Reply("${label.removePrefix("on ").replaceFirstChar { it.uppercase() }} you're working ${s.start.format(tf)} till ${s.end.format(tf)}, ${duration(s.minutes * 60_000L)}.$paySaid$uniSaid",
                 card = shiftCard(date, s), actions = alarmOffer(date, s))
         }
         val (d, s) = Shifts.next(shifts, now, zone) ?: return Reply("I don't have any shifts coming up, sir. Add them in the briefing's shift planner.")
@@ -1352,11 +1357,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         )
     }
 
-    private fun money(v: Double) = "£" + if (v % 1.0 == 0.0) "%.0f".format(Locale.ROOT, v) else "%.2f".format(Locale.ROOT, v)
+    private fun money(v: Double) = Pay.money(v)
 
     /**
      * Hours over a week or month from your shifts (done so far and still to come, for the current one), and
-     * what they come to before tax when you've told him your rate.
+     * what they come to before tax and after (income tax and NI, see [Pay]) when you've told him your rate.
      */
     private fun hours(period: String, pay: Boolean): Reply {
         val today = LocalDate.now()
@@ -1377,16 +1382,57 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         fun h(v: Double) = if (v % 1.0 == 0.0) "%.0f".format(Locale.ROOT, v) else "%.1f".format(Locale.ROOT, v)
         val hoursSaid = "${list.size} shift${if (list.size == 1) "" else "s"} $label, ${h(total)} hours" +
             if (current && done > 0 && done < total) " (${h(done)} done, ${h(total - done)} to go)." else "."
+        val sum = rate?.let { Pay.summary(context, from, to, it) }
         val paySaid = when {
-            rate != null -> " At ${money(rate)} an hour that's about ${money(total * rate)} before tax" + if (current && done > 0 && done < total) ", ${money(done * rate)} earned so far." else "."
-            pay -> " Tell me your hourly rate, like \"I get paid £12.50 an hour\", and I'll work out the pay."
+            sum != null -> " At ${money(rate!!)} an hour that's ${money(sum.gross)} before tax, about ${money(sum.net)} after tax and NI" +
+                if (current && done > 0 && done < total) ". ${money(done * rate)} of it earned so far." else "."
+            pay -> " Tell me your hourly rate, like \"I get paid £18 an hour\", and I'll work out the pay."
             else -> ""
         }
         return Reply("You've $hoursSaid$paySaid",
-            card = Card("£", label.uppercase(), "${h(total)}h", rate?.let { "≈ ${money(total * it)} before tax" } ?: "${list.size} shifts",
-                list.map { (d, s) -> Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, s.times() + (rate?.let { " · ${money(s.minutes / 60.0 * it)}" } ?: ""), ok = if (s.finish(d, zone) <= System.currentTimeMillis()) true else null) },
+            card = Card("£", label.uppercase(), sum?.let { money(it.net) } ?: "${h(total)}h",
+                sum?.let { "TAKE-HOME · ${money(it.gross)} BEFORE TAX · ${h(total)}H" } ?: "${list.size} shifts",
+                list.map { (d, s) -> Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, s.times() + (rate?.let { " · ${money(s.minutes / 60.0 * it)}" } ?: ""), ok = if (s.finish(d, zone) <= System.currentTimeMillis()) true else null) } +
+                    (sum?.let { listOf(Row("TAX", "−${money(it.tax)}"), Row("NI", "−${money(it.ni)}"), Row("TAKE-HOME", money(it.net), ok = true)) } ?: emptyList()),
                 Tone.GOLD),
-            actions = if (rate == null) listOf(Action("SET MY RATE", "I get paid £ an hour")) else emptyList())
+            actions = if (rate == null) listOf(Action("SET MY RATE", "I get paid £ an hour")) else listOf(Action("WEEKLY LOG", "my pay log")))
+    }
+
+    /**
+     * Week by week: hours, before tax and take-home for the last eight weeks, this one and next (if it has
+     * shifts), with totals, to read or share.
+     */
+    private fun payLog(): Reply {
+        val rate = JarvisMemory.hourlyRate(context) ?: return Reply("Tell me your hourly rate first${sir()}, like \"I get paid £18 an hour\".",
+            actions = listOf(Action("SET MY RATE", "I get paid £ an hour")))
+        val thisWeek = Shifts.monday(LocalDate.now())
+        val weeks = (-8..1).map { thisWeek.plusWeeks(it.toLong()) }
+            .map { m -> m to Pay.summary(context, m, m.plusDays(6), rate) }
+            .filter { (m, s) -> s.hours > 0 || m == thisWeek }
+        if (weeks.all { it.second.hours == 0.0 }) return Reply("No shifts in the last couple of months to log${sir()}.")
+        fun h(v: Double) = if (v % 1.0 == 0.0) "%.0f".format(Locale.ROOT, v) else "%.1f".format(Locale.ROOT, v)
+        fun wk(m: LocalDate) = when (m) {
+            thisWeek -> "THIS WK"
+            thisWeek.plusWeeks(1) -> "NEXT WK"
+            else -> "WK " + m.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())).uppercase()
+        }
+        val past = weeks.filter { it.first.isBefore(thisWeek.plusWeeks(1)) }
+        val hours = past.sumOf { it.second.hours }
+        val gross = past.sumOf { it.second.gross }
+        val net = past.sumOf { it.second.net }
+        val now = weeks.firstOrNull { it.first == thisWeek }?.second
+        val text = buildString {
+            append("Pay log · ${money(rate)}/hour · take-home after income tax and NI (1257L, estimate)\n\n")
+            weeks.forEach { (m, s) -> append("${m.format(DateTimeFormatter.ofPattern("EEE d MMM yyyy"))}  ${h(s.hours)}h  ${money(s.gross)} before tax  ${money(s.net)} take-home\n") }
+            append("\nTotal to this week: ${h(hours)}h  ${money(gross)} before tax  ${money(net)} take-home\n")
+        }
+        return Reply(
+            "Here's your log${sir()}: ${h(hours)} hours over ${past.count { it.second.hours > 0 }} weeks, ${money(gross)} before tax and about ${money(net)} take-home." +
+                (now?.takeIf { it.hours > 0 }?.let { " This week so far: ${h(it.hours)} hours, ${money(it.net)} take-home." } ?: ""),
+            card = Card("£", "PAY LOG · ${money(rate)}/H", money(net), "TAKE-HOME · ${money(gross)} BEFORE TAX · ${h(hours)}H",
+                weeks.reversed().map { (m, s) -> Row(wk(m), if (s.hours == 0.0) "—" else "${h(s.hours)}h · ${money(s.gross)} → ${money(s.net)}", ok = if (m.isBefore(thisWeek)) true else null) }, Tone.GOLD),
+            actions = listOf(Action("SHARE", primary = true, run = { shareText("Pay log", text) }), Action("THIS MONTH", "what have I earned this month")),
+        )
     }
 
     private fun shiftAlarm(): Reply {

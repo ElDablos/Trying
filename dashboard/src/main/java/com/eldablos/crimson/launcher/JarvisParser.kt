@@ -120,6 +120,8 @@ object JarvisParser {
         data class AddShifts(val days: List<RotaDay>, val uni: List<RotaDay> = emptyList(), val week: LocalDate? = null) : Command()
         /** Hours (and pay, where your rate's known) over a [period]: "week", "lastweek", "nextweek", "month", "lastmonth". */
         data class Hours(val period: String, val pay: Boolean) : Command()
+        /** Week by week: hours, before tax and take-home ("my pay log"). */
+        object PayLog : Command()
         /** Your hourly rate: "I get paid £12.50 an hour". */
         data class SetRate(val perHour: Double) : Command()
         /** Uni on these days ("uni Wednesday 5 till 9"), or every week on them ("every Wednesday"). */
@@ -681,6 +683,8 @@ object JarvisParser {
             if (date != null) return Command.RemoveShift(date)
         }
         if (Regex("^am i (off|free|working|on)\\b|^do i (work|have work|have a shift)|^have i got (work|a shift)").containsMatchIn(t)) return Command.Shift(dayAhead0)
+        // The log, week by week: "my weekly log", "pay log", "show my earnings week by week".
+        if (Regex("\\b(pay|earnings?|money|wages?|hours|work|weekly|shift) (log|history|breakdown|record|summary)\\b|\\bweek by week\\b|\\bweekly (pay|earnings|hours|log)\\b|\\blog of (my )?(hours|pay|earnings|money)").containsMatchIn(t)) return Command.PayLog
         // Hours and pay over a stretch: "how many hours this month", "what did I earn last week", "how much will I get paid this month".
         if (has("hours", "earn", "earned", "earning", "earnings", "paid", "pay", "wages", "salary", "make", "made") &&
             (has("how many", "how much", "what", "total", "add up") || has("earnings", "wages")) && !has("hourly rate", "an hour", "per hour", "1 hour")) {

@@ -56,6 +56,25 @@ class RealPhrasesTest {
     }
 
     @Test
+    fun takeHome() {
+        // 32 hours at £18 in a week: £576 before tax.
+        val (tax, ni) = Pay.deductions(576.0, 52)
+        assertEquals(66.85, tax, .01)
+        assertEquals(26.74, ni, .01)
+        // A month of it (£2,496).
+        val (mt, mn) = Pay.deductions(2496.0, 12)
+        assertEquals(289.70, mt, .01)
+        assertEquals(115.88, mn, .01)
+        // Under the tax-free share: nothing taken.
+        assertEquals(0.0 to 0.0, Pay.deductions(200.0, 52))
+        assertEquals(Command.SetRate(18.0), p("I earn 18 pounds per hour"))
+        assertEquals(Command.SetRate(18.0), p("I earn £18 per hour"))
+        assertEquals(Command.PayLog, p("show me my weekly log"))
+        assertEquals(Command.PayLog, p("my pay log"))
+        assertEquals(Command.PayLog, p("my earnings week by week"))
+    }
+
+    @Test
     fun notesAndHabits() {
         assertEquals(Command.TickAllNotes, p("tick my notes"))
         assertEquals(Command.TickNote("#2"), p("I want to finish my second note"))

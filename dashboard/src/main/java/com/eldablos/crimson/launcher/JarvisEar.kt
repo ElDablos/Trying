@@ -492,7 +492,7 @@ class JarvisEar : Service() {
         }
         val safety = Runnable { after() }
         main.postDelayed(safety, 9000)
-        Speech.speak(this, listOf("ear" to Speech.speakable(reply.say)), object : Speech.Listener {
+        Speech.speak(this, listOf("ear" to Speech.speakable(Jarvis.spokenFor(reply))), object : Speech.Listener {
             override fun onPart(id: String) {
                 main.removeCallbacks(safety)
                 main.postDelayed(safety, 2500L + reply.say.length * 90L)

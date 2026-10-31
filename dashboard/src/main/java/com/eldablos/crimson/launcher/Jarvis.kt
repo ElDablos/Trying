@@ -932,7 +932,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Command.Routines -> Reply("Your routines. Say any of their phrases and I'll run the lot.", sheet = Sheet.ROUTINES)
         Command.NewRoutine -> Reply("Let's build one. Give it a name, the phrases that start it, and what I should do, one line each.", sheet = Sheet.NEW_ROUTINE)
         // A question he can't answer from the phone: Google it (or ask Claude), rather than shrug.
-        is Command.Unknown -> if (looksLikeQuestion(cmd.text)) lookupOffer(cmd.text) else {
+        is Command.Unknown -> if (looksLikeQuestion(cmd.text)) closeCall(cmd.text) ?: lookupOffer(cmd.text) else {
             val close = closest(cmd.text)
             Reply(
                 if (close.isNotEmpty()) {
@@ -1210,6 +1210,25 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun looksLikeQuestion(t: String): Boolean {
         val s = t.lowercase().trim()
         return s.endsWith("?") || Regex("^(how|what|what's|whats|why|when|where|who|who's|which|whose|is|are|was|were|can|could|does|do|did|should|will|would|tell me|explain|define|what does|how do|how to|how much|how many|whats the|is there|are there)\\b").containsMatchIn(s) && s.split(' ').size >= 3
+    }
+
+    /**
+     * A question that's nearly one of his own ("what hours am I on next week?"): asks whether you meant that,
+     * with Google and Claude still there, rather than sending a question about your own day to the web.
+     */
+    private fun closeCall(q: String): Reply? {
+        val words = norm(q).split(' ').filter { it.length > 2 && it !in STOP }.map { it.take(5) }.toSet()
+        val (top, score) = EXAMPLES.map { ex -> ex to norm(ex).split(' ').filter { it.length > 2 && it !in STOP }.map { it.take(5) }.count { it in words } }
+            .maxByOrNull { it.second } ?: return null
+        if (score < 2) return null
+        pending = Pending.Confirm({
+            JarvisMemory.learnMeaning(context, q, top)
+            answer(top)
+        }, "Very well.", { lookupOffer(q) })
+        return Reply("Did you mean “$top”${sir()}? If not, I can Google it or ask Claude.", listen = true,
+            card = Card("?", "DID YOU MEAN", sub = top, tone = Tone.BLUE),
+            actions = listOf(Action(top.uppercase().take(28), top, primary = true),
+                Action("⌕ GOOGLE IT", run = { pending = null; webSearch(q).then?.invoke() }), Action("✳ ASK CLAUDE", run = { pending = null; askClaude(q).then?.invoke() })))
     }
 
     /** "Not one I know, sir. Shall I Google it?": yes opens Chrome, "Claude" asks Claude. */
@@ -3621,6 +3640,22 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun duration(ms: Long) = DeckView.duration(ms)
 
     companion object {
+        /**
+         * What he says aloud: all of it when you asked to hear it, or when there's no card; otherwise the first
+         * sentence or two, since what's on screen holds the detail.
+         */
+        fun spokenFor(reply: Reply): String {
+            val text = reply.say
+            if (reply.full || reply.card == null || reply.listen || text.length <= 200) return text
+            val parts = text.split(Regex("(?<=[.!?])\\s+"))
+            val sb = StringBuilder(parts.first())
+            for (p in parts.drop(1)) {
+                if (sb.length + p.length > 170) break
+                sb.append(' ').append(p)
+            }
+            return if (sb.length < text.length - 10) "$sb The rest is on screen, sir." else text
+        }
+
         @Volatile
         private var brain: Jarvis? = null
 
@@ -3725,7 +3760,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "What do you know about me?", "Good night", "Battery", "Learn the bedroom light", "My routines", "Jarvis settings",
             "What are my alarms?", "Turn off my 6am alarm", "Move my alarm to 6:30", "Add a habit gym and tick it off today", "How are my habits?",
             "Tick off gym", "Add a countdown to holiday on 3 March", "I'm working Monday 7 till 3", "I'm off on Friday", "Which lights are on?",
-            "What's my screen time?", "Tick off buy milk",
+            "What's my screen time?", "Tick off buy milk", "Set my alarms for work tomorrow", "Turn off my work alarms",
+            "What's my rota this week?", "What's my rota next week?", "What have I earned this month?", "How many hours this month?",
+            "Have I got uni tomorrow?", "I've got uni every Wednesday 5 till 9", "How's the tube?", "Any delays tomorrow?", "Lock my phone",
+            "Next colour", "Set the heating to 24", "Turn the heating off", "Wake log", "Hands log",
         )
 
         /** Soundex: names that sound alike share a code ("cloud" and "Claude" are both C430). */

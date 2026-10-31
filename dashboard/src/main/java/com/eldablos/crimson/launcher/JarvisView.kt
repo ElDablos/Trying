@@ -424,21 +424,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         if (!reply.afterSpeech) reply.then?.invoke()
     }
 
-    /**
-     * What he says aloud: all of it when you asked to hear it, or when there's no card; otherwise the first
-     * sentence or two, since the card on screen holds the detail.
-     */
-    private fun spokenFor(reply: Jarvis.Reply): String {
-        val text = reply.say
-        if (reply.full || reply.card == null || reply.listen || text.length <= 200) return text
-        val parts = text.split(Regex("(?<=[.!?])\\s+"))
-        val sb = StringBuilder(parts.first())
-        for (p in parts.drop(1)) {
-            if (sb.length + p.length > 170) break
-            sb.append(' ').append(p)
-        }
-        return if (sb.length < text.length - 10) "$sb The rest is on screen, sir." else text
-    }
+    private fun spokenFor(reply: Jarvis.Reply) = Jarvis.spokenFor(reply)
 
     /** You cut him off ("stop", or a tap): when he goes quiet, he listens for what you want instead. */
     private var interrupted = false

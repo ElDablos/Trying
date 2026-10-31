@@ -302,6 +302,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 JarvisParser.parse(text) == Command.No -> return styled(Reply(say("Very well.", "Fair enough.", "OK.")))
             }
         }
+        // "Use AI for this": what you asked last, handed to his brain to write or answer (not taken as note text).
+        if (Regex("^(?:no,? )?(?:use|ask|try) (?:the |your )?(?:ai|brain|a\\.i\\.)(?: for (?:this|that|it))?(?: instead)?$|^(?:let|have) (?:the )?ai (?:do|write|answer) (?:it|this|that)$", RegexOption.IGNORE_CASE).matches(text.trim().trimEnd('.', '!')) &&
+            JarvisBrain.ready(context)) {
+            pending = null
+            val asked = lastAsked ?: return styled(Reply("Use it for what${sir()}? Tell me what you'd like, and my brain will take it.", listen = true))
+            return styled(creative(asked, force = true) ?: freeAnswer(asked)).also { lastReply = it }
+        }
         if (pending == Pending.NoteText) {
             pending = null
             val c = JarvisParser.parse(text)
@@ -330,10 +337,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         // Straight after the heater: "that's 22 actually, set it to 23", "you went down by one", "go up one".
         if (!inRoutine && meant == null && heaterContext()) heaterTalk(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         // A meaning learnt wrongly before (a habit you haven't got): forgotten, and read afresh.
-        if (meant != null && !sensible(JarvisParser.parse(meant))) {
+        if (meant != null && (!sensible(JarvisParser.parse(meant)) || !worthLearning(text))) {
             JarvisMemory.unlearn(context, text)
             return answerNow(said, inRoutine)
         }
+        // Something to write ("write a cheeky birthday note for Arnie"): his brain writes it.
+        if (!inRoutine && pending == null) creative(text)?.let { return styled(it).also { r -> lastReply = r; lastAsked = text; lastAskedAt = System.currentTimeMillis() } }
         // One of your habits, named or described ("tick off Place Orders for Work", "I placed orders for work today"):
         // before anything else reads "work" in it as your shift.
         if (!inRoutine && meant == null && pending == null) habitSaid(text)?.let { h -> return finish(text, Command.Habit(h.name), null, inRoutine) }
@@ -2326,7 +2335,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         JarvisBrain.interpret(context, said, examples.distinct()) { meant ->
             val c = meant?.let { JarvisParser.parse(it) }
             if (meant != null && c != null && c !is Command.Unknown && c !is Command.WebSearch && c !is Command.AskClaude && sensible(c)) {
-                JarvisMemory.learnMeaning(context, said, meant)
+                if (worthLearning(said)) JarvisMemory.learnMeaning(context, said, meant)
                 // Done straight away (not read again by his brain).
                 val r = finish(said, c, meant, false)
                 host.later(styled(r.copy(card = r.card ?: Card("✦", "LEARNT", sub = "“$said” → $meant", tone = Tone.GREEN))))
@@ -2360,6 +2369,55 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     // --- Smart understanding ---
 
+    /** A wording worth remembering: short enough that you'd say it again (a long, one-off sentence never repeats). */
+    private fun worthLearning(text: String) = text.trim().split(Regex("\\s+")).size <= 12
+
+    // --- Writing for you ---
+
+    /**
+     * Something to write ("write a silly birthday note for Arnie, about 100 words", "draft a message to my manager"):
+     * written by his brain, with buttons to copy, send, keep as a note, or have another go. A birthday mentioned
+     * along the way is remembered. Null when it isn't a request to write something.
+     */
+    private fun creative(text: String, force: Boolean = false): Reply? {
+        val t = text.lowercase()
+        val writing = Regex("\\b(write|compose|draft|come up with|make up|think of|give me|create|help me write)\\b.{0,60}?\\b(note|notes|message|messages|card|poem|poems|wish|wishes|speech|toast|caption|captions|text|email|letter|joke|jokes|story|limerick|rap|song|bio|post|reply|apology|excuse|greeting|shout ?out|roast|riddle|haiku|verse)\\b").containsMatchIn(t)
+        if (!force && (!writing || Regex("\\b(write down|note down|jot down|to my notes|in my notes|on my notes|add (a )?note|take a note|make a note that|remind me)\\b").containsMatchIn(t))) return null
+        if (!JarvisBrain.ready(context)) return null
+        val noted = rememberDates(text)
+        JarvisBrain.create(context, text, aboutVee()) { out ->
+            if (out.isNullOrBlank()) {
+                host.later(styled(Reply("I couldn't write that one${sir()}. Try asking again a little more simply.", failed = true)))
+                return@create
+            }
+            val piece = out.trim().removeSurrounding("\"").trim()
+            host.later(styled(Reply(piece, full = true, card = Card("✎", "WRITTEN FOR YOU", sub = "${piece.split(Regex("\\s+")).size} words", tone = Tone.GOLD),
+                actions = listOf(
+                    Action("COPY", primary = true, run = {
+                        context.getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis", piece))
+                    }),
+                    Action("SEND", run = { shareText("From Jarvis", piece) }),
+                    Action("SAVE AS NOTE", run = { addNote(piece.replace(Regex("\\s+"), " ").take(400)) }),
+                    Action("ANOTHER ONE", run = { creative(text, force = true)?.let { host.later(styled(it)) } }),
+                ))))
+        }
+        val also = noted?.let { (who, date) -> " I've noted ${who.replaceFirstChar { it.uppercase() }}'s birthday, $date, and I'll remind you nearer the time." }.orEmpty()
+        return Reply(say("Drafting it now, sir.", pick("Putting pen to paper.", "Ah, a creative brief. One moment."), "Writing.") + also, more = true)
+    }
+
+    /** "Arnie's birthday is 3rd January", "a friend named Arnie, his birthday is January 3rd": remembered (and reminded about). */
+    private fun rememberDates(text: String): Pair<String, String>? {
+        val m = Regex("\\b([A-Z][a-z]+)'s (birthday|anniversary) is ([^,.;!?]+)").find(text)
+            ?: Regex("\\b(?:named|called) ([A-Z][a-z]+)\\b.{0,60}?\\b(?:his|her|their) (birthday|anniversary) is ([^,.;!?]+)").find(text)
+            ?: return null
+        val name = m.groupValues[1]
+        val date = m.groupValues[3].trim().split(Regex("\\s+")).take(4).joinToString(" ")
+        val d = JarvisParser.dateIn(date, LocalDate.now()) ?: return null
+        val said = d.format(DateTimeFormatter.ofPattern("d MMMM"))
+        JarvisMemory.remember(context, "${name.lowercase()}'s ${m.groupValues[2]}", said)
+        return name to said
+    }
+
     /** Clear enough to do at once, without his brain reading it first: simple answers, and requests that carry your own words. */
     private fun obvious(text: String, cmd: Command): Boolean = when (cmd) {
         Command.Yes, Command.No, Command.Undo, Command.Repeat, Command.Dismiss, Command.Thanks, Command.Time, Command.Date, Command.Battery,
@@ -2382,7 +2440,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             val c = meant?.let { JarvisParser.parse(it) }?.takeIf { it !is Command.Unknown && it !is Command.WebSearch && it !is Command.AskClaude && sensible(it) }
             val r = when {
                 c != null && meant != null -> {
-                    if (!meant.equals(text.trim(), true)) JarvisMemory.learnMeaning(context, text, meant)
+                    // Learnt for next time when it's the kind of thing you'd say again (not a long one-off).
+                    if (!meant.equals(text.trim(), true) && worthLearning(text)) JarvisMemory.learnMeaning(context, text, meant)
                     finish(text, c, meant, false)
                 }
                 guess !is Command.Unknown -> finish(text, guess, null, false)

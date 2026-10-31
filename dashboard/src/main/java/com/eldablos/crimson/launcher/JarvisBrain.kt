@@ -367,7 +367,7 @@ object JarvisBrain {
             "\n\nReply with ONE command in the same style as the examples, with the request's names, times, places and numbers filled in. " +
             "Only use names (habits, notes, people, places) that are in the request or in the examples marked as the user's own; never invent one or borrow it from another example. " +
             "The request may be typed with spelling mistakes or misheard by speech recognition (\"wprk\" is work, \"habbits\" is habits, \"knotes\" is notes): work out what was meant. " +
-            "If the request isn't asking for one of these kinds of commands (a general question, chat, something it can't do), reply exactly NONE. " +
+            "If the request isn't asking for one of these kinds of commands (a general question, chat, asking for something to be written or made up, something it can't do), reply exactly NONE. " +
             "Reply with the command only: no quotes, no explanation."
         ask(context, Job.INTERPRET, system, "Request: $said") { out ->
             val line = out?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()?.removePrefix("-")?.trim()?.trim('"', '\'', '.', '`')
@@ -404,6 +404,12 @@ object JarvisBrain {
             "$goal. If none of them does it, reply NONE.", controls) { out ->
             done(out?.let { Regex("\\b(\\d{1,2})\\b").find(it)?.groupValues?.get(1)?.toIntOrNull() }?.takeIf { out?.contains("NONE", true) != true })
         }
+
+    /** A piece of writing Vee asked for (a birthday wish, a message, a poem…), in their tone and length; just the piece. */
+    fun create(context: Context, request: String, about: String, done: (String?) -> Unit) =
+        ask(context, Job.ANSWER, persona(about) + "\n\nWrite exactly what Vee asks for, in the tone they ask for (cheeky, warm, formal, silly…) and at the length " +
+            "they ask for (if they don't say, under 120 words). It's for them to send or use as their own, in their voice, not yours. Output only the piece itself: " +
+            "no introduction, no title, no quotes around it, no markdown. Emoji only if it suits the tone.", request, done)
 
     /** How a document is written for [Documents.parse]: plain lines, headings, lists, tables. */
     fun documentRules(spreadsheet: Boolean, plan: Boolean): String =

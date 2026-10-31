@@ -29,6 +29,7 @@ class BatchTest {
         assertEquals(Command.StudyProgress(true), p("study progress report"))
         assertEquals(Command.StudyNext, p("when's my next study session"))
         assertEquals(Command.StudyClear, p("clear my study plan"))
+        assertEquals(Command.No, p("Noo"))
     }
 
     @Test

@@ -356,8 +356,12 @@ object JarvisBrain {
      * my rota next week"), filled in with your names, times and numbers; null when it isn't one of his.
      */
     fun interpret(context: Context, said: String, examples: List<String>, done: (String?) -> Unit) {
+        // What Vee has corrected before: the way they put things, and what they meant.
+        val learnt = JarvisMemory.meanings(context).takeLast(40)
         val system = "You map a request to an assistant on a phone onto one of its commands. Here are examples of the commands it understands:\n" +
             examples.joinToString("\n") { "- $it" } +
+            (if (learnt.isEmpty()) "" else "\n\nThe user has corrected the assistant before; these requests meant these commands (follow the same reading for similar requests):\n" +
+                learnt.joinToString("\n") { (said, meant) -> "- \"$said\" means: $meant" }) +
             "\n\nReply with ONE command in the same style as the examples, with the request's names, times, places and numbers filled in. " +
             "If the request isn't asking for one of these kinds of commands (a general question, chat, something it can't do), reply exactly NONE. " +
             "Reply with the command only: no quotes, no explanation."

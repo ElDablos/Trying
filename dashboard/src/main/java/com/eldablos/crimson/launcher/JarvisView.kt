@@ -1131,6 +1131,13 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 item(body, k.said.replaceFirstChar { it.uppercase() }, "Always stays on", "FORGET", onButton = { JarvisRules.remove(context, k.kind, k.key); openSheet(Jarvis.Sheet.MEMORY) })
             }
         }
+        val meanings = JarvisMemory.meanings(context)
+        if (meanings.isNotEmpty()) {
+            heading(body, "WHAT YOU MEANT", "When you put me right, I remember. Forget any I've got wrong.")
+            meanings.forEach { (said, meant) ->
+                item(body, "“$said”", "means: $meant", "FORGET", onButton = { JarvisMemory.forgetMeaning(context, said); openSheet(Jarvis.Sheet.MEMORY) })
+            }
+        }
         heading(body, "WHAT I'VE LEARNT", "The phrases you use at each time of day, which apps and people you mean.")
         val phrases = JarvisMemory.phrases(context)
         item(body, "${phrases.size} phrases", phrases.sortedByDescending { it.count }.take(4).joinToString(" · ") { it.text })

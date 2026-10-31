@@ -119,6 +119,12 @@ object JarvisMemory {
     /** The wording he learnt [said] means, from you putting it another way after he didn't follow. */
     fun meaning(context: Context, said: String): String? = prefs(context).getString(phraseKey(said), null)
 
+    /** Everything he's learnt you mean (your wording, as he keeps it, to what he should do). */
+    fun meanings(context: Context): List<Pair<String, String>> = prefs(context).all.entries
+        .filter { it.key.startsWith("meant:") }.mapNotNull { (k, v) -> (v as? String)?.let { k.removePrefix("meant:") to it } }
+
+    fun forgetMeaning(context: Context, said: String) = prefs(context).edit().remove("meant:$said").apply()
+
     fun learnMeaning(context: Context, said: String, meant: String) {
         if (said.trim().length < 3 || said.equals(meant, true)) return
         prefs(context).edit().putString(phraseKey(said), meant).apply()

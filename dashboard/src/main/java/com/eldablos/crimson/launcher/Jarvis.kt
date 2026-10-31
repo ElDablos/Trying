@@ -136,6 +136,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private var topic: String? = null
     private val undos = ArrayDeque<Undo>()
 
+    /** What you last asked (not a yes, an undo or a correction), and whether doing it left something to undo: for "no, I meant…". */
+    private var lastAsked: String? = null
+    private var lastAskedAt = 0L
+    private var lastUndoable = false
+
     private class Undo(val label: String, val run: () -> String)
 
     private sealed class Amendable {
@@ -162,6 +167,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         class CountdownWhen(val name: String) : Pending()
         /** A message written but not sent yet: you can add to it, change it, send it or scrap it. */
         class Draft(val whatsapp: Boolean, val name: String, val number: String, var text: String) : Pending()
+        /** He got [asked] wrong and asked what you meant: your answer puts it right and he learns it. */
+        class Teach(val asked: String) : Pending()
     }
 
     private fun push(label: String, run: () -> String) {
@@ -295,6 +302,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             return styled(addNote(text.trim().trimEnd('.')))
         }
         (pending as? Pending.Draft)?.let { d -> draftAnswer(d, text)?.let { return styled(it).also { r -> lastReply = r } } }
+        // You told him what you meant, after he got it wrong.
+        (pending as? Pending.Teach)?.let { p ->
+            pending = null
+            val c = JarvisParser.parse(text)
+            if (c == Command.No || c == Command.Dismiss) return styled(Reply(say("Very well, sir.", "Fair enough.", "OK.")))
+            return putRight(p.asked, text)
+        }
+        // "No, I meant…", "that's wrong": he puts it right, and learns.
+        if (!inRoutine) correction(text)?.let { return it }
         if (!inRoutine) JarvisRoutines.match(JarvisRoutines.all(context), text)?.let { return styled(runRoutine(it)).also { r -> lastReply = r } }
         // Something you've said before that he learnt the meaning of.
         val meant = if (inRoutine) null else JarvisMemory.meaning(context, text)
@@ -316,12 +332,99 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         return finish(text, parsed, meant, inRoutine)
     }
 
+    // --- Being put right ---
+
+    /** While he redoes something you corrected: so the redo isn't taken as the thing you asked. */
+    private var correcting = false
+
+    /**
+     * "No, I meant the weather next week", "that's not what I asked", "wrong": within a few minutes of what you
+     * asked. With what you meant, he undoes what he did (if it can be), does it, and learns your wording; without,
+     * he asks. Not after a note (that's the note's words being put right) or a name he couldn't find.
+     */
+    private fun correction(text: String): Reply? {
+        val asked = lastAsked ?: return null
+        if (System.currentTimeMillis() - lastAskedAt > 3 * 60_000L || missed != null) return null
+        if (last is Command.AddNote && System.currentTimeMillis() - lastAt < 120_000L) return null
+        val t = text.trim().trimEnd('.', '!').replace(Regex("^(hey |ok )?jarvis[,]?\\s*", RegexOption.IGNORE_CASE), "")
+        Regex("^(?:(?:no|nope|wrong|not that|that's wrong|thats wrong|that's not (?:it|right|what i (?:asked|meant|said|wanted)))[,.!]*\\s+)?" +
+            "(?:i (?:meant|mean|said|asked(?: you)?(?: for| about)?|wanted(?: to know)?(?: about)?)|what i (?:meant|wanted|asked(?: for)?) (?:was|is))\\s+(.+)$", RegexOption.IGNORE_CASE).find(t)?.let { m ->
+            // "I said …" on its own could just be what you're saying: only after "no", "wrong"…, or as "I meant".
+            val fix = m.groupValues[1].trim().trimEnd('?')
+            if (Regex("^(no|nope|wrong|not|that|i meant|what i)", RegexOption.IGNORE_CASE).containsMatchIn(t)) return putRight(asked, fix)
+        }
+        if (Regex("^(?:no,? )?(?:that's|thats|that is|you're|you are|you've|you got (?:it|that)|you)? ?(?:wrong|not right|not correct|incorrect|not it|not what i (?:asked|meant|said|wanted)(?: for)?|got (?:it|that) wrong|misunderstood(?: me)?|mixed (?:it|that) up|confused)(?: again)?(?:,? jarvis)?$", RegexOption.IGNORE_CASE).matches(t)) {
+            val undone = undoLast()
+            pending = Pending.Teach(asked)
+            return styled(Reply((if (undone) "My apologies${sir()}; I've undone that. " else "My apologies${sir()}. ") + "What did you mean by \"${asked.take(60)}\"?", listen = true,
+                card = Card("✦", "PUT ME RIGHT", sub = "say it another way, and I'll remember", tone = Tone.GOLD)))
+        }
+        return null
+    }
+
+    /** Undoes what he did for the request you're correcting, if it left something to undo. */
+    private fun undoLast(): Boolean {
+        if (!lastUndoable || undos.isEmpty()) return false
+        lastUndoable = false
+        return runCatching { undo() }.isSuccess
+    }
+
+    /** You meant [fix] by [asked]: undone, done properly, and learnt for next time. */
+    private fun putRight(asked: String, fix: String): Reply {
+        val undone = undoLast()
+        val sorry = if (undone) "My apologies${sir()}; I've undone that." else "My apologies${sir()}."
+        val meant = JarvisMemory.meaning(context, fix) ?: fix
+        val cmd = JarvisParser.parse(meant)
+        // Just the part he missed ("next week", "the big light"): a brain puts it together with what you asked.
+        if (cmd is Command.Unknown && fix.split(' ').size <= 5 && JarvisBrain.ready(context)) {
+            JarvisBrain.interpret(context, "$asked (they then corrected: I meant $fix)", EXAMPLES + JarvisMemory.suggestions(context)) { whole ->
+                val c = whole?.let { JarvisParser.parse(it) }
+                host.later(if (whole != null && c != null && c !is Command.Unknown) redo(asked, whole, c, "") else redo(asked, fix, cmd, ""))
+            }
+            return styled(Reply("$sorry Let me get that right.", more = true)).also { lastReply = it }
+        }
+        return redo(asked, meant, cmd, "$sorry ")
+    }
+
+    /** Does [meant] (read as [cmd]) in place of [asked], and remembers that's what [asked] means. */
+    private fun redo(asked: String, meant: String, cmd: Command, sorry: String): Reply {
+        val before = undos.size
+        correcting = true
+        val r = try {
+            if (cmd is Command.Unknown) answerNow(meant, false) else finish(meant, cmd, null, false)
+        } finally {
+            correcting = false
+        }
+        // Learnt only when it's something he can do, or a proper question (not a muddle).
+        val learn = !r.failed && (cmd !is Command.Unknown || meant.split(' ').size >= 3)
+        if (learn) JarvisMemory.learnMeaning(context, asked, meant)
+        // Still about what you first asked: if this is wrong too, you can put him right again.
+        lastAsked = asked
+        lastAskedAt = System.currentTimeMillis()
+        lastUndoable = undos.size > before
+        val note = if (learn) Card("✦", "LEARNT", sub = "“${asked.take(50)}” → $meant", tone = Tone.GREEN) else null
+        return styled(r.copy(say = (sorry + r.say).trim(), card = r.card ?: note)).also { lastReply = it }
+    }
+
+    /** [t] is worded much like something he was corrected on, but his rules read it differently from the correction. */
+    private fun nearLearnt(t: String, cmd: Command): Boolean {
+        val words = t.replace(Regex("[^a-z0-9' ]"), " ").split(' ').filter { it.length > 2 }.toSet()
+        if (words.size < 2) return false
+        return JarvisMemory.meanings(context).any { (said, meant) ->
+            val w = said.split(' ').filter { it.length > 2 }.toSet()
+            val shared = (words intersect w).size.toDouble() / (words union w).size
+            shared >= .6 && said != t && JarvisParser.parse(meant)::class != cmd::class
+        }
+    }
+
     /**
      * When his rules' reading may have missed part of what you said: a time span ("next week", "the weekend",
      * "Friday", "this month") that the command he picked ignores. Then he doesn't guess: a brain checks.
      */
     private fun unsure(text: String, cmd: Command): Boolean {
         val t = text.lowercase()
+        // Put much like something you've corrected him on before: a brain checks, with that correction in mind.
+        if (nearLearnt(t, cmd)) return true
         val span = Regex("\\b(week|weekend|fortnight|month|next \\w+|last \\w+|(mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow|tonight|\\d{1,2}(st|nd|rd|th))\\b").containsMatchIn(t)
         if (!span) return false
         return when (cmd) {
@@ -364,6 +467,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         }
         if (!inRoutine) JarvisMemory.used(context, text, cmd)
         lastFollowed = null
+        val undosBefore = undos.size
         val reply = try {
             run(cmd).let { r ->
                 if (cmd == Command.ReadNotes || cmd is Command.ReadNote || cmd is Command.Agenda || cmd is Command.Emails || cmd == Command.Messages ||
@@ -388,6 +492,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             else -> last = cmd
         }
         lastAt = System.currentTimeMillis()
+        if (!inRoutine && !correcting && (learnable(cmd) || cmd is Command.Unknown) && cmd !is Command.Correct) {
+            lastAsked = text
+            lastAskedAt = lastAt
+            lastUndoable = undos.size > undosBefore
+        }
         // What he just told you, for "add that to my notes" or "send that to Tom".
         if (!reply.failed && informative(cmd)) topic = reply.say.replace(Regex(",? sir(?=[.!?])"), "").trim()
         return styled(reply).also { lastReply = it }

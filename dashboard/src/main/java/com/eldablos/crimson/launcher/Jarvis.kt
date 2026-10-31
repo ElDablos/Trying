@@ -353,6 +353,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         return when (cmd) {
             is Command.Unknown, is Command.Shift, is Command.ShiftWeek, is Command.Weather, is Command.WeatherWeek, is Command.Agenda, is Command.Travel,
             Command.Time, Command.Date, Command.Battery, Command.Greet -> true
+            // "I'm okay, thanks for asking": an answer to him, not a thank-you to wave off.
+            Command.Thanks -> true
             else -> false
         }
     }
@@ -3301,6 +3303,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      */
     private fun climateJob(app: AppEntry, on: Boolean, mode: String?) {
         var pressed = false
+        var checks = 0
         var waiting = 0
         var settled = 0
         JarvisHands.custom(app.component.packageName, null, "I couldn't work ${app.label} this time, sir. Show me once: say \"learn the heating in ${app.label}\".", timeout = 45_000) { root, tries ->
@@ -3310,10 +3313,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             }
             val t = tries - waiting
             if (!JarvisReaders.airDevicePage(root)) {
-                JarvisReaders.airCard(root, null)?.let { if (t % 3 == 1) JarvisHands.press(it) } ?: run { if (t == 3 || t == 6) JarvisHands.back() }
-                return@custom if (t < 10) null else "I couldn't open the heater in ${app.label}, sir."
+                // A moment first: Air+ often opens straight on the heater's page, drawing it in bits.
+                JarvisReaders.airCard(root, null)?.let { if (t >= 2 && t % 3 == 2) JarvisHands.press(it) } ?: run { if (t == 3 || t == 6) JarvisHands.back() }
+                return@custom if (t < 12) null else "I couldn't open the heater in ${app.label}, sir."
             }
-            if (pressed) return@custom "Done, sir. The heating is ${if (on) "on" else "off"}."
+            if (pressed) {
+                // Checking it took: the page says it's off, or the Power toggle shows it.
+                if (JarvisReaders.airIsOff(root) == !on) return@custom "Done, sir. The heating is ${if (on) "on" else "off"}."
+                return@custom if (++checks < 6) null else "I've pressed Power, sir, but Air+ still shows it ${if (on) "off" else "on"}. The heater may be offline."
+            }
             // On the heater's page (maybe straight away, if Air+ was left there): give it a moment, and wait
             // while its controls are greyed out reconnecting.
             if (++settled < 3 || !JarvisReaders.airReady(root)) return@custom if (++waiting < 45) null else "${app.label} couldn't connect to the heater, sir."
@@ -3727,6 +3735,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                     presses = 1
                     pressedAt = tries
                     return@custom null
+                }
+                // The button's there but Tapo doesn't say on or off: asked for on or off, he presses it once.
+                if (button != null && on != null && tries >= 2) {
+                    JarvisHands.press(button)
+                    return@custom if (on) "Done, sir. $who is on." else "Done. $who is off."
                 }
                 // Can't tell from here: back to the list, where it says.
                 if (tries % 2 == 1 && backs < 2) { backs++; JarvisHands.back() }

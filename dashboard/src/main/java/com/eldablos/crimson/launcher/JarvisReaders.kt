@@ -320,13 +320,20 @@ object JarvisReaders {
         return t.equals(word, true) || (t.length < 60 && t.lines().any { it.trim().equals(word, true) })
     }
 
-    fun airDevicePage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any { says(it, "Controls") || says(it, "Power") }
+    fun airDevicePage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any {
+        says(it, "Controls") || says(it, "Power") || airId(it).startsWith("philips_control_") ||
+            // The heater's page while it's still drawing its controls.
+            airId(it) in setOf("purifier_control_root", "purifier_control_content", "purifier_control_readings_title")
+    }
 
     /** On the home screen: the device card to open (the one called [name], or the first). */
     fun airCard(root: AccessibilityNodeInfo, name: String?): AccessibilityNodeInfo? {
         val all = JarvisHands.nodes(root)
         name?.let { n -> all.firstOrNull { textOf(it).equals(n, true) }?.let { return it } }
-        return all.firstOrNull { textOf(it).startsWith("Temperature around device", true) }
+        // The home card says "Temperature around device" too, but so does the reading box on the heater's own
+        // page (which opens a history chart): never that one.
+        if (airDevicePage(root)) return null
+        return all.firstOrNull { textOf(it).startsWith("Temperature around device", true) && !airId(it).startsWith("purifier_control") }
     }
 
     /** Still reaching the heater ("Connecting" on its card or page): nothing can be tapped until it's done. */
@@ -343,8 +350,8 @@ object JarvisReaders {
     fun airReady(root: AccessibilityNodeInfo): Boolean {
         val all = JarvisHands.nodes(root)
         val power = all.firstOrNull { airId(it) == "philips_control_power_btn_id" } ?: return all.any { says(it, "Controls") }
-        val heat = all.firstOrNull { airId(it) == "philips_control_temperature_btn" }
-        return power.isEnabled && (heat == null || heat.isEnabled)
+        // Only Power counts: with the heater off, Air+ greys out the other buttons, and that's normal.
+        return power.isEnabled
     }
 
     /** Off: the Power toggle isn't checked, or the page says so ("Your device is currently off."). */
@@ -476,6 +483,8 @@ object JarvisReaders {
      * room, its brightness ("100%") while it's on, and a round power button. Not the "My home" menu.
      */
     fun lights(root: AccessibilityNodeInfo): List<Light> {
+        // Tapo's own cards first: the light's name (tv_device_name) beside its round power button (device_switch).
+        tapoCards(root).takeIf { it.isNotEmpty() }?.let { return it }
         fun scan(needStatus: Boolean): List<Light> {
             val out = ArrayList<Light>()
             val seen = HashSet<AccessibilityNodeInfo>()
@@ -510,6 +519,42 @@ object JarvisReaders {
         return scan(needStatus = true).ifEmpty { scan(needStatus = false) }
     }
 
+    /**
+     * The cards on Tapo's home screen, read by Tapo's own ids. The card ("Vee Room,Bedroom,Off") and its power
+     * button sit side by side rather than one inside the other, so they're found through what holds them both.
+     */
+    private fun tapoCards(root: AccessibilityNodeInfo): List<Light> {
+        val all = JarvisHands.nodes(root)
+        val switches = all.filter { idOf(it) == "device_switch" }.ifEmpty { all.filter { idOf(it) == "power_button_view" } }
+        val out = ArrayList<Light>()
+        for (sw in switches) {
+            var holder: AccessibilityNodeInfo? = sw.parent
+            var nameNode: AccessibilityNodeInfo? = null
+            repeat(4) {
+                val h = holder ?: return@repeat
+                if (nameNode == null) {
+                    nameNode = JarvisHands.nodes(h).firstOrNull { idOf(it) == "tv_device_name" }
+                    if (nameNode == null) holder = h.parent
+                }
+            }
+            val h = holder ?: continue
+            val name = nameNode?.let { textOf(it) }?.takeIf { it.isNotEmpty() } ?: continue
+            val inside = JarvisHands.nodes(h)
+            val power = if (sw.isClickable) sw else inside.firstOrNull { it.isClickable && idOf(it) == "device_switch" } ?: sw
+            // The card: the biggest clickable thing in there that isn't the power button (it opens the light's page).
+            val card = inside.filter { it.isClickable && it != power && idOf(it) != "device_switch" }.maxByOrNull { bounds(it).width() * bounds(it).height() } ?: h
+            val status = (listOf(descOf(card)) + JarvisHands.texts(h)).joinToString(",").lowercase()
+            val on = when {
+                Regex("(^|,)\\s*(on|\\d{1,3}%)\\s*(,|$)").containsMatchIn(status) -> true
+                Regex("(^|,)\\s*(off|offline)\\s*(,|$)").containsMatchIn(status) -> false
+                power.isCheckable -> power.isChecked
+                else -> null
+            }
+            out += Light(card, power, name, on)
+        }
+        return out.distinctBy { it.name }
+    }
+
     /** The light you mean: by its name or room ("bedroom light" finds Vee Room in the Bedroom), or the only one. */
     fun light(list: List<Light>, said: String?): Light? {
         if (said == null) return list.firstOrNull()
@@ -522,8 +567,15 @@ object JarvisReaders {
     // (color_point_view: "Auto Mode", "Preset 1, brightness 50%, White Light 2700 K", "Preset 2, …, dark
     // Blue"…), "Brightness, 100%" on the brightness bar, and "Color Picker, dark Violet" for the colour now.
 
-    fun tapoLightPage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any {
-        idOf(it) in setOf("brightness_seek_bar", "cl_power", "color_view", "tv_brightness_title", "tv_device_name") || says(it, "Brightness")
+    fun tapoLightPage(root: AccessibilityNodeInfo): Boolean {
+        val all = JarvisHands.nodes(root)
+        // Tapo's home screen (its tabs, its list of cards) is never the light's page, even though its cards
+        // now carry the light's name the same way the page does.
+        if (all.any { idOf(it) in setOf("device_switch", "srv_home_list", "tab_home", "cl_family_name_toolbar", "content_view_pager") }) return false
+        return all.any {
+            idOf(it) in setOf("brightness_seek_bar", "cl_power", "ib_power", "color_view", "tv_brightness_title") ||
+                says(it, "Brightness") || says(it, "Power") || descOf(it).startsWith("Power,", true) || descOf(it).startsWith("Brightness,", true)
+        }
     }
 
     /** The light's name on its page ("Vee Room"). */
@@ -542,8 +594,23 @@ object JarvisReaders {
                 else -> null
             }
         }
-        val button = all.firstOrNull { idOf(it) == "ib_power" } ?: row
-        return on to button
+        val button = all.firstOrNull { idOf(it) == "ib_power" } ?: row ?: run {
+            // A "Power" label with its round button on the same row.
+            val label = all.firstOrNull { says(it, "Power") } ?: return@run null
+            val lb = bounds(label)
+            all.filter { it.isClickable && it != label && bounds(it).centerY() in (lb.top - lb.height())..(lb.bottom + lb.height()) && bounds(it).left > lb.right }
+                .minByOrNull { bounds(it).width() * bounds(it).height() }
+        }
+        val state = on ?: button?.let { b ->
+            val d = listOfNotNull(b.contentDescription, b.stateDescription).joinToString(" ").lowercase()
+            when {
+                b.isCheckable -> b.isChecked
+                Regex("\\bon\\b").containsMatchIn(d.replace("power", "")) -> true
+                Regex("\\boff\\b").containsMatchIn(d) -> false
+                else -> null
+            }
+        }
+        return state to button
     }
 
     /** The brightness on the light's page, 0–100, and the bar to set it on. */

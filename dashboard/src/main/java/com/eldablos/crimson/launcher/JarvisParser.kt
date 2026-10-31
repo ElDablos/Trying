@@ -117,7 +117,7 @@ object JarvisParser {
          * A week (or more) of shifts in one go; a day with no times is a day off. [uni] are uni sessions said
          * with them. With [week] (its Monday: "next week"), it's that whole week: days not said are off.
          */
-        data class AddShifts(val days: List<RotaDay>, val uni: List<RotaDay> = emptyList(), val week: LocalDate? = null) : Command()
+        data class AddShifts(val days: List<RotaDay>, val uni: List<RotaDay> = emptyList(), val week: LocalDate? = null, val worked: Boolean = false) : Command()
         /** Hours (and pay, where your rate's known) over a [period]: "week", "lastweek", "nextweek", "month", "lastmonth". */
         data class Hours(val period: String, val pay: Boolean) : Command()
         /** "I've clocked in", "I started work at 7:10": the shift's real start, now or at [time]. */
@@ -949,6 +949,9 @@ object JarvisParser {
             ?: if (past) today.minusDays(((today.dayOfWeek.value - d.value + 7) % 7).toLong())
             else today.plusDays(((d.value - today.dayOfWeek.value + 7) % 7).toLong())
 
+    /** "I worked…", "I clocked…": the real times of a day gone, not the rota. */
+    private val WORKED = Regex("\\b(worked|clocked|i did|i've done|i was in|i was working)\\b")
+
     /** Said about what's been ("I worked Monday 7 till 3", "last week I did…"): days are the ones just gone. */
     private val PAST = Regex("\\b(worked|i did|i've done|i done|was in|was working|was on|i've worked|last week|previous week|yesterday)\\b")
 
@@ -968,12 +971,12 @@ object JarvisParser {
             val r = RANGE.find(t) ?: return null
             val (a, b) = times(r)
             if (a == null || b == null || UNI.containsMatchIn(t)) return null
-            return Command.AddShifts(listOf(RotaDay(today.minusDays(1), a, b)))
+            return Command.AddShifts(listOf(RotaDay(today.minusDays(1), a, b)), worked = WORKED.containsMatchIn(t))
         }
         val days = WEEKDAY.findAll(t).toList()
         val only = Regex("\\b(only|just|rest|that's it|that's all|nothing else|other days)\\b").containsMatchIn(t)
         if (days.isEmpty() || (days.size < 2 && !(week != null && only) && !past) || RANGE.findAll(t).none()) return null
-        if (!Regex("\\b(shifts?|rota|working|work|worked|i'm on|i am on|i'm in|these|my week|i did|i was)\\b").containsMatchIn(t)) return null
+        if (!Regex("\\b(shifts?|rota|working|work|worked|clocked|i'm on|i am on|i'm in|these|my week|i did|i was)\\b").containsMatchIn(t)) return null
         if (Regex("^(what|when|which|how|am i|do i|is|are)\\b").containsMatchIn(t)) return null
         val out = LinkedHashMap<LocalDate, RotaDay>()
         val uni = LinkedHashMap<LocalDate, RotaDay>()
@@ -1026,9 +1029,11 @@ object JarvisParser {
         }
         if (out.none { it.value.start != null } && uni.isEmpty()) return null
         if (week == null && out.size + uni.size < 2 && !past) return null
-        // A week gone by keeps the shifts already in it unless you say that was all.
-        val whole = week?.takeIf { it >= today.minusDays((today.dayOfWeek.value - 1).toLong()) || only }
-        return Command.AddShifts(out.values.sortedBy { it.date }, uni.values.sortedBy { it.date }, whole)
+        // A week gone by keeps the shifts already in it unless you say that was all. Times you say you worked
+        // or clocked are the real ones (pay only); the rota stays as planned.
+        val worked = WORKED.containsMatchIn(t)
+        val whole = week?.takeIf { !worked && (it >= today.minusDays((today.dayOfWeek.value - 1).toLong()) || only) }
+        return Command.AddShifts(out.values.sortedBy { it.date }, uni.values.sortedBy { it.date }, whole, worked)
     }
 
     /** Uni on its own: "I've got uni from 5pm to 9pm on Wednesday", "uni every Monday 9 till 12", "no uni this Wednesday". */

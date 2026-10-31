@@ -186,6 +186,20 @@ object JarvisMemory {
      */
     fun seed(context: Context) {
         val p = prefs(context)
+        // Last week's rota (19 to 25 Oct 2026) and the times clocked, from the Grind app: the rota goes in the
+        // planner (and calendar), the clocked times are kept for pay only.
+        if (!p.getBoolean("seeded:5", false)) {
+            p.edit().putBoolean("seeded:5", true).apply()
+            val d = { day: Int -> java.time.LocalDate.of(2026, 10, day) }
+            val t = { s: String -> java.time.LocalTime.parse(s) }
+            val rota = mapOf(20 to ("08:00" to "17:00"), 24 to ("08:00" to "14:00"), 25 to ("10:00" to "18:00"))
+            val clocked = mapOf(20 to ("08:04" to "17:08"), 24 to ("08:10" to "17:06"), 25 to ("10:04" to "18:14"))
+            for (day in 19..25) {
+                val plan = rota[day]
+                Shifts.set(context, d(day), plan?.let { (a, b) -> Shifts.Shift(t(a), t(b), "SHIFT") })
+                Shifts.setActual(context, d(day), clocked[day]?.let { (a, b) -> Shifts.Shift(t(a), t(b), "SHIFT") })
+            }
+        }
         // Vee's pay: £18 an hour.
         if (!p.getBoolean("seeded:4", false)) {
             p.edit().putBoolean("seeded:4", true).apply()

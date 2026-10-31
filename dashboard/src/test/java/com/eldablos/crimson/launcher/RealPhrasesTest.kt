@@ -100,9 +100,13 @@ class RealPhrasesTest {
         assertEquals(Command.AddShifts(listOf(r(o(19), t(7), t(18)), r(o(20), t(8), t(17)), r(o(24), t(8), t(14)))),
             p("add shifts for last week monday 7 till 6, tuesday 8 till 5 and saturday 8 till 2"))
         assertEquals(Command.AddShifts(listOf(r(o(19), t(7), t(15)), r(o(21), t(7), t(15))), week = o(19)),
-            p("last week I only worked monday and wednesday 7 till 3"))
-        assertEquals(Command.AddShifts(listOf(r(o(26), t(7), t(15)))), p("I worked Monday 7 till 3"))
-        assertEquals(Command.AddShifts(listOf(r(o(29), t(9), t(17)))), p("I worked yesterday 9 till 5"))
+            p("last week I only had monday and wednesday 7 till 3, those were my shifts"))
+        // What you worked (clocked): the real times, pay only; the rota stays.
+        assertEquals(Command.AddShifts(listOf(r(o(26), t(7), t(15))), worked = true), p("I worked Monday 7 till 3"))
+        assertEquals(Command.AddShifts(listOf(r(o(29), t(9), t(17))), worked = true), p("I worked yesterday 9 till 5"))
+        assertEquals(Command.AddShifts(listOf(r(o(24), LocalTime.of(8, 10), LocalTime.of(17, 6))), worked = true), p("on Saturday I worked 8:10 till 17:06"))
+        assertEquals(Command.AddShifts(listOf(r(o(20), LocalTime.of(8, 4), LocalTime.of(17, 8)), r(o(24), LocalTime.of(8, 10), LocalTime.of(17, 6))), worked = true),
+            p("last week I clocked Tuesday 8:04 till 17:08 and Saturday 8:10 till 17:06"))
         assertEquals(Command.Hours("lastweek", true), p("what did I earn last week"))
     }
 

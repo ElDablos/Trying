@@ -820,7 +820,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.RemoveCountdown -> removeCountdown(cmd.name)
         is Command.AddShift -> setShift(cmd.date, Shifts.Shift(cmd.start, cmd.end, shiftName(cmd.start, cmd.end)))
         is Command.RemoveShift -> setShift(cmd.date, null)
-        is Command.AddShifts -> setShifts(cmd.days, cmd.uni, cmd.week)
+        is Command.AddShifts -> if (cmd.worked) setWorked(cmd.days) else setShifts(cmd.days, cmd.uni, cmd.week)
         is Command.AddUni -> addUni(cmd.dates, cmd.start, cmd.end, cmd.weekly)
         is Command.RemoveUni -> removeUni(cmd.date, cmd.weekly)
         is Command.UniWhen -> uniWhen(cmd.day)
@@ -2810,6 +2810,33 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             card = Card("⧗", "ROTA SAVED · ${span.uppercase()}", "${hours}h", "${working.size} shifts${if (uni.isNotEmpty()) " · ${uni.size} uni" else ""}", rows, Tone.HOT),
             actions = listOf(undoAction, Action("MY WEEK", if (span == "next week") "what's my rota next week" else "what's my rota this week")),
         )
+    }
+
+    /**
+     * The hours you really worked on days gone ("on Saturday I worked 8:10 till 17:06"): kept for pay only,
+     * next to the rota. The rota, and the calendar, keep the planned shifts.
+     */
+    private fun setWorked(days: List<JarvisParser.RotaDay>): Reply {
+        val plan = Shifts.all(context)
+        val list = days.filter { it.start != null && it.end != null }
+        if (list.isEmpty()) return Reply("What times did you work${sir()}?")
+        val before = list.associate { it.date to Shifts.actual(context)[it.date] }
+        list.forEach { d -> Shifts.setActual(context, d.date, Shifts.Shift(d.start!!, d.end!!, plan[d.date]?.name ?: shiftName(d.start, d.end))) }
+        push("Worked hours put back") {
+            before.forEach { (d, s) -> Shifts.setActual(context, d, s) }
+            "Put them back as they were."
+        }
+        val setup = Pay.setup(context)
+        fun dayName(d: LocalDate) = d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        val minutes = list.sumOf { java.time.Duration.between(it.start, it.end).toMinutes().let { m -> if (m <= 0) m + 24 * 60 else m } }
+        val (_, b) = Pay.periodOf(list.last().date, setup)
+        val period = Pay.periodOf(list.last().date, setup).let { (a, e) -> Pay.slipFor(context, a, e, setup) }
+        return Reply("Logged${sir()}: ${list.joinToString(", ") { "${dayName(it.date)} ${it.start!!.format(tf)} till ${it.end!!.format(tf)}" }}, ${minutesSaid(minutes)} in all. " +
+            "Your calendar keeps the rota. That's in your ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))} pay, about ${money(period.net)} take-home for the fortnight.",
+            card = Card("⧗", "WORKED · PAY ONLY", minutesSaid(minutes), "calendar keeps the rota",
+                list.map { d -> Row(d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.date.dayOfMonth,
+                    "${d.start!!.format(tf)}–${d.end!!.format(tf)}" + (plan[d.date]?.let { " · rota ${it.times()}" } ?: ""), ok = true) }, Tone.GREEN),
+            actions = listOf(undoAction, Action("NEXT PAYDAY", "what's my next payday")))
     }
 
     /** Uni on a day, or every week on it; next to the shift that day, with a word if they overlap. */

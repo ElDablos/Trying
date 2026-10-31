@@ -349,7 +349,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             }
         }
         return Reply(say(pick("One moment, sir.", "Let me make sure I've got that.", "Checking."), "Making sure.", "Checking."),
-            card = Card("✦", "CHECKING", sub = text.take(80), tone = Tone.BLUE), silent = true, more = true)
+            silent = true, more = true)
     }
 
     private fun finish(text: String, cmd: Command, meant: String?, inRoutine: Boolean): Reply {
@@ -1372,7 +1372,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 }
             }
         }.start()
-        return Reply(say("Looking it up, sir.", "Consulting the internet.", "Looking."), card = Card("⌕", "LOOKING IT UP", sub = q.take(80), tone = Tone.BLUE), more = true)
+        return Reply(say("Looking it up, sir.", "Consulting the internet.", "Looking."), more = true)
     }
 
     /** Things that change (news, prices, opening times, results): worth a look-up rather than his memory. */
@@ -1424,12 +1424,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             val deep = Regex("\\b(why|explain|how (do|does|should|would|could|can) i|plan|compare|difference between|pros and cons|should i|help me (work out|decide|figure|think)|work out|figure out|what if|which is better|step by step|reason|solve|puzzle|riddle)\\b", RegexOption.IGNORE_CASE).containsMatchIn(said)
             val ask: (String, String, (String?) -> Unit) -> Unit = if (deep) { q, a, d -> JarvisBrain.reason(context, q, a, d) } else { q, a, d -> JarvisBrain.answer(context, q, a, d) }
             ask(said, aboutVee()) { reply ->
-                host.later(if (reply != null) Reply(reply, card = Card("✦", "JARVIS · ${JarvisBrain.lastUsed.uppercase().take(28)}", sub = said.take(80), tone = Tone.BLUE),
+                host.later(if (reply != null) Reply(reply,
                     actions = listOf(Action("LOOK IT UP", run = { host.later(lookUp(said)) }), Action("ASK CLAUDE", run = { askClaude(said).then?.invoke() })))
                 else lookupOffer(said))
             }
         }
-        return Reply(say(pick("One moment, sir.", "Let me think.", "Thinking."), "Cogitating.", "Thinking."), card = Card("✦", "THINKING", sub = if (JarvisBrain.loading) "waking the brain" else said.take(80), tone = Tone.BLUE), more = true)
+        return Reply(if (JarvisBrain.loading) say("One moment, sir, my brain's waking up.", "Waking the brain.", "Waking up.") else say(pick("One moment, sir.", "Let me think.", "Thinking."), "Cogitating.", "Thinking."), more = true)
     }
 
     /** The question handed to Claude. */
@@ -3729,7 +3729,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 else host.later(readImage(shot, rota, ask))
             }
         }.start()
-        return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), card = Card("▣", "READING YOUR SCREENSHOT", sub = if (rota) "a rota" else ask.take(80), tone = Tone.BLUE), more = true)
+        return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), more = true)
     }
 
     /** A picture you attached in the chat: he asks what to do with it, or does what you typed with it. */
@@ -3749,8 +3749,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val shot = file
         main.post {
             if (!rota) {
-                JarvisBrain.see(context, shot.path, "You are Jarvis, a British butler-style assistant. $ask. Answer in at most five short sentences, without markdown.") { out ->
-                    host.later(Reply(out ?: "I couldn't make that one out${sir()}.", card = Card("▣", "PICTURE · ${JarvisBrain.lastUsed.uppercase().take(20)}", sub = ask.take(80), tone = Tone.BLUE), failed = out == null))
+                JarvisBrain.see(context, shot.path, pictureQuestion(ask)) { out ->
+                    host.later(Reply(out ?: if (JarvisBrain.eyesFailed) "My eyes wouldn't start just now${sir()}. Try again in a moment; if it keeps happening, restart the phone to free some memory."
+                        else "I couldn't make that one out${sir()}.", failed = out == null))
                 }
                 return@post
             }
@@ -3761,7 +3762,17 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 host.later(rotaFound(out))
             }
         }
-        return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), card = Card("▣", "READING IT", sub = if (rota) "a rota" else ask.take(80), tone = Tone.BLUE), more = true)
+        return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), more = true)
+    }
+
+    /** What to ask his eyes: about the picture itself, never about him ("describe it" means the picture). */
+    private fun pictureQuestion(ask: String): String {
+        val q = ask.trim().trimEnd('.', '?', '!')
+        val plain = Regex("^(describe( it| this| that| the (picture|image|screenshot))?|what'?s in it|what is (it|this|that)|what'?s this|sum (it|this) up|summari[sz]e( it| this)?|tell me about it|read it|explain it)$", RegexOption.IGNORE_CASE).matches(q)
+        val task = if (plain || q.isEmpty()) "Describe what this picture shows: what kind of picture or screen it is, the main things in it, and any important text."
+            else "About this picture: $q."
+        return "$task Only describe what is actually in the picture; don't talk about yourself. " +
+            "Answer in at most five short, plain sentences (no markdown, no lists), as a polite, dry British butler would say them."
     }
 
     /** The rota his brain read: shown day by day, added with one tap (rota to the planner, clocked times for pay only). */

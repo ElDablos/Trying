@@ -164,32 +164,78 @@ object JarvisBrain {
         if (e != null) worker.execute { runCatching { e.close() } }
     }
 
-    /** The engine with [model] loaded, on the brain's thread (up to ten seconds when it swaps): the GPU, else the CPU. */
-    private fun load(context: Context, model: Model): Engine {
+    /** Whether the loaded engine can see (Gemma with its vision part running). */
+    @Volatile
+    private var loadedEyes = false
+
+    /** The last time he tried to read a picture, his eyes wouldn't start (not enough memory, or the GPU refused). */
+    @Volatile
+    var eyesFailed = false
+        private set
+
+    /**
+     * The engine with [model] loaded, on the brain's thread (up to ten seconds when it swaps): the GPU, else the
+     * CPU. Gemma loads with its eyes, which [needEyes] insists on (reloading if they didn't start before).
+     */
+    private fun load(context: Context, model: Model, needEyes: Boolean = false): Engine {
         val path = model.file.absolutePath
-        engine?.let { if (loadedPath == path) return it }
+        engine?.let { if (loadedPath == path && (!needEyes || loadedEyes)) return it }
         engine?.let { runCatching { it.close() } }
         engine = null
         loadedPath = null
+        loadedEyes = false
         loading = true
         try {
             val cache = context.cacheDir.path
-            // Gemma has eyes: its vision part on the GPU too, so it can read screenshots.
-            val eyes = model.name.contains("gemma", true)
-            val e = runCatching {
-                Engine(if (eyes) EngineConfig(modelPath = path, backend = Backend.GPU(), visionBackend = Backend.GPU(), cacheDir = cache)
-                else EngineConfig(modelPath = path, backend = Backend.GPU(), cacheDir = cache)).also { it.initialize() }
-            }.recoverCatching {
-                Engine(EngineConfig(modelPath = path, backend = Backend.GPU(), cacheDir = cache)).also { it.initialize() }
-            }.getOrElse {
-                Engine(EngineConfig(modelPath = path, backend = Backend.CPU(), cacheDir = cache)).also { it.initialize() }
+            fun start(backend: Backend, vision: Backend?) = Engine(
+                if (vision != null) EngineConfig(modelPath = path, backend = backend, visionBackend = vision, cacheDir = cache)
+                else EngineConfig(modelPath = path, backend = backend, cacheDir = cache)).also { it.initialize() }
+            // Gemma has eyes: its vision part on the GPU, else the CPU, so it can read pictures.
+            val tries = if (model.name.contains("gemma", true)) listOf(
+                { Backend.GPU() } to { Backend.GPU() as Backend? }, { Backend.GPU() } to { Backend.CPU() as Backend? },
+                { Backend.CPU() } to { Backend.CPU() as Backend? }, { Backend.GPU() } to { null as Backend? }, { Backend.CPU() } to { null as Backend? })
+            else listOf({ Backend.GPU() } to { null as Backend? }, { Backend.CPU() } to { null as Backend? })
+            var last: Throwable? = null
+            for ((b, v) in tries) {
+                val vision = v()
+                val e = try { start(b(), vision) } catch (t: Throwable) { last = t; continue }
+                loadedPath = path
+                loadedEyes = vision != null
+                engine = e
+                return e
             }
-            loadedPath = path
-            return e.also { engine = it }
+            throw last ?: IllegalStateException("no engine")
         } finally {
             loading = false
         }
     }
+
+    /**
+     * The picture made easy to read: decoded (PNG, JPEG, whatever it was), at most [MAX_SIDE] on its longest side,
+     * saved as a real JPEG. A full-size screenshot is slow and can be too much for the phone's memory.
+     */
+    private fun prepared(context: Context, path: String): String {
+        return try {
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(path, bounds)
+            val longest = maxOf(bounds.outWidth, bounds.outHeight)
+            if (longest <= 0) return path
+            var sample = 1
+            while (longest / (sample * 2) >= MAX_SIDE) sample *= 2
+            val bmp = android.graphics.BitmapFactory.decodeFile(path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) ?: return path
+            val scale = MAX_SIDE.toFloat() / maxOf(bmp.width, bmp.height)
+            val sized = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt().coerceAtLeast(1), (bmp.height * scale).toInt().coerceAtLeast(1), true) else bmp
+            val out = java.io.File(context.cacheDir, "jarvis-eyes.jpg")
+            out.outputStream().use { sized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
+            if (sized !== bmp) sized.recycle()
+            bmp.recycle()
+            out.path
+        } catch (e: Throwable) {
+            path
+        }
+    }
+
+    private const val MAX_SIDE = 1280
 
     /** A thinking model's working-out ("<think>…</think>") taken off: just the answer. */
     private fun tidy(out: String): String = out.replace(Regex("(?s)<think>.*?</think>"), "").substringAfterLast("</think>").trim()
@@ -220,10 +266,16 @@ object JarvisBrain {
         val app = context.applicationContext
         worker.execute {
             val model = pick(app, Job.SEE)
+            eyesFailed = false
             val out = try {
                 model?.let { m ->
-                    load(app, m).createConversation().use { c ->
-                        tidy(c.sendMessage(Contents.of(Content.ImageFile(imagePath), Content.Text(instruction))).toString())
+                    val e = load(app, m, needEyes = true)
+                    // Without eyes it would answer the words alone (and "describe it" becomes a description of himself).
+                    if (!loadedEyes) {
+                        eyesFailed = true
+                        null
+                    } else e.createConversation().use { c ->
+                        tidy(c.sendMessage(Contents.of(Content.ImageFile(prepared(app, imagePath)), Content.Text(instruction))).toString())
                     }.also { lastUsed = m.name }
                 }
             } catch (e: Throwable) {

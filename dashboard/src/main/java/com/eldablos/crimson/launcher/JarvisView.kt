@@ -420,6 +420,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     }
 
     private fun respond(reply: Jarvis.Reply, asked: String, then: (() -> Unit)? = null) {
+        // Whatever the line under the core said ("Didn't catch that…") is old news now.
+        showHeard("")
         if (reply.say.isNotBlank()) bubble(reply.say, mine = false, card = reply.card, actions = reply.actions)
         setChips(buildList {
             if (reply.claude != null) add("✳ Ask Claude")
@@ -583,6 +585,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 setState(State.IDLE)
                 val silent = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
                 showHeard(if (silent && !auto) "Didn't catch that. Tap the core to try again." else "")
+                // A hint, not a fixture: it fades after a few seconds.
+                if (silent && !auto) main.postDelayed({ if (heard.text.startsWith("Didn't catch")) showHeard("") }, 5000)
             }
             override fun onResults(results: Bundle?) {
                 // Of everything it might have heard, the one he can act on ("Claude" over "cloud").

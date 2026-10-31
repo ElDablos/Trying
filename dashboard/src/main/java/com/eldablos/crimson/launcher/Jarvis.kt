@@ -920,6 +920,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.Lights -> device(cmd.name ?: lastDevice?.takeIf { Regex("light|lamp|bulb").containsMatchIn(it) }, cmd.on, light = true)
         is Command.Switch -> device(if (cmd.name in setOf("it", "that", "them")) lastDevice ?: cmd.name else cmd.name, cmd.on, light = false)
         is Command.Teach -> teachStart(cmd.name, cmd.app)
+        Command.TeachHelp -> teachHelp()
+        is Command.ReadScreenshot -> readScreenshot(cmd.rota, cmd.ask)
+        is Command.MakeCommand -> makeCommand(cmd.description)
+        Command.Missed -> missed()
         is Command.Press -> press(cmd.label, cmd.app)
         Command.Yes -> Reply(say("Very good, sir.", "Glad we agree.", "OK."))
         Command.No -> Reply(say("Very well.", "Fair enough.", "OK."), end = true)
@@ -1301,6 +1305,21 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         JarvisMemory.facts(context).take(20).forEach { append("- ${it.key}: ${it.value}\n") }
         append("- Works shifts at Grind (London Bridge), head barista; Thursdays in the office 9 to 5; takes the Jubilee line to work.\n")
         Shifts.next(Shifts.all(context), System.currentTimeMillis(), zone)?.let { (d, s) -> append("- Next shift: ${whenText(d, null)} ${s.times()}\n") }
+        // The week ahead, pay, uni, notes and habits: so questions about his own life get real answers.
+        val today = LocalDate.now()
+        (0L..6L).map { today.plusDays(it) }.forEach { d ->
+            val sh = Shifts.all(context)[d]
+            val u = Uni.on(context, d)
+            if (sh != null || u != null) append("- ${d.format(DateTimeFormatter.ofPattern("EEE d MMM"))}: ${listOfNotNull(sh?.let { "work ${it.times()}" }, u?.let { "uni ${it.times()}" }).joinToString(", ")}\n")
+        }
+        runCatching {
+            val setup = Pay.setup(context)
+            val (a, b) = Pay.periodOf(today, setup)
+            val slip = Pay.slipFor(context, a, b, setup)
+            append("- Pay: £${"%.2f".format(Locale.ROOT, setup.hourly)}/hour (basic ${"%.2f".format(Locale.ROOT, setup.basicRate)} + TRONC); this fortnight ${"%.1f".format(Locale.ROOT, slip.hours)}h, about £${"%.0f".format(Locale.ROOT, slip.net)} take-home, paid ${Pay.payday(b)}\n")
+        }
+        openNotes().take(8).takeIf { it.isNotEmpty() }?.let { append("- Open notes: ${it.joinToString("; ")}\n") }
+        JarvisChat.recent(context, 8).takeIf { it.isNotEmpty() }?.let { append("- Recent conversation:\n${it.joinToString("\n") { l -> "  $l" }}\n") }
         append("- Today is ${LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE d MMMM yyyy"))}, time ${LocalTime.now().format(tf)}.\n")
     }
 
@@ -3567,11 +3586,155 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (!handsReady()) return needHands("learning that")
         val app = appName?.let { findApp(it) }
             ?: if (Regex("light|lamp|bulb|plug|socket|strip").containsMatchIn(name)) AppCatalog.apps().firstOrNull { it.component.packageName == TAPO } else null
-        if (app == null) {
-            pending = Pending.WhichApp(name)
-            return Reply("Which app is the $name in${sir()}?", listOf("Tapo", "SmartThings", "Google Home"), listen = true)
-        }
+        if (app == null) return teachFromHome(name)
         return teach(name, app)
+    }
+
+    /**
+     * Teaching from the home screen: he goes home and follows you. Open the app however you like (all apps,
+     * search, a folder), tap through what you do, then stop: the app and your taps are learnt.
+     */
+    private fun teachFromHome(name: String): Reply = Reply(
+        "Right. I'll go to your home screen and follow you. Open the app the way you normally would, tap through what you do for the $name, then stop for a few seconds.",
+        then = { JarvisHands.learnFromHome(name) }, afterSpeech = true,
+        card = Card("◉", "TEACH MODE", name.uppercase(), "from your home screen", listOf(
+            Row("1", "I go to your home screen"), Row("2", "You open the app: all apps, search, wherever"),
+            Row("3", "You tap through it, as normal"), Row("4", "Stop for a few seconds: I've learnt it"),
+        ), Tone.HOT),
+    )
+
+    /** How teaching works, and a way to start. */
+    private fun teachHelp(): Reply = Reply(
+        "You can teach me anything you do in an app, sir. Say \"learn\" and what to call it, like \"learn the bedroom light\" or \"learn how to check my bank balance\". " +
+            "I'll go to your home screen; you open the app and tap through it as normal, then stop. After that, just ask and I'll do it myself.",
+        card = Card("◉", "TEACH ME", sub = "Say: learn <what to call it>", rows = listOf(
+            Row("1", "\"Learn how to order my usual coffee\""), Row("2", "I go home and follow you"),
+            Row("3", "Open the app, tap through it, then stop"), Row("4", "Next time: \"order my usual coffee\""),
+        ), tone = Tone.HOT),
+        actions = listOf(Action("TEACH SOMETHING", "learn ")),
+    )
+
+    // --- His brain, put to work ---
+
+    /** The newest screenshot (or photo, if there are no screenshots), copied where his brain can read it. */
+    private fun latestScreenshot(): java.io.File? {
+        val cr = context.contentResolver
+        val uri = android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        fun newest(where: String?): android.net.Uri? = runCatching {
+            cr.query(uri, arrayOf(android.provider.MediaStore.Images.Media._ID), where, null, "${android.provider.MediaStore.Images.Media.DATE_ADDED} DESC")?.use { c ->
+                if (c.moveToFirst()) android.content.ContentUris.withAppendedId(uri, c.getLong(0)) else null
+            }
+        }.getOrNull()
+        val pick = newest("${android.provider.MediaStore.Images.Media.RELATIVE_PATH} LIKE '%Screenshots%'") ?: newest(null) ?: return null
+        return runCatching {
+            val out = java.io.File(context.cacheDir, "jarvis-shot.jpg")
+            cr.openInputStream(pick)!!.use { i -> out.outputStream().use { o -> i.copyTo(o) } }
+            out
+        }.getOrNull()
+    }
+
+    /**
+     * Reads your latest screenshot with his brain's eyes. A rota (Grind's, or any): every day with its rota
+     * times and clocked times, to add with one tap (rota to the planner and calendar, clocked times for pay).
+     * Anything else: what it says, in brief.
+     */
+    private fun readScreenshot(rota: Boolean, ask: String): Reply {
+        if (!JarvisBrain.canSee(context)) return Reply("I need my Gemma brain to read pictures${sir()}. Add it in my settings, under Jarvis Brains.", actions = listOf(Action("SETTINGS", "jarvis settings")), failed = true)
+        if (context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            host.ask(arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES))
+            return Reply("I need to see your photos to read screenshots${sir()}. Allow it, then ask me again.")
+        }
+        Thread {
+            val shot = latestScreenshot()
+            main.post {
+                if (shot == null) {
+                    host.later(Reply("I couldn't find a screenshot${sir()}.", failed = true))
+                    return@post
+                }
+                if (!rota) {
+                    JarvisBrain.see(context, shot.path, "You are Jarvis, a British butler-style assistant. $ask. Answer in at most five short sentences, without markdown.") { out ->
+                        host.later(Reply(out ?: "I couldn't make that one out${sir()}.", card = Card("▣", "SCREENSHOT · ${JarvisBrain.lastUsed.uppercase().take(20)}", sub = ask.take(80), tone = Tone.BLUE), failed = out == null))
+                    }
+                    return@post
+                }
+                val year = LocalDate.now().year
+                JarvisBrain.see(context, shot.path, "This is a work rota (shift schedule) screenshot. List every day shown, one per line, exactly like this:\n" +
+                    "DATE=YYYY-MM-DD | ROTA=HH:MM-HH:MM | CLOCKED=HH:MM-HH:MM\nUse OFF for a day off (ROTA=OFF), leave CLOCKED empty if no clock-in times are shown, use 24-hour times, and assume the year is $year. " +
+                    "If a day has two shifts back to back, give one from the first start to the last end. Nothing else.") { out ->
+                    host.later(rotaFound(out))
+                }
+            }
+        }.start()
+        return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), card = Card("▣", "READING YOUR SCREENSHOT", sub = if (rota) "a rota" else ask.take(80), tone = Tone.BLUE))
+    }
+
+    /** The rota his brain read: shown day by day, added with one tap (rota to the planner, clocked times for pay only). */
+    private fun rotaFound(out: String?): Reply {
+        val line = Regex("DATE=(\\d{4}-\\d{2}-\\d{2})\\s*\\|\\s*ROTA=([0-9:]{4,5}-[0-9:]{4,5}|OFF)\\s*(?:\\|\\s*CLOCKED=([0-9:]{4,5}-[0-9:]{4,5})?)?", RegexOption.IGNORE_CASE)
+        fun t(x: String) = runCatching { LocalTime.parse(x.padStart(5, '0')) }.getOrNull()
+        val days = line.findAll(out.orEmpty()).mapNotNull { m ->
+            val date = runCatching { LocalDate.parse(m.groupValues[1]) }.getOrNull() ?: return@mapNotNull null
+            val rota = m.groupValues[2].takeIf { !it.equals("OFF", true) }?.split('-')?.let { (a, b) -> t(a)?.let { x -> t(b)?.let { y -> x to y } } }
+            val clocked = m.groupValues[3].takeIf { it.isNotBlank() }?.split('-')?.let { (a, b) -> t(a)?.let { x -> t(b)?.let { y -> x to y } } }
+            Triple(date, rota, clocked)
+        }.distinctBy { it.first }.sortedBy { it.first }.toList()
+        if (days.isEmpty()) return Reply("I couldn't read a rota from that screenshot${sir()}. Is it the latest one?", failed = true)
+        val apply = {
+            setShifts(days.map { (d, r, _) -> JarvisParser.RotaDay(d, r?.first, r?.second) }, emptyList(), null)
+            val worked = days.mapNotNull { (d, _, c) -> c?.let { JarvisParser.RotaDay(d, it.first, it.second) } }
+            if (worked.isNotEmpty()) setWorked(worked)
+            Reply("Done${sir()}: ${days.count { it.second != null }} shifts in your planner and calendar" +
+                (if (worked.isNotEmpty()) ", and ${worked.size} days' clocked times for your pay." else "."),
+                card = Card("⧗", "ROTA ADDED", "${days.count { it.second != null }} SHIFTS", "from your screenshot", tone = Tone.GREEN), actions = listOf(undoAction))
+        }
+        pending = Pending.Confirm(apply, "Very well, I've left it.")
+        val fmt = DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())
+        return Reply("I read ${days.size} days${sir()}. Add them?", listen = true,
+            card = Card("⧗", "ROTA FROM YOUR SCREENSHOT", "${days.count { it.second != null }} SHIFTS", "check it, then add", days.map { (d, r, c) ->
+                Row(d.format(fmt).uppercase(), (r?.let { "${it.first.format(tf)}–${it.second.format(tf)}" } ?: "OFF") + (c?.let { " · clocked ${it.first.format(tf)}–${it.second.format(tf)}" } ?: ""))
+            }, Tone.GOLD),
+            actions = listOf(Action("ADD THEM", "yes", primary = true), Action("NO", "no")))
+    }
+
+    /** A command of your own, from your description: his brain builds it from what he can do; saved as a routine. */
+    private fun makeCommand(description: String): Reply {
+        if (!JarvisBrain.ready(context)) return Reply("I need one of my brains for that${sir()}. Add one in my settings, under Jarvis Brains. Or build it by hand in My routines.",
+            actions = listOf(Action("MY ROUTINES", "my routines")), failed = true)
+        JarvisBrain.compose(context, description, EXAMPLES + JarvisMemory.suggestions(context)) { made ->
+            val ok = made?.let { (name, say, steps) ->
+                val good = steps.filter { JarvisParser.parse(it) !is Command.Unknown }
+                if (good.isEmpty()) null else Triple(name, say, good)
+            }
+            if (ok == null) {
+                host.later(Reply("I couldn't build that from what I can do${sir()}. Try describing it as things you'd ask me, one after another.", failed = true))
+                return@compose
+            }
+            val (name, say, steps) = ok
+            val r = JarvisRoutines.Routine("custom-" + System.currentTimeMillis(), name, listOf(say.lowercase().trimEnd('.', '!', '?')), steps, "✦")
+            JarvisRoutines.put(context, r)
+            push("Command \"$name\" removed") { JarvisRoutines.delete(context, r.id); "Removed it." }
+            host.later(Reply("Done${sir()}. Say \"$say\" and I'll ${steps.joinToString(", then ") { it.replaceFirstChar { c -> c.lowercase() } }}.",
+                card = Card("✦", "NEW COMMAND", name.uppercase(), "say: “$say”", steps.mapIndexed { i, st -> Row("${i + 1}", st) }, Tone.GREEN),
+                actions = listOf(undoAction, Action("TRY IT", say))))
+        }
+        return Reply(say("Let me put that together, sir.", "Building it.", "Building."), card = Card("✦", "NEW COMMAND", sub = description.take(80), tone = Tone.BLUE))
+    }
+
+    /** "What did I miss?": your notifications, put in a few lines by his brain (or listed, without one). */
+    private fun missed(): Reply {
+        val items = Comms.all().filter { it.packageName != context.packageName }.take(30)
+        if (items.isEmpty()) return Reply("Nothing new${sir()}. All quiet.")
+        val lines = items.mapNotNull { sbn ->
+            val e = sbn.notification.extras
+            val title = e.getCharSequence(android.app.Notification.EXTRA_TITLE)?.toString().orEmpty()
+            val text = (e.getCharSequence(android.app.Notification.EXTRA_BIG_TEXT) ?: e.getCharSequence(android.app.Notification.EXTRA_TEXT))?.toString().orEmpty()
+            if (title.isBlank() && text.isBlank()) null else "${PhoneHabits.label(context, sbn.packageName)}: $title: ${text.take(200)}"
+        }
+        if (!JarvisBrain.ready(context)) return Reply("You've ${lines.size} notifications${sir()}.", card = Card("✉", "WHAT YOU MISSED", "${lines.size}", rows = lines.take(8).map { Row(it.substringBefore(':'), it.substringAfter(": ").take(60)) }, tone = Tone.GOLD))
+        JarvisBrain.digest(context, lines.joinToString("\n")) { out ->
+            host.later(Reply(out ?: "You've ${lines.size} notifications${sir()}.", card = Card("✉", "WHAT YOU MISSED", "${lines.size}", rows = lines.take(6).map { Row(it.substringBefore(':'), it.substringAfter(": ").take(60)) }, tone = Tone.GOLD)))
+        }
+        return Reply(say("Catching you up, sir.", "Let's see what happened.", "Checking."), card = Card("✉", "CATCHING UP", sub = "${lines.size} notifications", tone = Tone.GOLD))
     }
 
     private fun teach(name: String, app: AppEntry): Reply = Reply(
@@ -4078,7 +4241,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "What's my screen time?", "Tick off buy milk", "Set my alarms for work tomorrow", "Turn off my work alarms",
             "What's my rota this week?", "What's my rota next week?", "What have I earned this month?", "How many hours this month?",
             "Have I got uni tomorrow?", "I've got uni every Wednesday 5 till 9", "How's the tube?", "Any delays tomorrow?", "Lock my phone",
-            "Next colour", "Set the heating to 24", "Turn the heating off", "Wake log", "Hands log", "When's payday?", "My pay log", "I've clocked in", "I've finished work",
+            "Next colour", "Set the heating to 24", "Turn the heating off", "Wake log", "Hands log", "When's payday?", "My pay log", "I've clocked in", "I've finished work", "Read my rota from my screenshot",
+            "What did I miss?", "What's 15% of 80?", "How do I teach you?",
         )
 
         /** Soundex: names that sound alike share a code ("cloud" and "Claude" are both C430). */

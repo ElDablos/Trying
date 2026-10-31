@@ -175,6 +175,19 @@ class RealPhrasesTest {
     }
 
     @Test
+    fun brainFeatures() {
+        assertTrue(p("read my rota from my last screenshot").let { it is Command.ReadScreenshot && it.rota })
+        assertTrue(p("what's on my screenshot").let { it is Command.ReadScreenshot && !it.rota })
+        assertEquals(Command.ReadScreenshot(true, "read my rota"), p("read my rota"))
+        assertTrue(p("when I say heading to work, turn off the lights and tell me the tube") is Command.MakeCommand)
+        assertTrue(p("make a new command called movie night: dim the lights and turn on do not disturb") is Command.MakeCommand)
+        assertEquals(Command.Missed, p("what did I miss"))
+        assertEquals(Command.Missed, p("catch me up"))
+        assertEquals(Command.TeachHelp, p("how do I teach you"))
+        assertTrue(p("learn how to check my bank balance") is Command.Teach)
+    }
+
+    @Test
     fun notesAndHabits() {
         assertEquals(Command.TickAllNotes, p("tick my notes"))
         assertEquals(Command.TickNote("#2"), p("I want to finish my second note"))

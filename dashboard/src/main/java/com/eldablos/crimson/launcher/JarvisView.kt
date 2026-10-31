@@ -871,6 +871,14 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         choice(body, personas.map { it.label }, personas.indexOf(JarvisMemory.persona(context))) { JarvisMemory.setPersona(context, personas[it]) }
         heading(body, "VOICE & SOUNDS")
         item(body, "Voice", "Pick from the phone's voices; British male first", "CHANGE", onButton = { Speech.chooseVoice(context, context.getSharedPreferences("deck", Context.MODE_PRIVATE).getString("name", null) ?: "Vee") })
+        body.addView(TextView(context).apply { text = "How he speaks"; setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(11f) * u); setTextColor(Hud.SOFT); setPadding(0, dp(6f), 0, dp(6f)) })
+        choice(body, Speech.STYLES.map { it.label }, Speech.STYLES.indexOfFirst { it.label == Speech.style(context).label }.coerceAtLeast(0)) { Speech.setStyle(context, Speech.STYLES[it].label) }
+        // The best Jarvis voice is a neural British one, free and offline: Kokoro's "George" or "Lewis".
+        item(body, "A truer Jarvis voice", "Install a free, offline neural voice engine (VoxSherpa, with Kokoro's British male voices George or Lewis), open it once to download the voice, then CHANGE above and pick it.", "GET IT", onButton = {
+            try {
+                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/search?q=VoxSherpa%20TTS&c=apps")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) { }
+        })
         toggle(body, "Sounds", "A chime when he listens, hears and finishes", JarvisMemory.sounds(context)) { JarvisMemory.setSounds(context, it) }
         toggle(body, "Learn from phone use", "Which apps you open and when, so he can offer them at the right time. Kept on this phone; never while a VPN is on", PhoneHabits.enabled(context)) {
             PhoneHabits.setEnabled(context, it)

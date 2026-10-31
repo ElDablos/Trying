@@ -40,9 +40,9 @@ class JarvisHands : AccessibilityService() {
     override fun onInterrupt() {}
 
     /** Listens to [pkg] only, or to nothing between jobs, so it costs nothing while idle. */
-    private fun watch(pkg: String?) {
+    private fun watch(pkg: String?, everything: Boolean = false) {
         val info = serviceInfo ?: AccessibilityServiceInfo()
-        info.packageNames = arrayOf(pkg ?: IDLE_PACKAGE)
+        info.packageNames = if (everything) null else arrayOf(pkg ?: IDLE_PACKAGE)
         info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or AccessibilityEvent.TYPE_VIEW_CLICKED
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
         info.flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS or
@@ -59,7 +59,8 @@ class JarvisHands : AccessibilityService() {
 
         class Run(pkg: String, val skill: Skill, val on: Boolean?, var step: Int = 0) : Job(pkg)
         class Guess(pkg: String, val device: String?, val on: Boolean?, var opened: Boolean = false) : Job(pkg)
-        class Learn(pkg: String, val name: String, val taps: MutableList<Target> = ArrayList()) : Job(pkg)
+        /** Watching you: in [pkg], or from the home screen ([ANY]) until you open an app, which becomes [app]. */
+        class Learn(pkg: String, val name: String, val taps: MutableList<Target> = ArrayList(), var app: String? = null) : Job(pkg)
         /**
          * Anything else: [step] looks at the screen each time it settles and returns what to say when
          * it's done, or null to wait for more. [tries] counts the looks, so a reader can give up gracefully.
@@ -92,7 +93,18 @@ class JarvisHands : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val j = job ?: return
-        if (event.packageName?.toString() != j.pkg) return
+        val from = event.packageName?.toString()
+        // Taught from the home screen: the first app you open (however you get there) is the one he learns.
+        if (j is Job.Learn && j.pkg == ANY) {
+            if (from == null || from == packageName || from in PASSING) return
+            if (j.app == null && event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                j.app = from
+                act("you opened $from")
+                main.removeCallbacks(giveUp)
+                main.postDelayed(giveUp, 60_000)
+            }
+            if (from != j.app) return
+        } else if (from != j.pkg) return
         if (j is Job.Learn) {
             if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
                 Target.of(event)?.let { j.taps += it }
@@ -268,9 +280,13 @@ class JarvisHands : AccessibilityService() {
             report(this, "I didn't see you tap anything, sir. Let's try again another time.")
             return
         }
+        val app = (j.app ?: j.pkg).takeIf { it != ANY } ?: run {
+            report(this, "I didn't see you open an app, sir. Let's try again another time.")
+            return
+        }
         // Repeated taps on the same thing (switching it off and on to test) count once.
         val steps = j.taps.fold(ArrayList<Target>()) { acc, t -> if (acc.lastOrNull()?.same(t) != true) acc += t; acc }
-        saveSkill(this, Skill(j.name, j.pkg, steps))
+        saveSkill(this, Skill(j.name, app, steps))
         report(this, "Got it, sir. ${steps.size} step${if (steps.size == 1) "" else "s"} learnt. Just say \"turn on the ${j.name}\" or \"turn it off\" from now on.")
     }
 
@@ -383,6 +399,32 @@ class JarvisHands : AccessibilityService() {
         } ?: false
 
         fun learn(pkg: String, name: String): Boolean = instance?.run { begin(Job.Learn(pkg, name), 60_000); true } ?: false
+
+        /**
+         * Teaching from the home screen: he goes home and watches. You open the app however you like (all
+         * apps, search, a folder), then tap through it; the app and your taps become the skill.
+         */
+        fun learnFromHome(name: String): Boolean = instance?.run {
+            main.removeCallbacksAndMessages(null)
+            job = Job.Learn(ANY, name)
+            actions.clear()
+            lastSeen = ""
+            jobStarted = System.currentTimeMillis()
+            act("home, watching for the app")
+            watch(null, everything = true)
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            main.postDelayed(giveUp, 90_000)
+            true
+        } ?: false
+
+        /** Taught from home: any app. */
+        private const val ANY = "*"
+
+        /** Passed through on the way to an app: the launchers, the system bars, the keyboards. */
+        private val PASSING = setOf(
+            "com.android.systemui", "com.sec.android.app.launcher", "com.google.android.apps.nexuslauncher",
+            "com.samsung.android.honeyboard", "com.google.android.inputmethod.latin", "com.android.intentresolver",
+        )
 
         /** Opens [pkg] (with [open], or its launcher), works the screen with [step], then comes back and says what it returned. */
         fun custom(pkg: String, open: Intent?, failed: String, timeout: Long = 12_000, linger: Boolean = false, step: (AccessibilityNodeInfo, Int) -> String?): Boolean =

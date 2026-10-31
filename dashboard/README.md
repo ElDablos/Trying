@@ -225,6 +225,18 @@ back to One UI Home the same way at any time.
     of his commands you meant; he does it and learns the phrasing, so next time he knows it without any
     brain. Free downloads of a few GB each, added in his settings; he checks daily for newer versions.
     Nothing you ask leaves the phone.
+  - **Reading screenshots**: "read my rota from my screenshot": his Gemma brain reads your latest
+    screenshot (Grind's rota, say), shows every day with its rota and clocked times, and adds them with one
+    tap (the rota to the planner and calendar, the clocked times for pay only). "What's on my screenshot?"
+    for anything else. All inside Jarvis.
+  - **New commands from a description**: "when I say heading to work, turn off the lights, set the heating
+    to 18 and tell me the tube": a brain builds it from what he can do and saves it as your own command.
+  - **What did I miss?**: your notifications, summed up in a few lines.
+  - **Teaching him**: "learn how to …" (or "how do I teach you?"): he goes to your home screen and follows
+    you: open the app however you like (all apps, search), tap through it, stop; after that he does it.
+  - **His voice**: speaking styles (Jarvis: lower and measured), and a guide to a free neural British
+    voice (Kokoro's George or Lewis, via VoxSherpa) for the truest Jarvis sound. Brain answers are spoken
+    the same way, as Jarvis.
   - **Look-ups**: "look up …", or a question about something that changes (news, opening times, prices):
     he searches the web, reads the top pages and puts what they say in two or three sentences on a card,
     with the sources (shown, not read out). Without the brain, the top results.

@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
@@ -25,7 +26,7 @@ import java.util.concurrent.Executors
  */
 object JarvisBrain {
     enum class Role(val label: String) { TALK("TALK"), THINK("THINK"), QUICK("QUICK") }
-    enum class Job { INTERPRET, ANSWER, REASON, SUMMARISE }
+    enum class Job { INTERPRET, ANSWER, REASON, SUMMARISE, SEE }
 
     /** A brain on the phone: its file, its name ("gemma-4-E4B-it"), the job it's best at. */
     class Model(val file: File, val name: String) {
@@ -88,11 +89,13 @@ object JarvisBrain {
     private fun pick(context: Context, job: Job): Model? {
         val all = models(context)
         if (all.isEmpty()) return null
+        // Seeing: only a brain with eyes (Gemma reads pictures).
+        if (job == Job.SEE) return all.firstOrNull { it.name.contains("gemma", true) }
         val order = when (job) {
             Job.INTERPRET -> listOf(Role.QUICK, Role.TALK, Role.THINK)
             Job.ANSWER -> listOf(Role.TALK, Role.THINK, Role.QUICK)
             Job.REASON -> listOf(Role.THINK, Role.TALK, Role.QUICK)
-            Job.SUMMARISE -> listOf(Role.TALK, Role.QUICK, Role.THINK)
+            Job.SUMMARISE, Job.SEE -> listOf(Role.TALK, Role.QUICK, Role.THINK)
         }
         val loaded = all.firstOrNull { it.file.absolutePath == loadedPath }
         if (job == Job.INTERPRET && loaded != null) return loaded
@@ -171,9 +174,14 @@ object JarvisBrain {
         loading = true
         try {
             val cache = context.cacheDir.path
-            val e = try {
+            // Gemma has eyes: its vision part on the GPU too, so it can read screenshots.
+            val eyes = model.name.contains("gemma", true)
+            val e = runCatching {
+                Engine(if (eyes) EngineConfig(modelPath = path, backend = Backend.GPU(), visionBackend = Backend.GPU(), cacheDir = cache)
+                else EngineConfig(modelPath = path, backend = Backend.GPU(), cacheDir = cache)).also { it.initialize() }
+            }.recoverCatching {
                 Engine(EngineConfig(modelPath = path, backend = Backend.GPU(), cacheDir = cache)).also { it.initialize() }
-            } catch (t: Throwable) {
+            }.getOrElse {
                 Engine(EngineConfig(modelPath = path, backend = Backend.CPU(), cacheDir = cache)).also { it.initialize() }
             }
             loadedPath = path
@@ -203,6 +211,49 @@ object JarvisBrain {
             main.post { done(out?.takeIf { it.isNotBlank() }) }
         }
     }
+
+    /** Whether he can read pictures: a Gemma brain is in. */
+    fun canSee(context: Context) = ready(context) && models(context).any { it.name.contains("gemma", true) }
+
+    /** Looks at the picture at [imagePath] and does [instruction] with it; [done] on the main thread with the answer, or null. */
+    fun see(context: Context, imagePath: String, instruction: String, done: (String?) -> Unit) {
+        val app = context.applicationContext
+        worker.execute {
+            val model = pick(app, Job.SEE)
+            val out = try {
+                model?.let { m ->
+                    load(app, m).createConversation().use { c ->
+                        tidy(c.sendMessage(Contents.of(Content.ImageFile(imagePath), Content.Text(instruction))).toString())
+                    }.also { lastUsed = m.name }
+                }
+            } catch (e: Throwable) {
+                null
+            }
+            main.post { done(out?.takeIf { it.isNotBlank() }) }
+        }
+    }
+
+    /**
+     * A new command of yours, from how you describe it: its name, the phrase that starts it, and the steps
+     * (each one of his own commands, as in [examples]); null if it can't be made from what he can do.
+     */
+    fun compose(context: Context, description: String, examples: List<String>, done: (Triple<String, String, List<String>>?) -> Unit) {
+        val system = "You turn a description of a new voice command into steps a phone assistant can already do. Commands it understands, by example:\n" +
+            examples.joinToString("\n") { "- $it" } +
+            "\n\nReply in exactly this format and nothing else:\nNAME: <short name>\nSAY: <the phrase that starts it>\nSTEP: <one command in the style above>\nSTEP: <another>\n" +
+            "Use only commands like the examples, filled in. If it can't be done with them, reply NONE."
+        ask(context, Job.REASON, system, description) { out ->
+            if (out == null || out.trim().equals("NONE", true)) return@ask done(null)
+            val name = Regex("(?im)^NAME:\\s*(.+)$").find(out)?.groupValues?.get(1)?.trim()
+            val say = Regex("(?im)^SAY:\\s*(.+)$").find(out)?.groupValues?.get(1)?.trim()?.trim('"', '\'')
+            val steps = Regex("(?im)^STEP:\\s*(.+)$").findAll(out).map { it.groupValues[1].trim().trim('"', '\'') }.toList()
+            done(if (name != null && say != null && steps.isNotEmpty()) Triple(name, say, steps) else null)
+        }
+    }
+
+    /** Your notifications (app: title: text, one a line), put in a few lines: what matters first. */
+    fun digest(context: Context, notifications: String, done: (String?) -> Unit) =
+        ask(context, Job.SUMMARISE, "You sum up someone's phone notifications for them, as Jarvis, a British butler-style assistant. In at most five short sentences, without markdown: who wants what, what needs a reply or action, then the rest in brief. Skip adverts and system noise.", notifications, done)
 
     /** Warms his Talk brain in the background, so the first real question isn't slow. */
     fun warm(context: Context) {

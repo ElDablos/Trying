@@ -65,6 +65,14 @@ object JarvisParser {
         data class Press(val label: String, val app: String) : Command()
         /** "Learn the bedroom light": watch you do it once, then do it himself. */
         data class Teach(val name: String, val app: String?) : Command()
+        /** "How do I teach you?": how teaching works, and a start. */
+        object TeachHelp : Command()
+        /** Read the latest screenshot: a rota to add ([rota]), or anything ("what's on my screenshot"). */
+        data class ReadScreenshot(val rota: Boolean, val ask: String) : Command()
+        /** A new command of your own, from how you describe it ("when I say heading out, turn off the lights and…"). */
+        data class MakeCommand(val description: String) : Command()
+        /** "What did I miss?": your notifications, summed up. */
+        object Missed : Command()
         object ShiftAlarm : Command()
         /** "Set my alarms for work tomorrow": the day's shift, when you're up for it, your run of alarms. Null day: the next shift. */
         data class WorkAlarms(val day: Int?) : Command()
@@ -273,6 +281,21 @@ object JarvisParser {
         com.eldablos.crimson.launcher.Calc.read(raw)?.let { return Command.Calc(it) }
         // Clocking in and out: the real start and end of today's shift.
         clock(t, today)?.let { return it }
+        // Teaching him: how it works.
+        if (Regex("^(how (do|can) i teach you|teach you something|teach mode|learn something new|i want to teach you|can i teach you|how does teaching work)").containsMatchIn(t)) return Command.TeachHelp
+        // Screenshots and photos, read on the phone by his brain.
+        if (Regex("\\b(screenshot|screen shot|screengrab|last photo|latest photo|the picture|that picture|the image)\\b").containsMatchIn(t) &&
+            Regex("\\b(read|what|look|add|check|import|summar|tell|explain|whats|what's|scan|get)").containsMatchIn(t)) {
+            return Command.ReadScreenshot(has("rota", "shift", "shifts", "schedule", "clock", "clocked", "hours"), orig(t))
+        }
+        if (Regex("^(read|import|scan|add) (my |the )?(rota|schedule|shifts?)( from| off)?( my| the)?( screenshot| photo| picture)?$").matches(t)) return Command.ReadScreenshot(true, orig(t))
+        // A command of your own, described: "make a command: when I say …", "when I say X, do Y and Z".
+        Regex("^(?:make|create|add|set up|build|teach you)(?: me)? (?:a |an )?(?:new )?(?:command|shortcut|routine)(?: called| named)?[:,]?\\s*(.*)$").find(t)?.let { m ->
+            if (m.groupValues[1].isNotBlank()) return Command.MakeCommand(orig(m.groupValues[1]))
+        }
+        if (Regex("^(?:from now on,? )?when(?:ever)? i say (.+?),? (?:you should |please |can you |i want you to )?(?:turn|switch|set|tell|read|open|start|play|lock|text|message|remind|put|run|do|check|close|give|show)\\b").containsMatchIn(t)) return Command.MakeCommand(orig(t))
+        // Catching up.
+        if (Regex("^(what did i miss|what have i missed|catch me up|anything i missed|summar(i|y)[sz]e my notifications|any important notifications|what's new on my phone)").containsMatchIn(t)) return Command.Missed
         // A rota said in one go: "add these shifts for next week: Monday 7 till 3, Tuesday 8 till 4, Wednesday off…".
         rota(t, today)?.let { return it }
         uni(t, today)?.let { return it }

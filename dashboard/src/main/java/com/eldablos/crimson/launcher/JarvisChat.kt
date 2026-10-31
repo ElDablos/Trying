@@ -37,6 +37,9 @@ object JarvisChat {
         emptyList()
     }
 
+    /** The last [n] lines, as "Vee: …" / "Jarvis: …", for his brain to know what you've been talking about. */
+    fun recent(context: Context, n: Int): List<String> = all(context).takeLast(n).map { (if (it.mine) "Vee: " else "Jarvis: ") + it.text.take(160) }
+
     /** What was said after [at], from [via] (or anywhere, when null). */
     fun since(context: Context, at: Long, via: String? = null): List<Entry> = all(context).filter { it.at > at && (via == null || it.via == via) }
 }

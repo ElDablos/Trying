@@ -80,9 +80,10 @@ object Speech {
         if (previous != null && previous !== who) previous.onEnd(false)
         with(context) { t ->
             focus(context, true)
-            // Calm and unhurried: a touch lower and slower than the voice's own.
-            t.setSpeechRate(.96f)
-            t.setPitch(.94f)
+            // His manner: calm and unhurried, a touch lower than the voice's own (see [STYLES]).
+            val style = style(context)
+            t.setSpeechRate(style.rate)
+            t.setPitch(style.pitch)
             val last = parts.last().first
             t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) {
@@ -180,6 +181,18 @@ object Speech {
     }
 
     /** Pick the voice, hearing each as you choose. [context] must be an activity, for the dialog. */
+    /** How he speaks: pace and pitch on top of the voice itself. */
+    class Style(val label: String, val rate: Float, val pitch: Float)
+    val STYLES = listOf(
+        Style("JARVIS", .97f, .86f),   // measured, lower: the butler
+        Style("CALM", .96f, .94f),     // as he was
+        Style("NATURAL", 1f, 1f),
+        Style("BRISK", 1.12f, .92f),
+    )
+    fun style(context: Context): Style = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).getString("set:voice_style", "JARVIS")
+        .let { n -> STYLES.firstOrNull { it.label == n } ?: STYLES[0] }
+    fun setStyle(context: Context, label: String) = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).edit().putString("set:voice_style", label).apply()
+
     fun chooseVoice(context: Context, name: String) {
         with(context) { t ->
             val list = voices(t).take(16)

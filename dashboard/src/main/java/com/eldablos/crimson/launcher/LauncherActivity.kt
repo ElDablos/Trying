@@ -531,11 +531,11 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         val back = intent.getBooleanExtra(JarvisEar.EXTRA_BACK, false)
         intent.removeExtra(JarvisEar.EXTRA_BACK)
         // A file shared to Jarvis from another app.
-        @Suppress("DEPRECATION")
-        (intent.getParcelableExtra<android.net.Uri>(EXTRA_FILE))?.let { uri ->
+        intent.getStringExtra(EXTRA_FILE)?.let { path ->
+            val picked = DocText.Picked(java.io.File(path), intent.getStringExtra(EXTRA_FILE_NAME) ?: java.io.File(path).name, intent.getStringExtra(EXTRA_FILE_TYPE) ?: "text/plain")
             intent.removeExtra(EXTRA_FILE)
             if (jarvis.visibility != View.VISIBLE) { backdrop(true); jarvis.show(listen = false, greet = false) }
-            jarvis.attachFile(uri)
+            jarvis.attachPicked(picked)
             return
         }
         if (say != null && insight != null) JarvisProactive.dismiss(this, insight)
@@ -1009,6 +1009,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         private const val FILE_REQUEST = 44
         private const val BACKUP_REQUEST = 45
         const val EXTRA_FILE = "jarvis_file"
+        const val EXTRA_FILE_NAME = "jarvis_file_name"
+        const val EXTRA_FILE_TYPE = "jarvis_file_type"
         private const val JARVIS_REQUEST = 42
         private val SAMSUNG_WEATHER = listOf("com.sec.android.daemonapp", "com.samsung.android.weather")
     }

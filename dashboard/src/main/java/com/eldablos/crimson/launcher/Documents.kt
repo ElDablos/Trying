@@ -396,10 +396,28 @@ object Documents {
         }
         fun room(need: Float) { if (page == null || y + need > h - margin - 16) newPage() }
         fun draw(l: android.text.StaticLayout, x: Float = margin, gap: Float = 6f) {
-            room(l.height.toFloat())
-            val c = page!!.canvas
-            c.save(); c.translate(x, y); l.draw(c); c.restore()
-            y += l.height + gap
+            val bottom = h - margin - 16
+            if (y + l.height <= bottom || l.lineCount <= 1) {
+                room(l.height.toFloat())
+                val c = page!!.canvas
+                c.save(); c.translate(x, y); l.draw(c); c.restore()
+                y += l.height + gap
+                return
+            }
+            // Taller than what's left: line by line, carrying on over the page.
+            for (line in 0 until l.lineCount) {
+                val top = l.getLineTop(line)
+                val lh = (l.getLineBottom(line) - top).toFloat()
+                if (y + lh > bottom) newPage()
+                val c = page!!.canvas
+                c.save()
+                c.translate(x, y - top)
+                c.clipRect(0f, top.toFloat(), l.width.toFloat(), top + lh)
+                l.draw(c)
+                c.restore()
+                y += lh
+            }
+            y += gap
         }
 
         newPage()

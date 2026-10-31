@@ -312,7 +312,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         // About the file you handed him: a document from it, or a question on it.
         (pending as? Pending.File)?.let { f -> fileTalk(f, text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } } }
         // A change to the document he just made.
-        if (!inRoutine && JarvisParser.parse(text) !is Command.MakeDoc) editDoc(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
+        if (!inRoutine) editDoc(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         // You told him what you meant, after he got it wrong.
         (pending as? Pending.Teach)?.let { p ->
             pending = null
@@ -649,21 +649,30 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     // --- Your files ---
 
-    /** A file you handed him: read (Word, Excel, text at once; a PDF's first pages by his eyes), then he asks what to do. */
-    fun attachedFile(p: DocText.Picked, typed: String): Reply {
+    /**
+     * A file you handed him, already read off the main thread: [text] for Word, Excel and text files, [pages]
+     * (pictures of a PDF's first pages, of [total]) for his eyes. Then he asks what to do, or does what you typed.
+     */
+    fun attachedFile(p: DocText.Picked, typed: String, text: String?, pages: List<java.io.File>, total: Int): Reply {
         if (p.isImage) return attached(p.file, typed)
-        val pending = Pending.File(p, DocText.text(p), reading = false)
-        this.pending = pending
-        if (pending.text == null && p.isPdf) {
+        val pending = Pending.File(p, text, reading = false)
+        if (text == null && p.isPdf) {
             if (!JarvisBrain.canSee(context)) return Reply("I can only read PDFs with my Gemma brain${sir()}. Add it in my settings, under Jarvis Brains. Word, Excel and text files I can read without it.", failed = true)
+            if (pages.isEmpty()) return Reply("I couldn't open ${p.name}${sir()}. If it's password-protected, save a copy without the password and share that.", failed = true)
+            this.pending = pending
             pending.reading = true
-            val pages = DocText.pdfPages(context, p)
-            val total = DocText.pageCount(p)
+            if (typed.isNotBlank()) pending.ask = typed
             val texts = ArrayList<String>()
             fun next(i: Int) {
                 if (i >= pages.size) {
+                    pages.forEach { it.delete() }
                     pending.text = texts.joinToString("\n\n")
                     pending.reading = false
+                    if (texts.isEmpty()) {
+                        if (this.pending === pending) this.pending = null
+                        host.later(styled(Reply("I couldn't make out the text in ${p.name}${sir()}.", failed = true)))
+                        return
+                    }
                     val waitingFor = pending.ask
                     pending.ask = null
                     if (waitingFor != null) host.later(styled(answerNow(waitingFor, false))) else
@@ -677,16 +686,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 }
             }
             next(0)
-            if (typed.isNotBlank()) pending.ask = typed
-            return Reply("Reading ${p.name}${sir()}: ${if (total > 3) "the first 3 of $total pages" else "$total page${if (total == 1) "" else "s"}"}, page by page. A moment.",
+            return Reply("Reading ${p.name}${sir()}: ${if (total > pages.size) "the first ${pages.size} of $total pages" else "$total page${if (total == 1) "" else "s"}"}, page by page. A moment.",
                 card = Card("▤", "READING", sub = p.name, tone = Tone.BLUE), more = true)
         }
-        if (pending.text.isNullOrBlank()) {
-            this.pending = null
-            return Reply("I couldn't read anything in ${p.name}${sir()}.", failed = true)
-        }
+        if (text.isNullOrBlank()) return Reply("I couldn't read anything in ${p.name}${sir()}.", failed = true)
+        this.pending = pending
         if (typed.isNotBlank()) return answerNow(typed, false)
-        val words = pending.text!!.split(Regex("\\s+")).size
+        val words = text.split(Regex("\\s+")).size
         return Reply("Got ${p.name}${sir()}: about $words words. What shall I do with it?", listen = true,
             card = Card("▤", "FILE", sub = p.name, rows = listOf(Row("WORDS", "$words")), tone = Tone.BLUE), actions = fileActions())
     }
@@ -714,7 +720,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (!JarvisBrain.ready(context)) return Reply("I need one of my brains to answer from it${sir()}. I can still turn it into a document of its own words.", failed = true)
         JarvisBrain.answer(context, "$text\n\nAnswer from this file (${f.picked.name}):\n${material.take(6000)}", aboutVee()) { out ->
             host.later(styled(Reply(out ?: "I couldn't find that in it${sir()}.", failed = out == null, actions = fileActions())))
-            pending = f
+            // Still on the file, unless you've moved on to something else meanwhile.
+            if (pending == null) pending = f
         }
         return Reply("", silent = true, more = true)
     }
@@ -725,6 +732,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun editDoc(text: String): Reply? {
         val doc = lastDocument() ?: return null
         val t = text.lowercase().trim().trimEnd('.', '!')
+        // Only when it's clearly about the document: something his rules don't otherwise know, or that names it.
+        // ("Add a note to finish the report" stays a note; "add doc appointment Friday" stays the calendar.)
+        val parsed = JarvisParser.parse(text)
+        if (parsed is Command.MakeDoc) return null
+        val named = Regex("\\b(the|this|that|my) (document|doc|pdf|spreadsheet|word doc|file you made|plan|summary)\\b|\\b(section|title|heading|paragraph|column)s?\\b").containsMatchIn(t)
+        if (parsed !is Command.Unknown && !named) return null
         val about = Regex("\\b(section|title|heading|paragraph|table|row|column|bullet|document|doc|pdf|spreadsheet|sheet|the plan|the summary|the report)\\b").containsMatchIn(t)
         val restyle = Regex("^(make it|can you make it|now make it) (shorter|longer|simpler|clearer|friendlier|more formal|less formal|more casual|formal|casual|more detailed|less detailed|detailed|briefer|more concise|concise|more professional)$").containsMatchIn(t) ||
             Regex("^(shorten|expand|simplify|rewrite|reword|tidy up|polish) (it|the (document|doc|pdf|plan|summary))").containsMatchIn(t)
@@ -732,7 +745,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (!restyle && !(verb && about)) return null
         val kind = lastDocKind()
         // Simple ones done straight away: a new title, a section taken out.
-        Regex("^(?:change|rename|retitle)(?: the)? (?:title|it|document|doc|pdf)(?: to| as)? (.+)$|^call (?:it|the (?:document|doc|pdf)) (.+)$").find(t)?.let { m ->
+        Regex("^(?:change|rename|retitle)(?: the)? (?:title|it|document|doc|pdf)(?: to| as)? (.+)$|^call (?:it|the (?:document|doc|pdf)) (.+)$", RegexOption.IGNORE_CASE).find(text.trim().trimEnd('.', '!'))?.let { m ->
+            // As you said it, capitals and all ("NHS Placement Report").
             val title = (m.groupValues[1].ifEmpty { m.groupValues[2] }).trim().replaceFirstChar { it.uppercase() }
             return deliver(doc.copy(title = title), kind)
         }

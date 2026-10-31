@@ -337,30 +337,33 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         }.start()
     }
 
-    /** A file you attached or shared to him (PDF, Word, Excel, text, or a picture): shown as yours, then read. */
+    /** A file you attached (PDF, Word, Excel, text, or a picture): copied, then handed over. */
     fun attachFile(uri: android.net.Uri) {
+        if (visibility != VISIBLE) show(listen = false, greet = false)
+        Thread {
+            val picked = DocText.copy(context, uri)
+            post { if (picked == null) respond(Jarvis.Reply("I couldn't open that file, sir.", failed = true), "") else attachPicked(picked) }
+        }.start()
+    }
+
+    /** A file already copied (attached, or shared to him from another app): shown as yours, read, then his reply. */
+    fun attachPicked(picked: DocText.Picked) {
         if (visibility != VISIBLE) show(listen = false, greet = false)
         val typed = input.text?.toString()?.trim().orEmpty()
         input.setText("")
+        if (picked.isImage) {
+            bubble(if (typed.isNotEmpty()) "📎 $typed" else "📎 Picture attached", mine = true)
+            respond(jarvis.attached(picked.file, typed), typed)
+            return
+        }
+        bubble("📎 ${picked.name}" + if (typed.isNotEmpty()) "\n$typed" else "", mine = true)
+        setState(State.THINKING)
+        // The reading (and turning a PDF's pages into pictures) off the main thread; what he does with it, on it.
         Thread {
-            val picked = DocText.copy(context, uri)
-            post {
-                if (picked == null) {
-                    respond(Jarvis.Reply("I couldn't open that file, sir.", failed = true), "")
-                    return@post
-                }
-                if (picked.isImage) {
-                    bubble(if (typed.isNotEmpty()) "📎 $typed" else "📎 Picture attached", mine = true)
-                    respond(jarvis.attached(picked.file, typed), typed)
-                    return@post
-                }
-                bubble("📎 ${picked.name}" + if (typed.isNotEmpty()) "\n$typed" else "", mine = true)
-                setState(State.THINKING)
-                Thread {
-                    val r = jarvis.attachedFile(picked, typed)
-                    post { respond(r, typed) }
-                }.start()
-            }
+            val text = runCatching { DocText.text(picked) }.getOrNull()
+            val pages = if (text == null && picked.isPdf) DocText.pdfPages(context, picked) else emptyList()
+            val total = if (picked.isPdf) DocText.pageCount(picked) else 0
+            post { respond(jarvis.attachedFile(picked, typed, text, pages, total), typed) }
         }.start()
     }
 

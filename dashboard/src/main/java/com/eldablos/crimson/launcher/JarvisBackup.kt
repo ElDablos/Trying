@@ -45,30 +45,50 @@ object JarvisBackup {
         return JSONObject().put("jarvis_backup", 1).put("made", System.currentTimeMillis()).put("prefs", all).toString()
     }
 
-    /** Puts a backup back: each part replaced by what's in the file. How many parts, or -1 if it isn't a backup. */
+    /**
+     * Puts a backup back: each part replaced by what's in the file. The whole file is read and checked first,
+     * so a damaged one changes nothing. How many parts, or -1 if it isn't a (whole) backup.
+     */
     fun restore(context: Context, json: String): Int {
-        val root = runCatching { JSONObject(json) }.getOrNull() ?: return -1
-        if (!root.has("jarvis_backup")) return -1
-        val all = root.getJSONObject("prefs")
-        var n = 0
-        for (name in all.keys()) {
-            val p = all.getJSONObject(name)
+        val parts = try {
+            val root = JSONObject(json)
+            if (!root.has("jarvis_backup")) return -1
+            val all = root.getJSONObject("prefs")
+            all.keys().asSequence().toList().map { name ->
+                val p = all.getJSONObject(name)
+                name to p.keys().asSequence().toList().map { k ->
+                    val e = p.getJSONObject(k)
+                    val v: Any = when (e.getString("t")) {
+                        "s" -> e.getString("v")
+                        "i" -> e.getInt("v")
+                        "l" -> e.getLong("v")
+                        "f" -> e.getDouble("v").toFloat()
+                        "b" -> e.getBoolean("v")
+                        "set" -> e.getJSONArray("v").let { a -> (0 until a.length()).map { a.getString(it) }.toSet() }
+                        else -> throw IllegalArgumentException("unknown type")
+                    }
+                    k to v
+                }
+            }
+        } catch (e: Exception) {
+            return -1
+        }
+        for ((name, values) in parts) {
             val ed = context.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear()
-            for (k in p.keys()) {
-                val e = p.getJSONObject(k)
-                when (e.getString("t")) {
-                    "s" -> ed.putString(k, e.getString("v"))
-                    "i" -> ed.putInt(k, e.getInt("v"))
-                    "l" -> ed.putLong(k, e.getLong("v"))
-                    "f" -> ed.putFloat(k, e.getDouble("v").toFloat())
-                    "b" -> ed.putBoolean(k, e.getBoolean("v"))
-                    "set" -> ed.putStringSet(k, e.getJSONArray("v").let { a -> (0 until a.length()).map { a.getString(it) }.toSet() })
+            for ((k, v) in values) {
+                @Suppress("UNCHECKED_CAST")
+                when (v) {
+                    is String -> ed.putString(k, v)
+                    is Int -> ed.putInt(k, v)
+                    is Long -> ed.putLong(k, v)
+                    is Float -> ed.putFloat(k, v)
+                    is Boolean -> ed.putBoolean(k, v)
+                    is Set<*> -> ed.putStringSet(k, v as Set<String>)
                 }
             }
             ed.commit()
-            n++
         }
-        return n
+        return parts.size
     }
 
     fun restore(context: Context, uri: Uri): Int = try {

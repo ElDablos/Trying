@@ -18,12 +18,13 @@ object DocText {
     }
 
     /** A copy of the file at [uri] in his cache, with its name and type. */
-    fun copy(context: Context, uri: Uri): Picked? = try {
+    fun copy(context: Context, uri: Uri, typeHint: String? = null): Picked? = try {
+        tidy(context)
         val cr = context.contentResolver
         // A copy of his own (shared to him): its name without his prefix.
         val name = (if (uri.scheme == "file") null else cr.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null })
             ?: uri.lastPathSegment?.substringAfterLast('/')?.replace(Regex("^jarvis-file-\\d+-"), "") ?: "file"
-        val mime = cr.getType(uri) ?: when (name.substringAfterLast('.', "").lowercase()) {
+        val mime = cr.getType(uri) ?: typeHint?.takeIf { it != "*/*" && it.contains('/') } ?: when (name.substringAfterLast('.', "").lowercase()) {
             "pdf" -> "application/pdf"
             "docx" -> Documents.Kind.WORD.mime
             "xlsx" -> Documents.Kind.EXCEL.mime
@@ -35,6 +36,13 @@ object DocText {
         Picked(out, name, mime)
     } catch (e: Exception) {
         null
+    }
+
+    /** Copies and page pictures from before today: let go, so the cache doesn't fill up. */
+    private fun tidy(context: Context) {
+        val day = System.currentTimeMillis() - 86_400_000L
+        context.cacheDir.listFiles { f -> (f.name.startsWith("jarvis-file-") || f.name.startsWith("jarvis-page-") || f.name.startsWith("doc-picture-")) && f.lastModified() < day }
+            ?.forEach { it.delete() }
     }
 
     /** The words in a Word file, paragraph by paragraph. */
@@ -91,10 +99,13 @@ object DocText {
                         // About 150 dpi for an A4 page: sharp enough to read, small enough for the brain.
                         val scale = 1400f / maxOf(page.width, page.height)
                         val bmp = android.graphics.Bitmap.createBitmap((page.width * scale).toInt(), (page.height * scale).toInt(), android.graphics.Bitmap.Config.ARGB_8888)
-                        bmp.eraseColor(android.graphics.Color.WHITE)
-                        page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        File(context.cacheDir, "jarvis-page-$i-${System.currentTimeMillis()}.jpg").also { f ->
-                            f.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+                        try {
+                            bmp.eraseColor(android.graphics.Color.WHITE)
+                            page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            File(context.cacheDir, "jarvis-page-$i-${System.currentTimeMillis()}.jpg").also { f ->
+                                f.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+                            }
+                        } finally {
                             bmp.recycle()
                         }
                     }

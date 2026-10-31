@@ -12,10 +12,15 @@ import android.view.accessibility.AccessibilityNodeInfo
 object JarvisRepair {
     private class Ask(val at: Long = System.currentTimeMillis()) {
         @Volatile var waiting = true
-        @Volatile var answer: String? = null
+        /** The control picked: its signature, which of the controls with that signature it was, and where. */
+        @Volatile var answer: Pick? = null
     }
 
+    private class Pick(val sig: String, val nth: Int, val rect: Rect, val cls: String)
+
     private val asks = HashMap<String, Ask>()
+    /** Goals his brain found nothing for lately: not asked again straight away. */
+    private val failed = HashMap<String, Long>()
 
     private fun prefs(context: Context) = context.getSharedPreferences("jarvis_hands", Context.MODE_PRIVATE)
     private fun key(pkg: String, goal: String) = "repair:$pkg:${goal.lowercase().trim()}"
@@ -26,6 +31,12 @@ object JarvisRepair {
 
     /** How a control is known again later: its id, its text and its label (whichever it has). */
     fun signature(n: AccessibilityNodeInfo) = "${idOf(n)}\u0001${textOf(n)}\u0001${descOf(n)}"
+
+    private fun empty(sig: String) = sig.replace("\u0001", "").isEmpty()
+
+    /** The [nth] control with [sig] on the screen (several switches can look alike: the third card's, not the first's). */
+    private fun nth(all: List<AccessibilityNodeInfo>, sig: String, nth: Int): AccessibilityNodeInfo? =
+        all.filter { matches(it, sig) }.let { it.getOrNull(nth) ?: it.singleOrNull() }
 
     private fun matches(n: AccessibilityNodeInfo, sig: String): Boolean {
         val (id, text, desc) = sig.split('\u0001').let { Triple(it.getOrElse(0) { "" }, it.getOrElse(1) { "" }, it.getOrElse(2) { "" }) }
@@ -55,15 +66,31 @@ object JarvisRepair {
     fun find(context: Context, pkg: String, goal: String, root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         val k = key(pkg, goal)
         val all = JarvisHands.nodes(root)
-        prefs(context).getString(k, null)?.let { sig -> all.firstOrNull { matches(it, sig) }?.let { return it } }
+        // Found before: "signature#n" (the nth control looking like that).
+        prefs(context).getString(k, null)?.let { saved ->
+            val sig = saved.substringBeforeLast('#')
+            nth(all, sig, saved.substringAfterLast('#', "0").toIntOrNull() ?: 0)?.let { return it }
+        }
         if (!JarvisBrain.ready(context)) return null
+        synchronized(asks) { failed[k]?.let { if (System.currentTimeMillis() - it < 120_000) return null else failed.remove(k) } }
         val a = synchronized(asks) { asks[k]?.takeIf { System.currentTimeMillis() - it.at < 90_000 } }
         if (a != null) {
             if (a.waiting) return null
-            val sig = a.answer
-            synchronized(asks) { asks.remove(k) }
-            val found = sig?.let { s -> all.firstOrNull { matches(it, s) } } ?: return null
-            prefs(context).edit().putString(k, sig).apply()
+            val pick = a.answer
+            synchronized(asks) {
+                asks.remove(k)
+                if (pick == null) failed[k] = System.currentTimeMillis()
+            }
+            pick ?: return null
+            val found = if (empty(pick.sig)) {
+                // No id, text or label: the same kind of control in the same place.
+                all.filter { (it.isClickable || it.isCheckable) && it.className?.toString() == pick.cls }
+                    .minByOrNull { n -> Rect().also { n.getBoundsInScreen(it) }.let { r -> kotlin.math.abs(r.centerX() - pick.rect.centerX()) + kotlin.math.abs(r.centerY() - pick.rect.centerY()) } }
+                    ?.takeIf { n -> Rect().also { n.getBoundsInScreen(it) }.let { r -> kotlin.math.abs(r.centerX() - pick.rect.centerX()) + kotlin.math.abs(r.centerY() - pick.rect.centerY()) < 60 } }
+            } else nth(all, pick.sig, pick.nth)
+            found ?: return null
+            // Remembered only when it can be found again by what it is, not just where it was.
+            if (!empty(pick.sig)) prefs(context).edit().putString(k, "${pick.sig}#${pick.nth}").apply()
             JarvisHands.act("self-repair: \"$goal\" is ${describe(0, found).substringAfter(": ")}")
             return found
         }
@@ -71,10 +98,14 @@ object JarvisRepair {
         if (controls.isEmpty()) return null
         val ask = Ask()
         synchronized(asks) { asks[k] = ask }
-        val sigs = controls.map { signature(it) }
+        // What each control is, worked out now, while the screen is the one the brain is shown.
+        val picks = controls.map { n ->
+            val sig = signature(n)
+            Pick(sig, all.filter { matches(it, sig) }.indexOf(n).coerceAtLeast(0), Rect().also { n.getBoundsInScreen(it) }, n.className?.toString().orEmpty())
+        }
         JarvisHands.act("self-repair: asking which control will $goal")
         JarvisBrain.pickControl(context, goal, controls.mapIndexed { i, n -> describe(i, n) }.joinToString("\n")) { i ->
-            ask.answer = i?.let { sigs.getOrNull(it) }
+            ask.answer = i?.let { picks.getOrNull(it) }
             ask.waiting = false
         }
         return null

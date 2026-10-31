@@ -3050,17 +3050,36 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      */
     private fun tapoPower(name: String?, on: Boolean?): Boolean {
         var backs = 0
-        var pressed = false
-        return JarvisHands.custom(TAPO, null, "I couldn't find the light in Tapo, sir. Show me once: say \"learn the light\".") { root, tries ->
-            if (pressed) return@custom null
+        // After pressing: what it should now be, how many looks since, and presses so far. He checks it took.
+        var want: Boolean? = null
+        var pressedAt = 0
+        var presses = 0
+        var who = "The light"
+        return JarvisHands.custom(TAPO, null, "I couldn't find the light in Tapo, sir. Show me once: say \"learn the light\".", timeout = 20_000) { root, tries ->
+            // Checking it took: the light's own page says "Power, On"; the home card says on/off where Tapo shows it.
+            want?.let { w ->
+                val now = if (JarvisReaders.tapoLightPage(root)) JarvisReaders.tapoPagePower(root).first
+                    else JarvisReaders.light(JarvisReaders.lights(root), name)?.on
+                if (now == w) return@custom if (w) "Done, sir. $who is on." else "Done. $who is off."
+                if (tries - pressedAt < 4) return@custom null
+                // Didn't take (or Tapo can't say): one more press where it can be checked, else say so honestly.
+                if (now == null) return@custom if (w) "I've pressed it, sir; Tapo isn't saying whether $who is on." else "I've pressed it; Tapo isn't saying whether $who is off."
+                if (presses >= 2) return@custom "$who didn't respond, sir. It may be offline; Tapo still shows it ${if (w) "off" else "on"}."
+                val button = if (JarvisReaders.tapoLightPage(root)) JarvisReaders.tapoPagePower(root).second
+                    else JarvisReaders.light(JarvisReaders.lights(root), name)?.power
+                button?.let { JarvisHands.press(it); presses++; pressedAt = tries }
+                return@custom null
+            }
             if (JarvisReaders.tapoLightPage(root)) {
                 val (state, button) = JarvisReaders.tapoPagePower(root)
-                val light = JarvisReaders.tapoPageName(root) ?: "The light"
+                who = JarvisReaders.tapoPageName(root) ?: "The light"
                 if (button != null && state != null) {
-                    if (on != null && state == on) return@custom "$light is already ${if (on) "on" else "off"}, sir."
+                    if (on != null && state == on) return@custom "$who is already ${if (on) "on" else "off"}, sir."
                     JarvisHands.press(button)
-                    pressed = true
-                    return@custom if (state) "Done. $light is off." else "Done, sir. $light is on."
+                    want = !state
+                    presses = 1
+                    pressedAt = tries
+                    return@custom null
                 }
                 // Can't tell from here: back to the list, where it says.
                 if (tries % 2 == 1 && backs < 2) { backs++; JarvisHands.back() }
@@ -3070,15 +3089,21 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 if ((tries == 3 || tries == 6) && backs < 3) { backs++; JarvisHands.back() }
                 return@custom if (tries < 9) null else "I couldn't see any lights in Tapo, sir."
             }
+            who = l.name
             if (on != null && l.on == on) return@custom "${l.name} is already ${if (on) "on" else "off"}, sir."
             val p = l.power ?: return@custom "I couldn't find ${l.name}'s power button, sir."
             JarvisHands.press(p)
-            pressed = true
-            when (on) {
+            // The home card may not say whether it's on: then the press is all he can vouch for.
+            val target = on ?: l.on?.not()
+            if (target == null || l.on == null) return@custom when (on) {
                 true -> "Done, sir. ${l.name} is on."
                 false -> "Done. ${l.name} is off."
-                null -> "Done, sir. ${l.name} is ${if (l.on == true) "off" else "on"}."
+                null -> "Done, sir. ${l.name} switched."
             }
+            want = target
+            presses = 1
+            pressedAt = tries
+            null
         }
     }
 

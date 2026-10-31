@@ -605,6 +605,12 @@ object JarvisParser {
         Regex("\\b(\\d{1,3}) ?(%|percent|per cent)").find(t)?.takeIf { lightish }?.let { return Command.Brightness(it.groupValues[1].toInt().coerceIn(1, 100)) }
         if (lightish && has("full brightness", "full", "max", "maximum", "brightest")) return Command.Brightness(100)
         if (lightish && has("half")) return Command.Brightness(50)
+        // "Make it brighter", "a bit dimmer", "turn it up a bit": the light he's just touched.
+        Regex("^(make|turn|put|go|get) (it|them|that) (a bit |a little |slightly |much |a lot )?(brighter|dimmer|darker|lighter)$").find(t)?.let { m ->
+            val up = m.groupValues[4] in setOf("brighter", "lighter")
+            val big = m.groupValues[3].trim() in setOf("much", "a lot")
+            return Command.Brightness(null, (if (big) 40 else 20) * if (up) 1 else -1)
+        }
         if (Regex("^(a bit |a little |slightly |much )?(brighter|brighten)( the)?( lights?| lamp| bulb)?( up)?$").matches(t) || (lightish && has("brighter", "brighten", "turn up", "up a bit"))) return Command.Brightness(null, if (has("much", "lot")) 40 else 20)
         if (Regex("^(a bit |a little |slightly |much )?(dimmer|dim)( the)?( lights?| lamp| bulb)?( down)?$").matches(t) || (lightish && has("dimmer", "dim", "turn down", "darker", "lower"))) return Command.Brightness(null, if (has("much", "lot")) -40 else -20)
         if (has("next colour", "next color", "another colour", "another color", "change the colour", "change the color", "different colour", "different color")) return Command.LightColour(null)

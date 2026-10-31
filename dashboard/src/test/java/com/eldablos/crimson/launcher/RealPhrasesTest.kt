@@ -44,6 +44,16 @@ class RealPhrasesTest {
     }
 
     @Test
+    fun hoursAndPay() {
+        assertEquals(Command.SetRate(12.5), p("I get paid £12.50 an hour"))
+        assertEquals(Command.SetRate(13.0), p("my hourly rate is 13"))
+        assertEquals(Command.Hours("month", false), p("how many hours have I worked this month"))
+        assertEquals(Command.Hours("week", true), p("what have I earned this week"))
+        assertEquals(Command.Hours("lastmonth", true), p("how much did I make last month"))
+        assertEquals(Command.Hours("lastweek", false), p("how many hours did I do last week"))
+    }
+
+    @Test
     fun notesAndHabits() {
         assertEquals(Command.TickAllNotes, p("tick my notes"))
         assertEquals(Command.TickNote("#2"), p("I want to finish my second note"))

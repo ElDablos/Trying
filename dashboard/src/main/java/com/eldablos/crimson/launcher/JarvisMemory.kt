@@ -226,6 +226,10 @@ object JarvisMemory {
     fun autoWorkAlarms(context: Context) = prefs(context).getBoolean("set:auto_work", true)
     fun setAutoWorkAlarms(context: Context, on: Boolean) = prefs(context).edit().putBoolean("set:auto_work", on).apply()
 
+    /** Your hourly rate in pounds, if you've said ("I get paid £12.50 an hour"), for what a week or month comes to. */
+    fun hourlyRate(context: Context): Double? = prefs(context).getFloat("set:rate", 0f).toDouble().takeIf { it > 0 }
+    fun setHourlyRate(context: Context, rate: Double) = prefs(context).edit().putFloat("set:rate", rate.toFloat()).apply()
+
     /** How long your journey to work takes, door to door: when to warn you about the tube. */
     fun commuteMinutes(context: Context) = prefs(context).getInt("set:commute", 45)
     fun setCommuteMinutes(context: Context, minutes: Int) = prefs(context).edit().putInt("set:commute", minutes).apply()

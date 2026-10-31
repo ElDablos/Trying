@@ -118,6 +118,10 @@ object JarvisParser {
          * with them. With [week] (its Monday: "next week"), it's that whole week: days not said are off.
          */
         data class AddShifts(val days: List<RotaDay>, val uni: List<RotaDay> = emptyList(), val week: LocalDate? = null) : Command()
+        /** Hours (and pay, where your rate's known) over a [period]: "week", "lastweek", "nextweek", "month", "lastmonth". */
+        data class Hours(val period: String, val pay: Boolean) : Command()
+        /** Your hourly rate: "I get paid £12.50 an hour". */
+        data class SetRate(val perHour: Double) : Command()
         /** Uni on these days ("uni Wednesday 5 till 9"), or every week on them ("every Wednesday"). */
         data class AddUni(val dates: List<LocalDate>, val start: LocalTime, val end: LocalTime, val weekly: Boolean) : Command()
         /** No uni that day ("no uni this Wednesday"), every week on it, or at all ([date] null). */
@@ -256,6 +260,13 @@ object JarvisParser {
         // A rota said in one go: "add these shifts for next week: Monday 7 till 3, Tuesday 8 till 4, Wednesday off…".
         rota(t, today)?.let { return it }
         uni(t, today)?.let { return it }
+        // Your pay: "I get paid £12.50 an hour", "my hourly rate is 13".
+        Regex("(?:£|\\bgbp ?)?(\\d{1,3}(?:\\.\\d{1,2})?)(?: pounds?(?: (\\d{1,2}))?| quid)?(?: p)? (?:an|per|a|each|1) (?:hour|hr)\\b|\\b(?:hourly rate|rate of pay|pay rate|my rate)(?: is| of)? (?:£)?(\\d{1,3}(?:\\.\\d{1,2})?)").find(t)
+            ?.takeIf { !Regex("^(what|how)").containsMatchIn(t) }?.let { m ->
+                val pounds = (m.groupValues[1].ifEmpty { m.groupValues[3] }).toDoubleOrNull()
+                val pence = m.groupValues[2].toIntOrNull()?.let { it / 100.0 } ?: 0.0
+                if (pounds != null && pounds in 1.0..500.0) return Command.SetRate(pounds + pence)
+            }
         // Rules about things that must stay as they are: "the 7pm alarm always stays on", "never turn off the hallway light".
         JarvisRules.read(t)?.let { r ->
             return when (r) {
@@ -670,6 +681,19 @@ object JarvisParser {
             if (date != null) return Command.RemoveShift(date)
         }
         if (Regex("^am i (off|free|working|on)\\b|^do i (work|have work|have a shift)|^have i got (work|a shift)").containsMatchIn(t)) return Command.Shift(dayAhead0)
+        // Hours and pay over a stretch: "how many hours this month", "what did I earn last week", "how much will I get paid this month".
+        if (has("hours", "earn", "earned", "earning", "earnings", "paid", "pay", "wages", "salary", "make", "made") &&
+            (has("how many", "how much", "what", "total", "add up") || has("earnings", "wages")) && !has("hourly rate", "an hour", "per hour", "1 hour")) {
+            val pay = has("earn", "earned", "earning", "earnings", "paid", "pay", "wages", "salary", "make", "made", "money")
+            val period = when {
+                has("last month", "previous month") -> "lastmonth"
+                has("month", "monthly") -> "month"
+                has("last week", "previous week") -> "lastweek"
+                has("next week") -> "nextweek"
+                else -> "week"
+            }
+            if (pay || period == "month" || period == "lastmonth" || period == "lastweek") return Command.Hours(period, pay)
+        }
         // The whole week: "what's my rota for the week", "my shifts next week", "what am I working this week".
         if (has("week", "weeks") && has("rota", "shift", "shifts", "work", "working", "hours", "doing")) {
             if (has("next week", "following week", "week after")) return Command.ShiftWeek(next = true)

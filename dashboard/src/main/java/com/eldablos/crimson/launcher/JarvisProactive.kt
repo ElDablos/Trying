@@ -91,6 +91,8 @@ object JarvisProactive {
             val label = PhoneHabits.label(context, pkg)
             out += Insight("app:$pkg:${now.toLocalDate()}", "▣", "Your usual: $label", "You usually open $label around now, sir. Shall I?", "open $label", "OPEN")
         }
+        // The evening before a working (or uni) day: all of tomorrow in one go, so you needn't ask.
+        if (now.hour in 19..22) tomorrow(context, now)?.let { out += it }
         // Birthdays and countdowns today or tomorrow.
         for (c in DeckStore.countdowns(context)) {
             val days = ChronoUnit.DAYS.between(now.toLocalDate(), c.date)
@@ -118,6 +120,41 @@ object JarvisProactive {
         }
         val gone = dismissed(context)
         return out.filter { it.id !in gone }
+    }
+
+    /**
+     * Tomorrow, said once: the shift and when you're up (and whether the work alarms are already there),
+     * when to leave, uni, the tube on your line, and rain on the way. Null with neither work nor uni.
+     */
+    fun tomorrow(context: Context, now: LocalDateTime = LocalDateTime.now()): Insight? {
+        val day = now.toLocalDate().plusDays(1)
+        val shift = Shifts.all(context)[day]
+        val uni = Uni.on(context, day)
+        if (shift == null && uni == null) return null
+        val parts = ArrayList<String>()
+        if (shift != null) {
+            val wake = shift.start.minusMinutes(JarvisMemory.alarmLead(context).toLong())
+            val leave = shift.start.minusMinutes(JarvisMemory.commuteMinutes(context).toLong())
+            val set = JarvisMemory.workAlarms(context) == wake.toString() && JarvisMemory.workAlarmsFor(context) == day.toString()
+            parts += "Tomorrow you're on ${shift.start.format(HM)} till ${shift.end.format(HM)}: up at ${wake.format(HM)}, out by ${leave.format(HM)}."
+            parts += if (set) "Your work alarms are set." else "Your work alarms aren't moved yet; I'll do it when you're next on the home screen, or say \"set my alarms for work\"."
+        } else {
+            parts += "No work tomorrow."
+        }
+        if (uni != null) parts += "Uni ${uni.start.format(HM)} till ${uni.end.format(HM)}."
+        // The tube, from what was last fetched for tomorrow.
+        Travel.report(context, day, fetch = false)?.let { r ->
+            val a = Travel.advise(r, Travel.commute(context, day))
+            val line = a.commute.firstOrNull()
+            if (line != null) parts += if (line.fine) "${line.name} has a good service." else a.say
+        }
+        // Rain on the way in, or at uni time.
+        val f = Forecast.cached(context)
+        val around = listOfNotNull(shift?.start?.minusHours(1), uni?.start?.minusHours(1))
+        val wet = f?.hours?.filter { h -> h.time.toLocalDate() == day && around.any { a -> !h.time.toLocalTime().isBefore(a) && h.time.toLocalTime().isBefore(a.plusHours(2)) } }?.maxByOrNull { it.rain }
+        if (wet != null && wet.rain >= 50) parts += "Rain's likely around ${wet.time.format(HM)}, so take a coat."
+        val title = listOfNotNull(shift?.let { "Work ${it.start.format(HM)}" }, uni?.let { "uni ${it.start.format(HM)}" }).joinToString(" · ").replaceFirstChar { it.uppercase() }
+        return Insight("tomorrow:$day", "☾", "Tomorrow: $title", parts.joinToString(" "), "what's my rota this week", "MY WEEK")
     }
 
     /**

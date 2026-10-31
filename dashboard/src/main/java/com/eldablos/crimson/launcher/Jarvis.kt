@@ -824,6 +824,18 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.AddUni -> addUni(cmd.dates, cmd.start, cmd.end, cmd.weekly)
         is Command.RemoveUni -> removeUni(cmd.date, cmd.weekly)
         is Command.UniWhen -> uniWhen(cmd.day)
+        is Command.Hours -> hours(cmd.period, cmd.pay)
+        is Command.SetRate -> {
+            val was = JarvisMemory.hourlyRate(context)
+            JarvisMemory.setHourlyRate(context, cmd.perHour)
+            push("Hourly rate back to ${was?.let { money(it) } ?: "unset"}") {
+                if (was != null) JarvisMemory.setHourlyRate(context, was) else JarvisMemory.setHourlyRate(context, 0.0)
+                "Put your rate back."
+            }
+            Reply("Noted: ${money(cmd.perHour)} an hour${sir()}. Ask \"what have I earned this week\" or \"this month\" any time.",
+                card = Card("£", "HOURLY RATE", money(cmd.perHour), "per hour · before tax", tone = Tone.GOLD),
+                actions = listOf(undoAction, Action("THIS MONTH", "what have I earned this month")))
+        }
         Command.LightsStatus -> lightsStatus()
         Command.ScreenTime -> screenTime()
         is Command.EditNote -> editNote(cmd.old, cmd.new)
@@ -1319,6 +1331,43 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                         listOfNotNull(shifts[d]?.times(), Uni.on(context, d)?.let { "UNI ${it.times()}" }).joinToString(" · "), ok = if (d.isBefore(LocalDate.now())) true else null)
                 }, Tone.HOT),
         )
+    }
+
+    private fun money(v: Double) = "£" + if (v % 1.0 == 0.0) "%.0f".format(Locale.ROOT, v) else "%.2f".format(Locale.ROOT, v)
+
+    /**
+     * Hours over a week or month from your shifts (done so far and still to come, for the current one), and
+     * what they come to before tax when you've told him your rate.
+     */
+    private fun hours(period: String, pay: Boolean): Reply {
+        val today = LocalDate.now()
+        val monday = Shifts.monday(today)
+        val (from, to, label) = when (period) {
+            "lastweek" -> Triple(monday.minusWeeks(1), monday.minusDays(1), "last week")
+            "nextweek" -> Triple(monday.plusWeeks(1), monday.plusDays(13), "next week")
+            "month" -> Triple(today.withDayOfMonth(1), today.withDayOfMonth(today.lengthOfMonth()), "this month")
+            "lastmonth" -> today.minusMonths(1).let { m -> Triple(m.withDayOfMonth(1), m.withDayOfMonth(m.lengthOfMonth()), "last month") }
+            else -> Triple(monday, monday.plusDays(6), "this week")
+        }
+        val list = Shifts.all(context).filterKeys { !it.isBefore(from) && !it.isAfter(to) }.toSortedMap()
+        if (list.isEmpty()) return Reply("No shifts $label${sir()}.", actions = listOf(Action("ADD SHIFTS", "add shifts ")))
+        val total = list.values.sumOf { it.minutes } / 60.0
+        val done = list.filter { (d, s) -> s.finish(d, zone) <= System.currentTimeMillis() }.values.sumOf { it.minutes } / 60.0
+        val current = !today.isBefore(from) && !today.isAfter(to)
+        val rate = JarvisMemory.hourlyRate(context)
+        fun h(v: Double) = if (v % 1.0 == 0.0) "%.0f".format(Locale.ROOT, v) else "%.1f".format(Locale.ROOT, v)
+        val hoursSaid = "${list.size} shift${if (list.size == 1) "" else "s"} $label, ${h(total)} hours" +
+            if (current && done > 0 && done < total) " (${h(done)} done, ${h(total - done)} to go)." else "."
+        val paySaid = when {
+            rate != null -> " At ${money(rate)} an hour that's about ${money(total * rate)} before tax" + if (current && done > 0 && done < total) ", ${money(done * rate)} earned so far." else "."
+            pay -> " Tell me your hourly rate, like \"I get paid £12.50 an hour\", and I'll work out the pay."
+            else -> ""
+        }
+        return Reply("You've $hoursSaid$paySaid",
+            card = Card("£", label.uppercase(), "${h(total)}h", rate?.let { "≈ ${money(total * it)} before tax" } ?: "${list.size} shifts",
+                list.map { (d, s) -> Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, s.times() + (rate?.let { " · ${money(s.minutes / 60.0 * it)}" } ?: ""), ok = if (s.finish(d, zone) <= System.currentTimeMillis()) true else null) },
+                Tone.GOLD),
+            actions = if (rate == null) listOf(Action("SET MY RATE", "I get paid £ an hour")) else emptyList())
     }
 
     private fun shiftAlarm(): Reply {

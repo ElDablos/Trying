@@ -205,8 +205,11 @@ back to One UI Home the same way at any time.
     week), "uni every Wednesday 5 till 9", "no uni this Wednesday", "have I got uni tomorrow". It goes in
     the same calendar as your shifts, shows on the shift planner in blue and in the briefing, and he warns
     you if it overlaps a shift.
-  - **Hours and pay**: "how many hours this month", "what have I earned this week" (once you've said
-    "I get paid £12.50 an hour").
+  - **Hours and pay, as your payslip does it**: basic pay plus TRONC, income tax on your code (Week 1
+    basis), NI on basic pay, and your NEST pension (5% above the qualifying threshold, relief at source),
+    paid fortnightly. "What have I earned this week / this month", "when's payday?", and "my pay log"
+    (week by week, with paydays, to share). Each shift shows what it pays before and after tax. Change the
+    details by saying them ("my basic rate is…", "tronc is about… an hour", "my tax code is…").
   - **The evening before**: from 7pm before a working or uni day, one heads-up with the shift, when you're
     up and out, whether the work alarms are set, uni, the tube on your line and rain on the way.
   - **He checks his work**: after switching a Tapo light he looks again, and tries once more or tells you

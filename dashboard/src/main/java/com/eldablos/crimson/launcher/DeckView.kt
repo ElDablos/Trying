@@ -3326,8 +3326,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val days = (0 until 7).map { shiftWeek.plusDays(it.toLong()) }
             val week = days.mapNotNull { d -> shifts[d]?.let { d to it } }
             val hours = week.sumOf { it.second.minutes } / 60f
-            val rate = JarvisMemory.hourlyRate(context)
-            val weekPay = rate?.takeIf { week.isNotEmpty() }?.let { r -> (hours * r).toDouble().let { g -> val (tax, ni) = Pay.deductions(g, 52); g to g - tax - ni } }
+            val rate = Pay.setup(context).hourly
+            val weekPay = rate.takeIf { it > 0 }?.takeIf { week.isNotEmpty() }?.let { Pay.week(context, shiftWeek).let { w -> w.gross to w.net } }
 
             // The summary: how many, how long, what's next, with weeks either side.
             var top = y + 24 * u
@@ -3418,7 +3418,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     }
                     if (s != null || uni != null) {
                         val label = listOfNotNull(
-                            s?.let { "${it.name} · ${it.times()} · ${it.minutes / 60}H" + (if (it.minutes % 60 != 0L) "${it.minutes % 60}M" else "") + (rate?.let { r -> " · " + Pay.money(it.minutes / 60.0 * r) } ?: "") },
+                            s?.let { "${it.name} · ${it.times()} · ${it.minutes / 60}H" + (if (it.minutes % 60 != 0L) "${it.minutes % 60}M" else "") + " · " + Pay.money(it.minutes / 60.0 * rate) },
                             uni?.let { "UNI ${it.times()}" },
                         ).joinToString("  ·  ")
                         canvas.drawText(label, bl, row.centerY() + 18 * u, Hud.fit(label, Hud.text(7 * u, if (s == null) UNI_BLUE else Hud.SOFT, Hud.MONO, .1f), br - bl))

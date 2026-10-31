@@ -57,18 +57,31 @@ class RealPhrasesTest {
 
     @Test
     fun takeHome() {
-        // 32 hours at £18 in a week: £576 before tax.
-        val (tax, ni) = Pay.deductions(576.0, 52)
-        assertEquals(66.85, tax, .01)
-        assertEquals(26.74, ni, .01)
-        // A month of it (£2,496).
-        val (mt, mn) = Pay.deductions(2496.0, 12)
-        assertEquals(289.70, mt, .01)
-        assertEquals(115.88, mn, .01)
-        // Under the tax-free share: nothing taken.
-        assertEquals(0.0 to 0.0, Pay.deductions(200.0, 52))
+        // Vee's payslip, fortnight 15 (5 to 18 Oct 2026): 49.3553 hours at £12.71 basic plus £246.52 TRONC.
+        val setup = Pay.Setup(12.71, 0.0, "918L", 5.0, true, 26, d(5).minusMonths(1))
+        val slip = Pay.slip(627.31, 246.52, 49.3553, setup, 26)
+        assertEquals(873.83, slip.gross, .001)
+        assertEquals(104.00, slip.tax, .001)
+        assertEquals(11.46, slip.ni, .001)
+        assertEquals(15.50, slip.pension, .001)
+        // Net pay 758.37 less the pension; the advance (a loan, since repaid) left out.
+        assertEquals(742.87, slip.net, .001)
+        assertEquals(9189.0, Pay.allowance("918L"), .001)
+        assertEquals(12579.0, Pay.allowance("1257L"), .001)
+        // Fortnights from Mon 5 Oct: Sun 18 Oct is in the first, paid Fri 23 Oct.
+        val fortnightly = Pay.Setup(12.71, 5.29, "918L", 5.0, true, 26, LocalDate.of(2026, 10, 5))
+        assertEquals(LocalDate.of(2026, 10, 5) to LocalDate.of(2026, 10, 18), Pay.periodOf(LocalDate.of(2026, 10, 18), fortnightly))
+        assertEquals(LocalDate.of(2026, 10, 19) to d(1), Pay.periodOf(LocalDate.of(2026, 10, 30), fortnightly))
+        assertEquals(LocalDate.of(2026, 10, 23), Pay.payday(LocalDate.of(2026, 10, 18)))
+
         assertEquals(Command.SetRate(18.0), p("I earn 18 pounds per hour"))
         assertEquals(Command.SetRate(18.0), p("I earn £18 per hour"))
+        assertEquals(Command.SetPay("basic", 12.71, null), p("my basic rate is 12.71"))
+        assertEquals(Command.SetPay("tronc", 5.0, null), p("tronc is about 5 an hour"))
+        assertEquals(Command.SetPay("code", null, "918l"), p("my tax code is 918L"))
+        assertEquals(Command.SetPay("pension", 5.0, null), p("my pension is 5 percent"))
+        assertEquals(Command.Payday, p("when's payday"))
+        assertEquals(Command.Payday, p("when do I get paid"))
         assertEquals(Command.PayLog, p("show me my weekly log"))
         assertEquals(Command.PayLog, p("my pay log"))
         assertEquals(Command.PayLog, p("my earnings week by week"))

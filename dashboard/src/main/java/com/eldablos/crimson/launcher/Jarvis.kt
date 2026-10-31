@@ -826,9 +826,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.UniWhen -> uniWhen(cmd.day)
         is Command.Hours -> hours(cmd.period, cmd.pay)
         Command.PayLog -> payLog()
+        Command.Payday -> payday()
+        is Command.SetPay -> setPay(cmd.what, cmd.value, cmd.code)
         is Command.SetRate -> {
             val was = JarvisMemory.hourlyRate(context)
             JarvisMemory.setHourlyRate(context, cmd.perHour)
+            Pay.clearTronc(context)
             push("Hourly rate back to ${was?.let { money(it) } ?: "unset"}") {
                 if (was != null) JarvisMemory.setHourlyRate(context, was) else JarvisMemory.setHourlyRate(context, 0.0)
                 "Put your rate back."
@@ -1305,7 +1308,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 else say("You're not working $label, sir. A day off.", "Nothing $label. Try to look busy anyway.", "Off $label."),
                 card = Card("⧗", "SHIFT · ${label.removePrefix("on ").uppercase()}", "OFF", date.format(dayName) + (uni?.let { " · uni ${it.times()}" } ?: ""), tone = Tone.GREEN),
             )
-            val paySaid = JarvisMemory.hourlyRate(context)?.let { r ->
+            val paySaid = Pay.setup(context).hourly.takeIf { it > 0 }?.let { r ->
                 val g = s.minutes / 60.0 * r
                 " That's ${money(g)} before tax, about ${money(Pay.netShare(context, date, g, r))} after."
             }.orEmpty()
@@ -1324,7 +1327,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         return Card("⧗", "SHIFT · ${whenText(date, null).uppercase()}", s.times(), "${duration(s.minutes * 60_000L)} · ${s.name.ifBlank { "Shift" }}", listOfNotNull(
             if (start > now) Row("STARTS IN", duration(start - now)) else null,
             if (start > now) Row("ALARM", alarm?.let { at(it).format(tf) } ?: "none set", ok = alarm != null) else null,
-            JarvisMemory.hourlyRate(context)?.let { r -> (s.minutes / 60.0 * r).let { g -> Row("PAY", "${money(g)} → ${money(Pay.netShare(context, date, g, r))}") } },
+            Pay.setup(context).hourly.takeIf { it > 0 }?.let { r -> (s.minutes / 60.0 * r).let { g -> Row("PAY", "${money(g)} → ${money(Pay.netShare(context, date, g, r))}") } },
         ), Tone.HOT)
     }
 
@@ -1362,7 +1365,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     /**
      * Hours over a week or month from your shifts (done so far and still to come, for the current one), and
-     * what they come to before tax and after (income tax and NI, see [Pay]) when you've told him your rate.
+     * what they come to as your payslip would show it: basic, TRONC, tax, NI, pension and take-home ([Pay]).
      */
     private fun hours(period: String, pay: Boolean): Reply {
         val today = LocalDate.now()
@@ -1379,36 +1382,37 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val total = list.values.sumOf { it.minutes } / 60.0
         val done = list.filter { (d, s) -> s.finish(d, zone) <= System.currentTimeMillis() }.values.sumOf { it.minutes } / 60.0
         val current = !today.isBefore(from) && !today.isAfter(to)
-        val rate = JarvisMemory.hourlyRate(context)
+        val setup = Pay.setup(context)
+        val slip = Pay.span(context, from, to, setup)
         fun h(v: Double) = if (v % 1.0 == 0.0) "%.0f".format(Locale.ROOT, v) else "%.1f".format(Locale.ROOT, v)
         val hoursSaid = "${list.size} shift${if (list.size == 1) "" else "s"} $label, ${h(total)} hours" +
             if (current && done > 0 && done < total) " (${h(done)} done, ${h(total - done)} to go)." else "."
-        val sum = rate?.let { Pay.summary(context, from, to, it) }
-        val paySaid = when {
-            sum != null -> " At ${money(rate!!)} an hour that's ${money(sum.gross)} before tax, about ${money(sum.net)} after tax and NI" +
-                if (current && done > 0 && done < total) ". ${money(done * rate)} of it earned so far." else "."
-            pay -> " Tell me your hourly rate, like \"I get paid £18 an hour\", and I'll work out the pay."
-            else -> ""
-        }
+        val paySaid = " That's ${money(slip.gross)} before tax and about ${money(slip.net)} take-home, after tax, NI and your pension" +
+            if (current && done > 0 && done < total) ". ${money(done * setup.hourly)} of it earned so far." else "."
         return Reply("You've $hoursSaid$paySaid",
-            card = Card("£", label.uppercase(), sum?.let { money(it.net) } ?: "${h(total)}h",
-                sum?.let { "TAKE-HOME · ${money(it.gross)} BEFORE TAX · ${h(total)}H" } ?: "${list.size} shifts",
-                list.map { (d, s) -> Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, s.times() + (rate?.let { " · ${money(s.minutes / 60.0 * it)}" } ?: ""), ok = if (s.finish(d, zone) <= System.currentTimeMillis()) true else null) } +
-                    (sum?.let { listOf(Row("TAX", "−${money(it.tax)}"), Row("NI", "−${money(it.ni)}"), Row("TAKE-HOME", money(it.net), ok = true)) } ?: emptyList()),
+            card = Card("£", label.uppercase(), money(slip.net), "TAKE-HOME · ${money(slip.gross)} BEFORE TAX · ${h(total)}H",
+                list.map { (d, s) -> Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, s.times() + " · " + money(s.minutes / 60.0 * setup.hourly), ok = if (s.finish(d, zone) <= System.currentTimeMillis()) true else null) } +
+                    slipRows(slip),
                 Tone.GOLD),
-            actions = if (rate == null) listOf(Action("SET MY RATE", "I get paid £ an hour")) else listOf(Action("WEEKLY LOG", "my pay log")))
+            actions = listOf(Action("WEEKLY LOG", "my pay log")))
     }
+
+    /** The payslip lines: basic, TRONC, tax, NI, pension, take-home. */
+    private fun slipRows(slip: Pay.Slip) = listOf(
+        Row("BASIC", money(slip.basic)), Row("TRONC (EST.)", money(slip.tronc)),
+        Row("TAX", "−${money(slip.tax)}"), Row("NI", "−${money(slip.ni)}"), Row("PENSION", "−${money(slip.pension)}"),
+        Row("TAKE-HOME", money(slip.net), ok = true),
+    )
 
     /**
      * Week by week: hours, before tax and take-home for the last eight weeks, this one and next (if it has
-     * shifts), with totals, to read or share.
+     * shifts), with your paydays (each fortnight as a payslip), to read or share.
      */
     private fun payLog(): Reply {
-        val rate = JarvisMemory.hourlyRate(context) ?: return Reply("Tell me your hourly rate first${sir()}, like \"I get paid £18 an hour\".",
-            actions = listOf(Action("SET MY RATE", "I get paid £ an hour")))
+        val setup = Pay.setup(context)
         val thisWeek = Shifts.monday(LocalDate.now())
         val weeks = (-8..1).map { thisWeek.plusWeeks(it.toLong()) }
-            .map { m -> m to Pay.summary(context, m, m.plusDays(6), rate) }
+            .map { m -> m to Pay.week(context, m, setup) }
             .filter { (m, s) -> s.hours > 0 || m == thisWeek }
         if (weeks.all { it.second.hours == 0.0 }) return Reply("No shifts in the last couple of months to log${sir()}.")
         fun h(v: Double) = if (v % 1.0 == 0.0) "%.0f".format(Locale.ROOT, v) else "%.1f".format(Locale.ROOT, v)
@@ -1421,19 +1425,56 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val hours = past.sumOf { it.second.hours }
         val gross = past.sumOf { it.second.gross }
         val net = past.sumOf { it.second.net }
-        val now = weeks.firstOrNull { it.first == thisWeek }?.second
+        // Paydays: the fortnight you're in (paid the Friday after it ends), and the one before.
+        val (curStart, curEnd) = Pay.periodOf(LocalDate.now(), setup)
+        val periods = listOf(curStart.minusDays(14) to curStart.minusDays(1), curStart to curEnd)
+        val slips = periods.map { (a, b) -> Triple(a, b, Pay.slipFor(context, a, b, setup)) }
+        val day = DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
+        val nextPay = slips.last()
         val text = buildString {
-            append("Pay log · ${money(rate)}/hour · take-home after income tax and NI (1257L, estimate)\n\n")
-            weeks.forEach { (m, s) -> append("${m.format(DateTimeFormatter.ofPattern("EEE d MMM yyyy"))}  ${h(s.hours)}h  ${money(s.gross)} before tax  ${money(s.net)} take-home\n") }
-            append("\nTotal to this week: ${h(hours)}h  ${money(gross)} before tax  ${money(net)} take-home\n")
+            append("Pay log · ${money(setup.basicRate)}/h basic + TRONC (est. ${money(setup.troncRate)}/h) · tax code ${setup.taxCode} · NEST ${h(setup.pensionPct)}%\n\n")
+            append("Week by week:\n")
+            weeks.forEach { (m, s) -> append("${m.format(DateTimeFormatter.ofPattern("EEE d MMM yyyy"))}  ${h(s.hours)}h  ${money(s.gross)} gross  ${money(s.net)} take-home\n") }
+            append("\nTotal to this week: ${h(hours)}h  ${money(gross)} gross  ${money(net)} take-home\n\nPaydays:\n")
+            slips.forEach { (a, b, s) ->
+                append("${Pay.payday(b).format(day)} (${a.format(day)} to ${b.format(day)}): ${h(s.hours)}h, basic ${money(s.basic)}, TRONC ${money(s.tronc)}, tax ${money(s.tax)}, NI ${money(s.ni)}, pension ${money(s.pension)}, take-home ${money(s.net)}\n")
+            }
         }
         return Reply(
-            "Here's your log${sir()}: ${h(hours)} hours over ${past.count { it.second.hours > 0 }} weeks, ${money(gross)} before tax and about ${money(net)} take-home." +
-                (now?.takeIf { it.hours > 0 }?.let { " This week so far: ${h(it.hours)} hours, ${money(it.net)} take-home." } ?: ""),
-            card = Card("£", "PAY LOG · ${money(rate)}/H", money(net), "TAKE-HOME · ${money(gross)} BEFORE TAX · ${h(hours)}H",
-                weeks.reversed().map { (m, s) -> Row(wk(m), if (s.hours == 0.0) "—" else "${h(s.hours)}h · ${money(s.gross)} → ${money(s.net)}", ok = if (m.isBefore(thisWeek)) true else null) }, Tone.GOLD),
-            actions = listOf(Action("SHARE", primary = true, run = { shareText("Pay log", text) }), Action("THIS MONTH", "what have I earned this month")),
+            "Here's your log${sir()}: ${h(hours)} hours over ${past.count { it.second.hours > 0 }} weeks, ${money(gross)} before tax and about ${money(net)} take-home. " +
+                "Next payday ${Pay.payday(nextPay.second).format(day)}: about ${money(nextPay.third.net)}.",
+            card = Card("£", "PAY LOG", money(net), "TAKE-HOME · ${money(gross)} BEFORE TAX · ${h(hours)}H",
+                listOf(Row("PAYDAY ${Pay.payday(nextPay.second).format(day).uppercase()}", money(nextPay.third.net), ok = null)) +
+                    weeks.reversed().map { (m, s) -> Row(wk(m), if (s.hours == 0.0) "—" else "${h(s.hours)}h · ${money(s.gross)} → ${money(s.net)}", ok = if (m.isBefore(thisWeek)) true else null) }, Tone.GOLD),
+            actions = listOf(Action("SHARE", primary = true, run = { shareText("Pay log", text) }), Action("NEXT PAYDAY", "what's my next payday")),
         )
+    }
+
+    /** Your basic rate, TRONC, tax code or pension, as you tell him. */
+    private fun setPay(what: String, value: Double?, code: String?): Reply {
+        when (what) {
+            "basic" -> Pay.setBasic(context, value ?: return Reply("What's the basic rate, sir?"))
+            "tronc" -> Pay.setTronc(context, value ?: return Reply("How much TRONC an hour, roughly?"))
+            "code" -> Pay.setTaxCode(context, code ?: return Reply("What's the tax code on your payslip?"))
+            "pension" -> Pay.setPension(context, value ?: return Reply("What percentage goes to your pension?"))
+        }
+        val s = Pay.setup(context)
+        return Reply("Noted${sir()}. Basic ${money(s.basicRate)} an hour plus about ${money(s.troncRate)} TRONC, tax code ${s.taxCode}, pension ${"%.0f".format(Locale.ROOT, s.pensionPct)}%.",
+            card = Card("£", "YOUR PAY", money(s.hourly) + "/H", "basic ${money(s.basicRate)} · TRONC ${money(s.troncRate)} · ${s.taxCode} · NEST ${"%.0f".format(Locale.ROOT, s.pensionPct)}%", tone = Tone.GOLD),
+            actions = listOf(Action("NEXT PAYDAY", "what's my next payday")))
+    }
+
+    /** The fortnight you're in, as a payslip: when it's paid and what comes home. */
+    private fun payday(): Reply {
+        val setup = Pay.setup(context)
+        val (a, b) = Pay.periodOf(LocalDate.now(), setup)
+        val slip = Pay.slipFor(context, a, b, setup)
+        val day = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault())
+        fun h(v: Double) = if (v % 1.0 == 0.0) "%.0f".format(Locale.ROOT, v) else "%.1f".format(Locale.ROOT, v)
+        return Reply("Your next payday is ${Pay.payday(b).format(day)}${sir()}, for ${a.format(DateTimeFormatter.ofPattern("d MMM"))} to ${b.format(DateTimeFormatter.ofPattern("d MMM"))}: " +
+            "${h(slip.hours)} hours, ${money(slip.gross)} before tax, about ${money(slip.net)} take-home. TRONC varies, so that part's an estimate.",
+            card = Card("£", "PAYDAY · ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())).uppercase()}", money(slip.net), "${h(slip.hours)}H · ${money(slip.gross)} BEFORE TAX", slipRows(slip), Tone.GOLD),
+            actions = listOf(Action("PAY LOG", "my pay log")))
     }
 
     private fun shiftAlarm(): Reply {
@@ -3810,7 +3851,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "What's my screen time?", "Tick off buy milk", "Set my alarms for work tomorrow", "Turn off my work alarms",
             "What's my rota this week?", "What's my rota next week?", "What have I earned this month?", "How many hours this month?",
             "Have I got uni tomorrow?", "I've got uni every Wednesday 5 till 9", "How's the tube?", "Any delays tomorrow?", "Lock my phone",
-            "Next colour", "Set the heating to 24", "Turn the heating off", "Wake log", "Hands log",
+            "Next colour", "Set the heating to 24", "Turn the heating off", "Wake log", "Hands log", "When's payday?", "My pay log",
         )
 
         /** Soundex: names that sound alike share a code ("cloud" and "Claude" are both C430). */

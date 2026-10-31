@@ -122,6 +122,10 @@ object JarvisParser {
         data class Hours(val period: String, val pay: Boolean) : Command()
         /** Week by week: hours, before tax and take-home ("my pay log"). */
         object PayLog : Command()
+        /** "When's payday?": the fortnight you're in, as a payslip. */
+        object Payday : Command()
+        /** A pay detail: "basic" (rate), "tronc" (per hour), "code" (tax code), "pension" (percent). */
+        data class SetPay(val what: String, val value: Double?, val code: String?) : Command()
         /** Your hourly rate: "I get paid £12.50 an hour". */
         data class SetRate(val perHour: Double) : Command()
         /** Uni on these days ("uni Wednesday 5 till 9"), or every week on them ("every Wednesday"). */
@@ -264,7 +268,7 @@ object JarvisParser {
         uni(t, today)?.let { return it }
         // Your pay: "I get paid £12.50 an hour", "my hourly rate is 13".
         Regex("(?:£|\\bgbp ?)?(\\d{1,3}(?:\\.\\d{1,2})?)(?: pounds?(?: (\\d{1,2}))?| quid)?(?: p)? (?:an|per|a|each|1) (?:hour|hr)\\b|\\b(?:hourly rate|rate of pay|pay rate|my rate)(?: is| of)? (?:£)?(\\d{1,3}(?:\\.\\d{1,2})?)").find(t)
-            ?.takeIf { !Regex("^(what|how)").containsMatchIn(t) }?.let { m ->
+            ?.takeIf { !Regex("^(what|how)").containsMatchIn(t) && !Regex("\\b(tronc|tips?|basic)\\b").containsMatchIn(t) }?.let { m ->
                 val pounds = (m.groupValues[1].ifEmpty { m.groupValues[3] }).toDoubleOrNull()
                 val pence = m.groupValues[2].toIntOrNull()?.let { it / 100.0 } ?: 0.0
                 if (pounds != null && pounds in 1.0..500.0) return Command.SetRate(pounds + pence)
@@ -683,6 +687,12 @@ object JarvisParser {
             if (date != null) return Command.RemoveShift(date)
         }
         if (Regex("^am i (off|free|working|on)\\b|^do i (work|have work|have a shift)|^have i got (work|a shift)").containsMatchIn(t)) return Command.Shift(dayAhead0)
+        // Payday, and pay details from your payslip.
+        if (Regex("\\b(next )?pay ?day\\b|when (do|will) i (get )?paid|when am i paid|next pay(slip| packet| cheque)?\\b").containsMatchIn(t) && !has("log")) return Command.Payday
+        Regex("\\bbasic (?:pay|rate|hourly rate|wage)?(?: is| of)? (?:£)?(\\d{1,3}(?:\\.\\d{1,2})?)").find(t)?.let { return Command.SetPay("basic", it.groupValues[1].toDouble(), null) }
+        Regex("\\b(?:tronc|tips?)(?: is| are| comes to| of)? (?:about |around )?(?:£)?(\\d{1,2}(?:\\.\\d{1,2})?)(?: (?:an|per|a|1) (?:hour|hr))?").find(t)?.takeIf { !has("how much", "what") }?.let { return Command.SetPay("tronc", it.groupValues[1].toDouble(), null) }
+        Regex("\\btax code(?: is)? ([a-z]?\\d{2,4} ?[a-z]{1,2}|br|d0|d1|nt)\\b").find(t)?.let { return Command.SetPay("code", null, it.groupValues[1].replace(" ", "")) }
+        Regex("\\bpension(?: contribution)?(?: is| of)? (\\d{1,2}(?:\\.\\d)?) ?(?:%|percent|per cent)").find(t)?.let { return Command.SetPay("pension", it.groupValues[1].toDouble(), null) }
         // The log, week by week: "my weekly log", "pay log", "show my earnings week by week".
         if (Regex("\\b(pay|earnings?|money|wages?|hours|work|weekly|shift) (log|history|breakdown|record|summary)\\b|\\bweek by week\\b|\\bweekly (pay|earnings|hours|log)\\b|\\blog of (my )?(hours|pay|earnings|money)").containsMatchIn(t)) return Command.PayLog
         // Hours and pay over a stretch: "how many hours this month", "what did I earn last week", "how much will I get paid this month".

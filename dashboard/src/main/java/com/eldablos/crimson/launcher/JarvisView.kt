@@ -1006,9 +1006,9 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             item(body, "${d.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())}s: ${line.replaceFirstChar { it.uppercase() }} line", "From what you told me", "FORGET",
                 onButton = { Travel.clearDayLine(context, d); openSheet(Jarvis.Sheet.MEMORY) })
         }
-        JarvisMemory.hourlyRate(context)?.let { r ->
-            item(body, "£${if (r % 1.0 == 0.0) "%.0f".format(java.util.Locale.ROOT, r) else "%.2f".format(java.util.Locale.ROOT, r)} an hour", "For what your weeks come to", "FORGET",
-                onButton = { JarvisMemory.setHourlyRate(context, 0.0); openSheet(Jarvis.Sheet.MEMORY) })
+        Pay.setup(context).let { p ->
+            item(body, "${Pay.money(p.hourly)} an hour: ${Pay.money(p.basicRate)} basic + about ${Pay.money(p.troncRate)} TRONC",
+                "Tax code ${p.taxCode} · NEST ${"%.0f".format(java.util.Locale.ROOT, p.pensionPct)}% · paid every other Friday. Say \"my basic rate is…\", \"tronc is about… an hour\", \"my tax code is…\" to change")
         }
         Uni.weekly(context).forEach { (d, sess) ->
             item(body, "Uni ${d.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())}s ${sess.times()}", "Every week, in the calendar", "REMOVE",

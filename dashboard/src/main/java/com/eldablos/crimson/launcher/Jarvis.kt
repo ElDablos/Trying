@@ -1379,7 +1379,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "lastmonth" -> today.minusMonths(1).let { m -> Triple(m.withDayOfMonth(1), m.withDayOfMonth(m.lengthOfMonth()), "last month") }
             else -> Triple(monday, monday.plusDays(6), "this week")
         }
-        val list = Shifts.all(context).filterKeys { !it.isBefore(from) && !it.isAfter(to) }.toSortedMap()
+        val list = Shifts.worked(context).filterKeys { !it.isBefore(from) && !it.isAfter(to) }.toSortedMap()
         if (list.isEmpty()) return Reply("No shifts $label${sir()}.", actions = listOf(Action("ADD SHIFTS", "add shifts ")))
         val total = list.values.sumOf { it.minutes } / 60.0
         val done = list.filter { (d, s) -> s.finish(d, zone) <= System.currentTimeMillis() }.values.sumOf { it.minutes } / 60.0
@@ -1480,65 +1480,63 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     /**
-     * "I've clocked in" (now, to the minute) or "I started work at 7:10": today's shift starts then. A planned
-     * shift keeps its finish until you clock out; with none planned he starts one. Saved and synced as usual.
+     * "I've clocked in" (now, to the minute) or "I started work at 7:10": the start of today's shift as worked,
+     * kept for hours and pay. The rota, and the calendar, keep the planned shift.
      */
     private fun clockIn(time: LocalTime?): Reply {
         val now = LocalDateTime.now().withSecond(0).withNano(0)
         val at = time?.let { recent(it, now) } ?: now
         val date = at.toLocalDate()
         val planned = Shifts.all(context)[date]
+        val before = Shifts.actual(context)[date]
         val was = Shifts.clockedIn(context)
-        val end = planned?.end ?: at.toLocalTime().plusHours(8)
-        val shift = Shifts.Shift(at.toLocalTime(), end, planned?.name ?: shiftName(at.toLocalTime(), end))
-        Shifts.set(context, date, shift)
+        val end = before?.end?.takeIf { before.start != it } ?: planned?.end ?: at.toLocalTime().plusHours(8)
+        Shifts.setActual(context, date, Shifts.Shift(at.toLocalTime(), end, planned?.name ?: shiftName(at.toLocalTime(), end)))
         Shifts.setClockedIn(context, at)
-        Shifts.sync(context)
         push("Clock-in undone") {
-            Shifts.set(context, date, planned)
+            Shifts.setActual(context, date, before)
             Shifts.setClockedIn(context, was)
-            Shifts.sync(context)
-            "Put your shift back as it was."
+            "Put it back as it was."
         }
         val diff = planned?.let { java.time.Duration.between(it.start, at.toLocalTime()).toMinutes() }
         val vsPlan = when {
-            diff == null -> "No shift was planned today, so I've started one. Tell me when you finish."
+            diff == null -> "No shift was planned today; I'll log the hours you work. Tell me when you finish."
             diff > 0 -> "That's ${minutesSaid(diff)} after your ${planned.start.format(tf)} start. Planned finish ${end.format(tf)}."
             diff < 0 -> "${minutesSaid(-diff)} early. Planned finish ${end.format(tf)}."
             else -> "Right on time. Planned finish ${end.format(tf)}."
         }
         return Reply("Clocked in at ${at.toLocalTime().format(tf)}${sir()}. $vsPlan",
-            card = Card("⧗", "CLOCKED IN", at.toLocalTime().format(tf), if (planned != null) "planned ${planned.times()}" else "no shift was planned", tone = Tone.HOT),
+            card = Card("⧗", "CLOCKED IN", at.toLocalTime().format(tf), if (planned != null) "planned ${planned.times()} · calendar unchanged" else "no shift was planned", tone = Tone.HOT),
             actions = listOf(undoAction, Action("CLOCK OUT", "I've finished work")))
     }
 
     /**
-     * "I've finished work" (now) or "I clocked out at 6:15": the shift ends then, from when you clocked in
-     * (or its planned start), so the hours and pay are what you really worked.
+     * "I've finished work" (now) or "I clocked out at 6:15": the shift as worked, from when you clocked in
+     * (or its planned start) to now, for hours and pay. The calendar keeps the planned times.
      */
     private fun clockOut(time: LocalTime?): Reply {
         val now = LocalDateTime.now().withSecond(0).withNano(0)
         val at = time?.let { recent(it, now) } ?: now
         val inAt = Shifts.clockedIn(context)?.takeIf { it.isBefore(at) && java.time.Duration.between(it, at).toHours() < 20 }
-        val all = Shifts.all(context)
+        val plan = Shifts.all(context)
+        val worked = Shifts.actual(context)
         // Which day's shift: the one you clocked in for, today's, or last night's running past midnight.
         val date = inAt?.toLocalDate()
-            ?: at.toLocalDate().takeIf { all[it] != null }
-            ?: at.toLocalDate().minusDays(1).takeIf { all[it]?.overnight == true }
-            ?: return Reply("I didn't have you at work today${sir()}. Tell me when you started, like \"I started work at 7\", and I'll record the whole shift.",
+            ?: at.toLocalDate().takeIf { plan[it] != null || worked[it] != null }
+            ?: at.toLocalDate().minusDays(1).takeIf { (worked[it] ?: plan[it])?.overnight == true }
+            ?: return Reply("I didn't have you at work today${sir()}. Tell me when you started, like \"I started work at 7\", and I'll log the whole shift.",
                 actions = listOf(Action("I STARTED AT…", "I started work at ")))
-        val planned = all[date]
-        val start = inAt?.toLocalTime() ?: planned!!.start
+        val planned = plan[date]
+        val before = worked[date]
+        val start = inAt?.toLocalTime() ?: before?.start ?: planned!!.start
         val shift = Shifts.Shift(start, at.toLocalTime(), planned?.name ?: shiftName(start, at.toLocalTime()))
         val was = Shifts.clockedIn(context)
-        Shifts.set(context, date, shift)
+        Shifts.setActual(context, date, shift)
         Shifts.setClockedIn(context, null)
-        Shifts.sync(context)
         push("Clock-out undone") {
-            Shifts.set(context, date, planned)
+            Shifts.setActual(context, date, before)
             Shifts.setClockedIn(context, was)
-            Shifts.sync(context)
-            "Put your shift back as it was."
+            "Put it back as it was."
         }
         val diff = planned?.let { shift.minutes - it.minutes }
         val vsPlan = when {
@@ -1549,12 +1547,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val setup = Pay.setup(context)
         val gross = shift.minutes / 60.0 * setup.hourly
         val (_, b) = Pay.periodOf(date, setup)
-        val startNote = if (inAt == null) " I've kept your start at ${start.format(tf)}; if it was different, say \"I started work at …\"." else ""
+        val startNote = if (inAt == null && before == null) " I've taken your start as ${start.format(tf)}; if it was different, say \"I started work at …\"." else ""
         return Reply("Clocked out at ${at.toLocalTime().format(tf)}${sir()}. ${if (date == now.toLocalDate()) "Today" else whenText(date, null).replaceFirstChar { it.uppercase() }}: ${start.format(tf)} till ${at.toLocalTime().format(tf)}, " +
-            "${minutesSaid(shift.minutes)}$vsPlan. That's ${money(gross)} before tax, in your ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))} pay.$startNote",
+            "${minutesSaid(shift.minutes)}$vsPlan. That's ${money(gross)} before tax, in your ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))} pay. Your calendar keeps the planned shift.$startNote",
             card = Card("⧗", "CLOCKED OUT", shift.times(), "${minutesSaid(shift.minutes)} · ${money(gross)} before tax", listOfNotNull(
-                planned?.let { Row("PLANNED", it.times()) },
-                Row("WORKED", minutesSaid(shift.minutes), ok = true),
+                planned?.let { Row("PLANNED · CALENDAR", it.times()) },
+                Row("WORKED", "${shift.times()} · ${minutesSaid(shift.minutes)}", ok = true),
                 Row("PAYDAY", Pay.payday(b).format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))),
             ), Tone.GREEN),
             actions = listOf(undoAction, Action("NEXT PAYDAY", "what's my next payday")))

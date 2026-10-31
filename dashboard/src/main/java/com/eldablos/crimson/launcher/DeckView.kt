@@ -3325,8 +3325,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val zone = ZoneId.systemDefault()
             val days = (0 until 7).map { shiftWeek.plusDays(it.toLong()) }
             val week = days.mapNotNull { d -> shifts[d]?.let { d to it } }
-            val hours = week.sumOf { it.second.minutes } / 60f
+            val hours = days.sumOf { d -> (Shifts.actual(context)[d] ?: shifts[d])?.minutes ?: 0L } / 60f
             val rate = Pay.setup(context).hourly
+            val worked = Shifts.actual(context)
             val weekPay = rate.takeIf { it > 0 }?.takeIf { week.isNotEmpty() }?.let { Pay.week(context, shiftWeek).let { w -> w.gross to w.net } }
 
             // The summary: how many, how long, what's next, with weeks either side.
@@ -3416,15 +3417,21 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         val blue = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = UNI_BLUE; setShadowLayer(4 * u, 0f, 0f, Hud.alpha(UNI_BLUE, .7f)) }
                         canvas.drawRect(xAt(uni.start), track.bottom - 5 * u, if (uni.end.isAfter(uni.start)) xAt(uni.end) else track.right, track.bottom - 1 * u, blue)
                     }
-                    if (s != null || uni != null) {
+                    if (s != null || uni != null || worked[d] != null) {
                         val label = listOfNotNull(
-                            s?.let { "${it.name} · ${it.times()} · ${it.minutes / 60}H" + (if (it.minutes % 60 != 0L) "${it.minutes % 60}M" else "") + " · " + Pay.money(it.minutes / 60.0 * rate) },
+                            s?.let { plan ->
+                                // Worked different hours (clocked in or out): the real times, and their pay.
+                                val w = worked[d]?.takeIf { it.start != plan.start || it.end != plan.end } ?: plan
+                                (if (w !== plan) "WORKED ${w.times()}" else "${plan.name} · ${plan.times()}") + " · ${w.minutes / 60}H" +
+                                    (if (w.minutes % 60 != 0L) "${w.minutes % 60}M" else "") + " · " + Pay.money(w.minutes / 60.0 * rate)
+                            },
+                            if (s == null) worked[d]?.let { w -> "WORKED ${w.times()} · ${w.minutes / 60}H" + (if (w.minutes % 60 != 0L) "${w.minutes % 60}M" else "") + " · " + Pay.money(w.minutes / 60.0 * rate) } else null,
                             uni?.let { "UNI ${it.times()}" },
                         ).joinToString("  ·  ")
                         canvas.drawText(label, bl, row.centerY() + 18 * u, Hud.fit(label, Hud.text(7 * u, if (s == null) UNI_BLUE else Hud.SOFT, Hud.MONO, .1f), br - bl))
                     }
                     if (s == null) {
-                        canvas.drawText(if (uni != null) "" else "OFF", track.centerX(), track.centerY() + 3 * u, Hud.text(8 * u, Hud.DUST, Hud.MONO, .3f, Paint.Align.CENTER))
+                        canvas.drawText(if (uni != null || worked[d] != null) "" else "OFF", track.centerX(), track.centerY() + 3 * u, Hud.text(8 * u, Hud.DUST, Hud.MONO, .3f, Paint.Align.CENTER))
                     }
                     canvas.drawRect(track, Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f), u))
                     // Saved to the calendar, or still to go.

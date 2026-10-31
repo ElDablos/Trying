@@ -108,6 +108,24 @@ object Shifts {
     /** The Monday of [date]'s week. */
     fun monday(date: LocalDate): LocalDate = date.minusDays((date.dayOfWeek.value - 1).toLong())
 
+    // --- What you really worked ---
+
+    /**
+     * The times you really worked, from clocking in and out, kept apart from the rota: hours and pay use
+     * these, the calendar keeps the shifts as planned.
+     */
+    fun actual(context: Context): Map<LocalDate, Shift> = parse(prefs(context).getString("actual", null))
+
+    fun setActual(context: Context, date: LocalDate, shift: Shift?) {
+        val map = actual(context).toMutableMap()
+        if (shift == null) map.remove(date) else map[date] = shift
+        val kept = map.filterKeys { !it.isBefore(LocalDate.now().minusDays(366)) }
+        prefs(context).edit().putString("actual", format(kept)).apply()
+    }
+
+    /** Each day's shift as worked: the real times where you clocked them, the rota's otherwise. For hours and pay. */
+    fun worked(context: Context): Map<LocalDate, Shift> = all(context) + actual(context)
+
     // --- Clocking in and out ---
 
     /** When you clocked in, while you're at work ("I've clocked in"); null once you've clocked out. */

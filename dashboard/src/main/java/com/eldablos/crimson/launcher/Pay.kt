@@ -16,7 +16,8 @@ import kotlin.math.roundToLong
  *   fortnight, 2% above the upper limit.
  * - **Pension** (NEST): 5% of basic pay above the lower qualifying earnings (£240 a fortnight), taken as
  *   4% from your pay, the rest topped up as tax relief at source.
- * Rounded as payroll does (taxable pay to whole pounds). An estimate for the hours ahead: TRONC varies.
+ * Rounded as payroll does (taxable pay to whole pounds). Hours are as worked where you clocked in and out
+ * ([Shifts.worked]), as planned otherwise. An estimate for the hours ahead: TRONC varies.
  */
 object Pay {
     /** One stretch's pay, as a payslip would show it. */
@@ -105,7 +106,7 @@ object Pay {
 
     /** Your shifts between two days (both included), costed as one stretch of [periods] a year. */
     fun slipFor(context: Context, from: LocalDate, to: LocalDate, s: Setup = setup(context), periods: Int = s.periods): Slip {
-        val hours = Shifts.all(context).filterKeys { !it.isBefore(from) && !it.isAfter(to) }.values.sumOf { it.minutes } / 60.0
+        val hours = Shifts.worked(context).filterKeys { !it.isBefore(from) && !it.isAfter(to) }.values.sumOf { it.minutes } / 60.0
         return slip(hours * s.basicRate, hours * s.troncRate, hours, s, periods)
     }
 

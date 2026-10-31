@@ -3440,6 +3440,48 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             }
             top += wh + 10 * u
 
+            // Earnings: the week as a payslip would show it, and the payday it lands in.
+            if (week.isNotEmpty()) {
+                val setup = Pay.setup(context)
+                val slip = Pay.week(context, shiftWeek, setup)
+                val (pa, pb) = Pay.periodOf(shiftWeek, setup)
+                val period = Pay.slipFor(context, pa, pb, setup)
+                val lines = listOf(
+                    "BASIC · ${"%.1f".format(Locale.ROOT, slip.hours)}H × ${Pay.money(setup.basicRate)}" to Pay.money(slip.basic),
+                    "TRONC · EST. ${Pay.money(setup.troncRate)}/H" to Pay.money(slip.tronc),
+                    "BEFORE TAX" to Pay.money(slip.gross),
+                    "TAX · ${setup.taxCode}" to "−" + Pay.money(slip.tax),
+                    "NATIONAL INSURANCE" to "−" + Pay.money(slip.ni),
+                    "PENSION · NEST ${"%.0f".format(Locale.ROOT, setup.pensionPct)}%" to "−" + Pay.money(slip.pension),
+                )
+                val lh = 20 * u
+                val eh = 64 * u + lines.size * lh + 44 * u
+                card(canvas, now, top, eh) {
+                    val r = RectF(14 * u, top, width - 14 * u, top + eh)
+                    panel(canvas, r, Hud.GOLD, strong = true)
+                    canvas.drawText("◆ EARNINGS · " + (if (shiftWeek == Shifts.monday(LocalDate.now())) "THIS WEEK" else "WEEK OF " + shiftWeek.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())).uppercase()), r.left + 14 * u, top + 20 * u, Hud.text(8 * u, Hud.GOLD, Hud.MONO, .18f))
+                    canvas.drawText(Pay.money(slip.net), r.left + 14 * u, top + 52 * u, Hud.glow(Hud.text(26 * u, Color.WHITE, Hud.LIGHT), 8 * u, Hud.alpha(Hud.GOLD, .5f)))
+                    canvas.drawText("TAKE-HOME", r.right - 14 * u, top + 40 * u, Hud.text(7.5f * u, Hud.GOLD, Hud.MONO, .16f, Paint.Align.RIGHT))
+                    canvas.drawText("of ${Pay.money(slip.gross)} before tax", r.right - 14 * u, top + 53 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .08f, Paint.Align.RIGHT))
+                    var ly = top + 64 * u
+                    lines.forEachIndexed { i, (k, v) ->
+                        canvas.drawLine(r.left + 14 * u, ly, r.right - 14 * u, ly, Hud.stroke(Hud.alpha(Hud.GOLD, .14f), u))
+                        val strong = i == 2
+                        canvas.drawText(k, r.left + 14 * u, ly + 14 * u, Hud.text(7.5f * u, if (strong) Hud.GOLD else Hud.SOFT, Hud.MONO, .12f))
+                        canvas.drawText(v, r.right - 14 * u, ly + 14 * u, Hud.text(9.5f * u, if (v.startsWith("−")) Hud.DUST else Color.WHITE, Hud.MONO, .04f, Paint.Align.RIGHT))
+                        ly += lh
+                    }
+                    // The payday this week's pay comes in, with the whole fortnight's take-home.
+                    val pr = RectF(r.left + 8 * u, ly + 6 * u, r.right - 8 * u, ly + 36 * u)
+                    canvas.drawRect(pr, Hud.fill(Hud.alpha(Hud.GOLD, .1f)))
+                    val day = DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
+                    canvas.drawText("PAID ${Pay.payday(pb).format(day).uppercase()} · ${pa.format(DateTimeFormatter.ofPattern("d MMM")).uppercase()}–${pb.format(DateTimeFormatter.ofPattern("d MMM")).uppercase()}",
+                        pr.left + 8 * u, pr.centerY() + 3 * u, Hud.fit("PAID ${Pay.payday(pb).format(day).uppercase()} · ${pa.format(DateTimeFormatter.ofPattern("d MMM")).uppercase()}–${pb.format(DateTimeFormatter.ofPattern("d MMM")).uppercase()}", Hud.text(7.5f * u, Hud.GOLD, Hud.MONO, .1f), pr.width() * .62f))
+                    canvas.drawText("≈ " + Pay.money(period.net), pr.right - 8 * u, pr.centerY() + 4 * u, Hud.text(11 * u, Color.WHITE, Hud.MONO_BOLD, align = Paint.Align.RIGHT))
+                }
+                top += eh + 10 * u
+            }
+
             // Shift types: your usual shifts, offered when you tap a day; hold one to remove it, + to make one.
             val templates = Shifts.templates(context)
             val th = 82 * u

@@ -200,6 +200,22 @@ object JarvisMemory {
                 Shifts.setActual(context, d(day), clocked[day]?.let { (a, b) -> Shifts.Shift(t(a), t(b), "SHIFT") })
             }
         }
+        // This week (26 Oct to 1 Nov 2026), the same way: the rota (Sunday's 07-11 and 11-18 as one shift; Thursday
+        // 09:00-17:00, worked though Grind shows a day off) and the times clocked so far.
+        if (!p.getBoolean("seeded:6", false)) {
+            p.edit().putBoolean("seeded:6", true).apply()
+            val d = { m: Int, day: Int -> java.time.LocalDate.of(2026, m, day) }
+            val t = { s: String -> java.time.LocalTime.parse(s) }
+            val rota = mapOf(d(10, 26) to ("07:00" to "18:00"), d(10, 27) to ("08:00" to "17:00"), d(10, 29) to ("09:00" to "17:00"),
+                d(10, 31) to ("08:00" to "14:00"), d(11, 1) to ("07:00" to "18:00"))
+            val clocked = mapOf(d(10, 26) to ("07:07" to "18:00"), d(10, 27) to ("08:05" to "17:00"), d(10, 29) to ("09:00" to "17:00"),
+                d(10, 31) to ("08:25" to "12:45"))
+            for (k in 0L until 7L) {
+                val day = d(10, 26).plusDays(k)
+                Shifts.set(context, day, rota[day]?.let { (a, b) -> Shifts.Shift(t(a), t(b), "SHIFT") })
+                Shifts.setActual(context, day, clocked[day]?.let { (a, b) -> Shifts.Shift(t(a), t(b), "SHIFT") })
+            }
+        }
         // Vee's pay: £18 an hour.
         if (!p.getBoolean("seeded:4", false)) {
             p.edit().putBoolean("seeded:4", true).apply()

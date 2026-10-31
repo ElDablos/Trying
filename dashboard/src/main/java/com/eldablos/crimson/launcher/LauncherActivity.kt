@@ -114,6 +114,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // What Jarvis starts out knowing (shifts, pay, rules), before any screen reads it.
+        JarvisMemory.seed(this)
         Theme.load(this)
         builtIn = Theme.now
         window.setDecorFitsSystemWindows(false)

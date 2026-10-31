@@ -519,6 +519,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
     /** Reads the shifts, then brings the calendar up to date with them in the background. */
     private fun loadShifts() {
+        JarvisMemory.seed(context)
         shifts = Shifts.all(context)
         shiftEvents = Shifts.eventIds(context).values.toSet() + Uni.eventIds(context).values
         shiftPending = Shifts.pending(context)

@@ -840,6 +840,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             val first = cmd.from ?: return Reply("From what time${sir()}?", listen = true)
             alarmSeries(first, cmd.count, cmd.gap, "Jarvis")
         }
+        Command.WakeLog -> {
+            val log = JarvisEar.wakeLog(context)
+            if (log == null) Reply("I haven't heard my name yet${sir()}. Say \"Hey Jarvis\" and I'll keep a note of each time.")
+            else Reply("The last times I heard \"Jarvis\", and whether I woke, sir. If I woke when you hadn't called, send this on.",
+                card = Card("◉", "WAKE LOG", "BAR ${"%.2f".format(Locale.ROOT, JarvisEar.wakeBar(context))}", log.lines().lastOrNull().orEmpty(), log.lines().takeLast(6).map { l ->
+                    Row(l.substringBefore("  "), l.substringAfter("  ").substringBefore("  ·"), ok = if (l.contains("WOKE")) true else null)
+                }, tone = Tone.GOLD),
+                actions = listOf(Action("SHARE", primary = true, run = { shareText("Jarvis wake log", log) })))
+        }
         Command.HandsLog -> {
             val log = JarvisHands.lastLog(context)
             if (log == null) Reply("I haven't worked an app since I was installed${sir()}. Ask me to do something in one first.")

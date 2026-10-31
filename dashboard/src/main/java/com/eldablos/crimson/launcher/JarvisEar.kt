@@ -46,7 +46,9 @@ import java.util.zip.ZipInputStream
 class JarvisEar : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var model: Model? = null
-    private var wake: SpeechService? = null
+    private var wake: WakeMic? = null
+    /** Woken by the wake word (not a tap), and nothing said yet: to tell a real call from a false one. */
+    private var wokeByWord = false
     private var recognizer: SpeechRecognizer? = null
 
     /** The command heard on the phone itself, with Vosk, while it's locked (Google's recognizer can't use the mic then). */
@@ -158,18 +160,24 @@ class JarvisEar : Service() {
             try {
                 LibVosk.setLogLevel(LogLevel.WARNINGS)
                 val m = model ?: Model(modelDir(this).absolutePath).also { model = it }
-                // Only the wake words (and "[unk]" for everything else), so it's light and hard to fool.
-                val rec = Recognizer(m, 16000f, "[\"hey jarvis\", \"okay jarvis\", \"ok jarvis\", \"jarvis\", \"[unk]\"]")
+                // The wake words, and words that sound like them for everything else to land on, so talk, a
+                // song or a rustle comes out as "harvest" or "nervous" rather than being forced into "jarvis".
+                val rec = Recognizer(m, 16000f, GRAMMAR)
                 rec.setWords(true)
                 main.post {
                     if (!canWake() || wake != null) {
                         rec.close()
                         return@post
                     }
-                    try {
-                        wake = SpeechService(rec, 16000f).also { it.startListening(wakeListener) }
-                    } catch (e: Exception) {
-                        wake = null
+                    val mic = WakeMic(this, rec, { heardWake(it) }, {
+                        main.post {
+                            stopWake()
+                            main.postDelayed({ startWake() }, 3000)
+                        }
+                    })
+                    if (mic.start()) wake = mic else {
+                        rec.close()
+                        main.postDelayed({ startWake() }, 5000)
                     }
                 }
             } catch (e: Exception) {
@@ -179,45 +187,61 @@ class JarvisEar : Service() {
     }
 
     private fun stopWake() {
-        wake?.let {
-            it.stop()
-            it.shutdown()
-        }
+        wake?.stop()
         wake = null
     }
 
-    private val wakeListener = object : org.vosk.android.RecognitionListener {
-        override fun onPartialResult(hypothesis: String?) {}
-        override fun onResult(hypothesis: String?) = heardWake(hypothesis)
-        override fun onFinalResult(hypothesis: String?) = heardWake(hypothesis)
-        override fun onError(exception: Exception?) {
-            stopWake()
-            main.postDelayed({ startWake() }, 3000)
-        }
-        override fun onTimeout() {}
-    }
-
-    /** "Hey Jarvis" (or "OK Jarvis"), said clearly enough: two words, both confidently heard. */
+    /**
+     * "Hey Jarvis" (or "OK Jarvis"), said on its own and clearly: the whole phrase heard, nothing else
+     * round it, said at a talking pace, and each word heard confidently (more so after false starts: see
+     * [wakeBar]). Near misses go in the wake log.
+     */
     private fun heardWake(json: String?) {
         if (json == null || session) return
         try {
             val o = JSONObject(json)
-            val text = o.optString("text")
-            if (!Regex("\\b(hey|okay|ok) jarvis\\b").containsMatchIn(text)) return
+            val text = o.optString("text").replace("[unk]", "").replace(Regex("\\s+"), " ").trim()
+            if (!text.contains("jarvis")) return
             val words = o.optJSONArray("result") ?: return
-            var sum = 0.0
-            for (i in 0 until words.length()) sum += words.getJSONObject(i).optDouble("conf", 0.0)
-            if (words.length() == 0 || sum / words.length() < WAKE_CONFIDENCE) return
-            main.post { wakeUp() }
+            val list = (0 until words.length()).map { words.getJSONObject(it) }
+            val i = list.indexOfFirst { it.optString("word") == "jarvis" }
+            val first = list.getOrNull(i - 1)
+            val bar = wakeBar(this)
+            val reason = when {
+                text !in setOf("hey jarvis", "ok jarvis", "okay jarvis") -> "not on its own"
+                first == null || first.optString("word") !in setOf("hey", "ok", "okay") -> "no hey"
+                first.optDouble("conf", 0.0) < bar - .1 || list[i].optDouble("conf", 0.0) < bar -> "unsure"
+                list[i].optDouble("end") - first.optDouble("start") !in .35..1.6 -> "wrong pace"
+                else -> null
+            }
+            val confs = list.joinToString(" ") { "${it.optString("word")}:${"%.2f".format(java.util.Locale.ROOT, it.optDouble("conf", 0.0))}" }
+            logWake(this, if (reason == null) "WOKE" else "ignored ($reason)", "$confs · bar ${"%.2f".format(java.util.Locale.ROOT, bar)}")
+            if (reason == null) main.post { wakeUp() }
         } catch (e: Exception) {
             // Not a result we can read.
         }
+    }
+
+    /** Nothing said after the wake word: likely a false start. The bar goes up a little, and it's logged. */
+    private fun nothingSaid() {
+        if (!wokeByWord) return
+        wokeByWord = false
+        setWakeBar(this, (wakeBar(this) + .03).coerceAtMost(.92))
+        logWake(this, "nothing said after", "bar now ${"%.2f".format(java.util.Locale.ROOT, wakeBar(this))}")
+    }
+
+    /** A real call: the bar eases back down towards where it started. */
+    private fun calledForReal() {
+        if (!wokeByWord) return
+        wokeByWord = false
+        setWakeBar(this, (wakeBar(this) - .01).coerceAtLeast(WAKE_CONFIDENCE))
     }
 
     private fun wakeUp() {
         if (session) return
         stopWake()
         session = true
+        wokeByWord = true
         lingering = false
         showOverlay()
         // He answers when called, like a person would, then listens (after he's spoken, so he doesn't hear himself).
@@ -347,6 +371,7 @@ class JarvisEar : Service() {
                 main.post { r.destroy() }
                 if (refused && modelReady(this@JarvisEar)) return listenOffline(followUp)
                 if (followUp) end(goHome = lingering) else {
+                    nothingSaid()
                     overlay?.said("Didn't catch that, sir.")
                     main.postDelayed({ end(goHome = false) }, 1500)
                 }
@@ -359,6 +384,7 @@ class JarvisEar : Service() {
                 val all = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
                 if (all.isEmpty()) {
                     if (followUp) end(goHome = lingering) else {
+                        nothingSaid()
                         overlay?.said("Didn't catch that, sir.")
                         main.postDelayed({ end(goHome = false) }, 1500)
                     }
@@ -405,6 +431,7 @@ class JarvisEar : Service() {
     private fun brain() = Jarvis.shared(this, host)
 
     private fun handle(text: String) {
+        calledForReal()
         lastText = text
         // Locked: he can talk, but can't open or work an app. He holds it until you unlock.
         val locked = getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
@@ -549,6 +576,7 @@ class JarvisEar : Service() {
                                 done = true
                                 stopCommand()
                                 if (followUp) end(goHome = lingering) else {
+                                    nothingSaid()
                                     overlay?.said("Didn't catch that, sir.")
                                     main.postDelayed({ end(goHome = false) }, 1500)
                                 }
@@ -613,7 +641,29 @@ class JarvisEar : Service() {
         private const val CHANNEL = "jarvis_ear"
         private const val NOTIFICATION = 7301
         private const val ACTION_STOP = "stop"
-        private const val WAKE_CONFIDENCE = .62
+        /** Where the wake word's confidence bar starts (it rises after false starts, eases back after real calls). */
+        private const val WAKE_CONFIDENCE = .8
+
+        /** The wake words, and sound-alikes for everything that isn't them to land on. */
+        private val GRAMMAR = listOf(
+            "hey jarvis", "ok jarvis", "okay jarvis", "jarvis",
+            "hey", "okay", "hi", "hello", "yes", "no", "what", "they", "say", "play", "stay", "day", "away", "may", "the", "a",
+            "harvest", "nervous", "service", "purpose", "office", "travis", "davis", "jervis", "james", "jealous", "marvel",
+            "carvings", "garage", "charges", "jars", "jobs", "chavez", "harvey", "starving", "parcels", "hey there", "hey guys",
+            "[unk]",
+        ).joinToString(", ", "[", "]") { "\"$it\"" }
+
+        fun wakeBar(context: Context) = prefs(context).getFloat("wake_bar", WAKE_CONFIDENCE.toFloat()).toDouble().coerceAtLeast(WAKE_CONFIDENCE)
+        private fun setWakeBar(context: Context, v: Double) = prefs(context).edit().putFloat("wake_bar", v.toFloat()).apply()
+
+        /** The last few times he heard "jarvis": woken, or ignored and why. For "wake log". */
+        fun wakeLog(context: Context): String? = prefs(context).getString("wake_log", null)
+
+        private fun logWake(context: Context, what: String, detail: String) {
+            val time = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm:ss"))
+            val lines = (wakeLog(context).orEmpty().lines().filter { it.isNotBlank() } + "$time  $what  ·  $detail").takeLast(25)
+            prefs(context).edit().putString("wake_log", lines.joinToString("\n")).apply()
+        }
         private const val HOLD_MS = 3 * 60_000L
         const val MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
 

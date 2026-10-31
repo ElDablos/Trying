@@ -166,6 +166,8 @@ object JarvisParser {
         data class AlarmSeries(val count: Int, val gap: Int, val from: LocalTime?) : Command()
         /** What Hands did and saw last time, to send on. */
         object HandsLog : Command()
+        /** Why he woke (or didn't) when he heard "jarvis". */
+        object WakeLog : Command()
         /** "Google how to…", "look up…": a web search in Chrome. */
         data class WebSearch(val query: String) : Command()
         /** "Ask Claude…": the question handed to Claude. */
@@ -285,6 +287,7 @@ object JarvisParser {
         if (Regex("\\b(vibrate( mode| only)?|put (my |the )?phone on vibrate)\\b").containsMatchIn(t)) return Command.Ringer("vibrate")
         if (Regex("\\b(sound on|ringer on|turn (the )?(sound|ringer) (back )?on|take (my |the )?phone off (silent|vibrate)|off silent|unsilence|normal mode)\\b").containsMatchIn(t)) return Command.Ringer("normal")
         // "Hands log", and what it gets heard as ("hands long", "hand lock", "hans log").
+        if (Regex("\\bwake ?(word )?(log|logs)\\b|why did you (wake|wake up|start listening|listen|turn on)|why (are|were) you listening").containsMatchIn(t)) return Command.WakeLog
         if (Regex("\\b(hands?|hans|hand's) (log|logs|long|lock|blog|lot)\\b").containsMatchIn(t)) return Command.HandsLog
         if (has("hands log", "what did you see", "what you saw", "send me the log", "share the log", "debug log", "send the log", "show me the log")) return Command.HandsLog
         if (has("systems check", "system check", "diagnostics", "status report", "are you working", "are your hands working", "run a check")) return Command.SystemsCheck

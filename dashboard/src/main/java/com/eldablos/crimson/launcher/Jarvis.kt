@@ -329,6 +329,14 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (!inRoutine && meant == null) JarvisParser.split(text)?.let { parts -> return styled(several(parts)).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         // Straight after the heater: "that's 22 actually, set it to 23", "you went down by one", "go up one".
         if (!inRoutine && meant == null && heaterContext()) heaterTalk(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
+        // A meaning learnt wrongly before (a habit you haven't got): forgotten, and read afresh.
+        if (meant != null && !sensible(JarvisParser.parse(meant))) {
+            JarvisMemory.unlearn(context, text)
+            return answerNow(said, inRoutine)
+        }
+        // One of your habits, named or described ("tick off Place Orders for Work", "I placed orders for work today"):
+        // before anything else reads "work" in it as your shift.
+        if (!inRoutine && meant == null && pending == null) habitSaid(text)?.let { h -> return finish(text, Command.Habit(h.name), null, inRoutine) }
         val parsed = JarvisParser.parse(meant ?: text)
         // Telling him something, not asking ("I'll be on my lessons soon, so that'll be done too"): he talks back.
         if (!inRoutine && meant == null && pending == null && remark(text, parsed)) {
@@ -344,6 +352,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             if (c != null) return finish(text, c, meant, inRoutine)
         }
         // Not sure his rules caught all of it ("the weather for next week" heard as today's): a brain checks first.
+        // Smart understanding: his brain reads it first (unless it's plain), then he does it and learns the wording.
+        if (!inRoutine && meant == null && pending == null && JarvisBrain.ready(context) && JarvisMemory.smart(context) && !obvious(text, parsed)) return styled(translate(text, parsed))
         if (!inRoutine && meant == null && pending == null && JarvisBrain.ready(context) && unsure(text, parsed)) return styled(doubleCheck(text, parsed))
         return finish(text, parsed, meant, inRoutine)
     }
@@ -1115,7 +1125,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val cmd = JarvisParser.parse(meant)
         // Just the part he missed ("next week", "the big light"): a brain puts it together with what you asked.
         if (cmd is Command.Unknown && fix.split(' ').size <= 5 && JarvisBrain.ready(context)) {
-            JarvisBrain.interpret(context, "$asked (they then corrected: I meant $fix)", EXAMPLES + JarvisMemory.suggestions(context)) { whole ->
+            JarvisBrain.interpret(context, "$asked (they then corrected: I meant $fix)", examplesNow()) { whole ->
                 val c = whole?.let { JarvisParser.parse(it) }
                 host.later(if (whole != null && c != null && c !is Command.Unknown) redo(asked, whole, c, "") else redo(asked, fix, cmd, ""))
             }
@@ -1134,7 +1144,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             correcting = false
         }
         // Learnt only when it's something he can do, or a proper question (not a muddle).
-        val learn = !r.failed && (cmd !is Command.Unknown || meant.split(' ').size >= 3)
+        val learn = !r.failed && sensible(cmd) && (cmd !is Command.Unknown || meant.split(' ').size >= 3)
         if (learn) JarvisMemory.learnMeaning(context, asked, meant)
         // Still about what you first asked: if this is wrong too, you can put him right again.
         lastAsked = asked
@@ -1179,9 +1189,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      * the brain and learns the phrasing; if it agrees, he carries on as he would have.
      */
     private fun doubleCheck(text: String, guess: Command): Reply {
-        JarvisBrain.interpret(context, text, EXAMPLES + JarvisMemory.suggestions(context)) { meant ->
+        JarvisBrain.interpret(context, text, examplesNow()) { meant ->
             val c = meant?.let { JarvisParser.parse(it) }
-            if (meant != null && c != null && c !is Command.Unknown && c != guess && c !is Command.WebSearch && c !is Command.AskClaude) {
+            if (meant != null && c != null && c !is Command.Unknown && c != guess && c !is Command.WebSearch && c !is Command.AskClaude && sensible(c)) {
                 JarvisMemory.learnMeaning(context, text, meant)
                 val r = answer(meant)
                 host.later(r.copy(card = r.card ?: Card("✦", "LEARNT", sub = "“$text” → $meant", tone = Tone.GREEN)))
@@ -2278,20 +2288,64 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      * way? Then he does it, and learns the phrasing so his rules know it next time. If not: a look-up when it's
      * about something that changes, or an answer from the brain.
      */
+    /** What he can do, for his brain: your own habits by name (marked as yours), then his usual examples. */
+    private fun examplesNow(): List<String> = (DeckStore.habits(context).map { "Tick off ${it.name} (the user's own habit)" } + EXAMPLES + JarvisMemory.suggestions(context)).distinct()
+
+    /** A command that makes sense here: a habit it names really is one of yours. */
+    private fun sensible(c: Command): Boolean = when (c) {
+        is Command.Habit -> findHabit(c.name) != null
+        is Command.Untick -> findHabit(c.name) != null
+        else -> true
+    }
+
+    /** "Tick off Place Orders for Work", "I placed orders for work today", "done with lessons in my habits": one of your habits, by name. */
+    private fun habitSaid(text: String): DeckStore.Habit? {
+        val t = text.lowercase().trim().trimEnd('.', '!', '?').replace(Regex("^(hey |ok )?jarvis[,]?\\s*"), "")
+        val cue = Regex("^(?:can you |please |could you )?(tick|tick off|mark|mark off|check off|cross off)\\b|^(?:i(?:'ve| have)? )?(?:just |already )?(done|did|finished|completed|ticked)\\b|^(?:i(?:'ve| have)? |just |i just )?[a-z]+ed\\b|\\b(in|on|from) my hab+its?\\b").containsMatchIn(t)
+        if (!cue || DeckStore.habits(context).isEmpty()) return null
+        val q = t.replace(Regex("\\b(in|on|from|off) (my|the) hab+its?( list)?\\b"), " ").replace(Regex("^(?:can you |please |could you )?(tick|tick off|mark|mark off|check off|cross off)( it)?( off)?\\b"), " ")
+            .replace(Regex("\\b(i|i've|i have|just|already|today|now|for today)\\b"), " ").replace(Regex("\\s+"), " ").trim()
+        if (q.isEmpty()) return null
+        // Something else first: clocking in or out, the rota, a note, an alarm… ("I finished work at 6" isn't "Work on lessons").
+        when (JarvisParser.parse(text)) {
+            is Command.Unknown, is Command.Habit, is Command.Shift, is Command.ShiftWeek, is Command.Weather, is Command.Agenda, is Command.Travel, Command.Habits -> {}
+            else -> return null
+        }
+        val habits = DeckStore.habits(context)
+        habits.firstOrNull { it.name.equals(q, true) }?.let { return it }
+        // Every word of the habit there (near enough: "placed" for "place", a typo'd "wprk" for "work").
+        val roots = q.replace(Regex("\\bw[a-z]?rk\\b"), "work").split(Regex("\\s+")).filter { it !in FILLER }.map { root(it) }.filter { it.length > 1 }.toSet()
+        return habits.map { h ->
+            val words = h.name.split(Regex("[\\s/&+]+")).filter { it.lowercase() !in FILLER }.map { root(it) }.filter { it.length > 1 }
+            h to if (words.isEmpty()) 0f else words.count { w -> roots.any { r -> r == w || (r.length >= 4 && w.length >= 4 && (r.startsWith(w) || w.startsWith(r))) } }.toFloat() / words.size
+        }.filter { it.second >= .99f }.maxByOrNull { it.second }?.first
+    }
+
     private fun think(said: String): Reply {
-        val examples = EXAMPLES + JarvisMemory.suggestions(context)
+        val examples = examplesNow()
         JarvisBrain.interpret(context, said, examples.distinct()) { meant ->
             val c = meant?.let { JarvisParser.parse(it) }
-            if (meant != null && c != null && c !is Command.Unknown && c !is Command.WebSearch && c !is Command.AskClaude) {
+            if (meant != null && c != null && c !is Command.Unknown && c !is Command.WebSearch && c !is Command.AskClaude && sensible(c)) {
                 JarvisMemory.learnMeaning(context, said, meant)
-                val r = answer(meant)
-                host.later(r.copy(say = r.say, card = r.card ?: Card("✦", "LEARNT", sub = "“$said” → $meant", tone = Tone.GREEN)))
+                // Done straight away (not read again by his brain).
+                val r = finish(said, c, meant, false)
+                host.later(styled(r.copy(card = r.card ?: Card("✦", "LEARNT", sub = "“$said” → $meant", tone = Tone.GREEN))))
                 return@interpret
             }
-            if (wantsWeb(said)) {
-                host.later(lookUp(said))
-                return@interpret
-            }
+            freeAnswer(said)
+        }
+        return if (!JarvisBrain.awake) Reply(say("One moment, sir, my brain's waking up.", "Waking the brain.", "Waking up."), more = true)
+            // Warm: no "one moment" every time, like a person he just answers (the core shows he's thinking).
+            else Reply("", silent = true, more = true)
+    }
+
+    /** Not one of his commands: looked up when it's about something that changes, else answered by a brain. Answers come later. */
+    private fun freeAnswer(said: String): Reply {
+        if (wantsWeb(said)) {
+            host.later(lookUp(said))
+            return Reply("", silent = true, more = true)
+        }
+        run {
             // Something to work through goes to the Think brain; the rest to his Talk brain.
             val deep = Regex("\\b(why|explain|how (do|does|should|would|could|can) i|plan|compare|difference between|pros and cons|should i|help me (work out|decide|figure|think)|work out|figure out|what if|which is better|step by step|reason|solve|puzzle|riddle)\\b", RegexOption.IGNORE_CASE).containsMatchIn(said)
             val ask: (String, String, (String?) -> Unit) -> Unit = if (deep) { q, a, d -> JarvisBrain.reason(context, q, a, d) } else { q, a, d -> JarvisBrain.answer(context, q, a, d) }
@@ -2301,8 +2355,42 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 else lookupOffer(said))
             }
         }
+        return Reply("", silent = true, more = true)
+    }
+
+    // --- Smart understanding ---
+
+    /** Clear enough to do at once, without his brain reading it first: simple answers, and requests that carry your own words. */
+    private fun obvious(text: String, cmd: Command): Boolean = when (cmd) {
+        Command.Yes, Command.No, Command.Undo, Command.Repeat, Command.Dismiss, Command.Thanks, Command.Time, Command.Date, Command.Battery,
+        Command.Reboot, Command.SystemsCheck, Command.Backup, Command.Restore, Command.StudyDone, Command.MorningBrief, Command.Briefing, Command.Habits,
+        is Command.Calc, is Command.Spent, is Command.MakeDoc, is Command.OpenDoc, is Command.ClockIn, is Command.ClockOut, is Command.AddShifts, is Command.Timer,
+        is Command.AddNote, is Command.WhatsApp, is Command.Text, is Command.Remember -> true
+        is Command.Unknown -> false
+        else -> text.trim().split(Regex("\\s+")).size <= 3 && !unsure(text, cmd)
+    }
+
+    /**
+     * His brain reads what you meant first, knowing your own habits and what he can do; then he does it with his
+     * own hands, and learns the wording so it's instant next time. When it can't place it: his own reading, a
+     * chat, or an answer.
+     */
+    private fun translate(text: String, guess: Command): Reply {
+        JarvisBrain.interpret(context, text, examplesNow()) { meant ->
+            val c = meant?.let { JarvisParser.parse(it) }?.takeIf { it !is Command.Unknown && it !is Command.WebSearch && it !is Command.AskClaude && sensible(it) }
+            val r = when {
+                c != null && meant != null -> {
+                    if (!meant.equals(text.trim(), true)) JarvisMemory.learnMeaning(context, text, meant)
+                    finish(text, c, meant, false)
+                }
+                guess !is Command.Unknown -> finish(text, guess, null, false)
+                remark(text, guess) -> converse(text)
+                else -> freeAnswer(text)
+            }
+            lastAt = System.currentTimeMillis()
+            host.later(styled(r))
+        }
         return if (!JarvisBrain.awake) Reply(say("One moment, sir, my brain's waking up.", "Waking the brain.", "Waking up."), more = true)
-            // Warm: no "one moment" every time, like a person he just answers (the core shows he's thinking).
             else Reply("", silent = true, more = true)
     }
 

@@ -108,7 +108,9 @@ object JarvisReaders {
         val inner = wheels.filter { w -> wheels.none { o -> o !== w && o != w && contains(w, o) } }
         val found = inner.mapNotNull { w ->
             val box = JarvisHands.nodes(w).drop(1).firstOrNull { isBox(it) }
-            val v = (box?.text ?: w.text ?: w.contentDescription)?.toString()?.trim()?.substringBefore(' ')?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            // "06", or as newer Samsung Clocks say it, "06, Hour" / "00, Minute" / "AM, …": just the value.
+            val raw = (box?.text ?: w.text ?: w.contentDescription)?.toString()?.trim().orEmpty()
+            val v = Regex("^(\\d{1,2}|am|pm|a\\.m\\.|p\\.m\\.)", RegexOption.IGNORE_CASE).find(raw)?.value?.replace(".", "") ?: return@mapNotNull null
             val b = bounds(w)
             Wheel(w, v, b, b.height() / 3f, marks(JarvisHands.nodes(w).drop(1)))
         }.distinctBy { it.area.left to it.area.top }.sortedBy { it.area.left }

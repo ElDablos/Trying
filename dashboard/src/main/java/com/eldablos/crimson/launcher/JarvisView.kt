@@ -982,6 +982,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         body.addView(brainStatus)
         if (models.isNotEmpty()) {
             toggle(body, "Use the brains", "Off: he sticks to what he knows and offers Google instead", JarvisBrain.enabled(context)) { JarvisBrain.setEnabled(context, it) }
+            toggle(body, "Smart understanding", "His brain reads what you mean first, then he does it: fewer mix-ups, a second or two slower. What it works out is learnt, so it's instant next time",
+                JarvisMemory.smart(context)) { JarvisMemory.setSmart(context, it) }
             // Newer versions (a later Gemma or Qwen): offered here, added the same way.
             val update = TextView(context).apply { setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(10f) * u); setTextColor(Hud.SOFT); setPadding(0, dp(2f), 0, dp(4f)); text = "Checking for newer brains…" }
             body.addView(update)

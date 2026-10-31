@@ -125,6 +125,9 @@ object JarvisMemory {
 
     fun forgetMeaning(context: Context, said: String) = prefs(context).edit().remove("meant:$said").apply()
 
+    /** Forgets what [said] was learnt to mean (it turned out wrong). */
+    fun unlearn(context: Context, said: String) = prefs(context).edit().remove(phraseKey(said)).apply()
+
     fun learnMeaning(context: Context, said: String, meant: String) {
         if (said.trim().length < 3 || said.equals(meant, true)) return
         prefs(context).edit().putString(phraseKey(said), meant).apply()
@@ -167,6 +170,9 @@ object JarvisMemory {
     fun setPersona(context: Context, p: Persona) = prefs(context).edit().putString("set:persona", p.name).apply()
 
     /** After answering something you said, he listens for the next thing without a tap. */
+    /** Smart understanding: his brain reads what you mean first, then he does it (and learns the wording). */
+    fun smart(context: Context) = prefs(context).getBoolean("set:smart", true)
+    fun setSmart(context: Context, on: Boolean) = prefs(context).edit().putBoolean("set:smart", on).apply()
     fun keepListening(context: Context) = prefs(context).getBoolean("set:keep_listening", true)
     fun setKeepListening(context: Context, on: Boolean) = prefs(context).edit().putBoolean("set:keep_listening", on).apply()
 

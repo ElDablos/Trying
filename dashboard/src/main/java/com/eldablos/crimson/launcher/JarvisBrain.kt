@@ -365,6 +365,7 @@ object JarvisBrain {
             (if (learnt.isEmpty()) "" else "\n\nThe user has corrected the assistant before; these requests meant these commands (follow the same reading for similar requests):\n" +
                 learnt.joinToString("\n") { (said, meant) -> "- \"$said\" means: $meant" }) +
             "\n\nReply with ONE command in the same style as the examples, with the request's names, times, places and numbers filled in. " +
+            "Only use names (habits, notes, people, places) that are in the request or in the examples marked as the user's own; never invent one or borrow it from another example. " +
             "If the request isn't asking for one of these kinds of commands (a general question, chat, something it can't do), reply exactly NONE. " +
             "Reply with the command only: no quotes, no explanation."
         ask(context, Job.INTERPRET, system, "Request: $said") { out ->
@@ -389,6 +390,7 @@ object JarvisBrain {
      */
     fun chat(context: Context, said: String, about: String, commands: List<String>, done: (String?) -> Unit) =
         ask(context, Job.ANSWER, persona(about) + "\n\nVee is chatting with you, not giving a command. Reply the way a trusted butler who knows them well would talk: " +
+            "you can't do anything in this reply, so never say you've ticked, set, added, moved or changed something; offer it instead. " +
             "warm, natural and a little dry, picking up on what they said and on what you know of their day (shifts, uni, habits, notes). " +
             "One to three short sentences, no markdown, no lists. You may ask one short follow-up question. " +
             "Only if there's an obviously useful thing to do, end with a separate last line \"OFFER: <command>\" where the command is written like one of these:\n" +

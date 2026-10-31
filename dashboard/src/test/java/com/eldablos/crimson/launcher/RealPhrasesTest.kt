@@ -41,6 +41,8 @@ class RealPhrasesTest {
         assertEquals(Command.AddShifts(listOf(r(d(3), t(7), t(15)), r(d(4), t(7), t(15)), r(d(8), t(7), t(15))), week = d(2)),
             p("add shifts next week on tuesday wednesday and sunday 7 till 3"))
         assertEquals(Command.AddUni(listOf(d(4)), t(17), t(21), false), p("I got uni from 5pm to 9pm on wednesday"))
+        assertEquals(Command.AddShifts(listOf(r(d(3), t(7), t(15)), r(d(4), t(7), t(15)), r(d(8), t(7), t(15))), uni = listOf(r(d(4), t(17), t(21))), week = d(2)),
+            p("Add shifts next week on Tuesday, Wednesday and Sunday 7 till 3, and uni Wednesday 5 till 9"))
     }
 
     @Test

@@ -923,13 +923,22 @@ object JarvisParser {
         val uni = LinkedHashMap<LocalDate, RotaDay>()
         val waiting = ArrayList<LocalDate>()
         var last: Pair<LocalTime, LocalTime>? = null
+        var uniNext = false
         days.forEachIndexed { i, m ->
             val date = dateFor(weekday(m.groupValues[1]), week, today)
             val seg = t.substring(m.range.last + 1, if (i + 1 < days.size) days[i + 1].range.first else t.length)
             val ranges = RANGE.findAll(seg).toList()
             // Uni in this day's words: the times after "uni" (or its only times) are uni, the rest the shift.
+            // "…Sunday 7 till 3, and uni Wednesday 5 till 9": a "uni" after this day's times is the next day's.
             val uniAt = UNI.find(seg)?.range?.first
-            val uniRange = uniAt?.let { at -> ranges.firstOrNull { it.range.first > at } ?: ranges.lastOrNull() }
+            val uniHere = uniAt != null && (ranges.isEmpty() || ranges.any { it.range.first > uniAt } || ranges.size == 1 && ranges[0].range.first > uniAt)
+            val carried = uniNext
+            uniNext = uniAt != null && !uniHere
+            val uniRange = when {
+                uniHere -> ranges.firstOrNull { it.range.first > uniAt!! } ?: ranges.lastOrNull()
+                carried -> ranges.firstOrNull()
+                else -> null
+            }
             val range = ranges.firstOrNull { it != uniRange }
             uniRange?.let { r ->
                 val (a, b) = times(r)

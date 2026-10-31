@@ -99,6 +99,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val full: Boolean = false,
         val sheet: Sheet? = null,
         val failed: Boolean = false,
+        /** The real answer's still coming (from a brain or the web): stay on screen, thinking, until it does. */
+        val more: Boolean = false,
     )
 
     private val zone = ZoneId.systemDefault()
@@ -347,7 +349,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             }
         }
         return Reply(say(pick("One moment, sir.", "Let me make sure I've got that.", "Checking."), "Making sure.", "Checking."),
-            card = Card("✦", "CHECKING", sub = text.take(80), tone = Tone.BLUE), silent = true)
+            card = Card("✦", "CHECKING", sub = text.take(80), tone = Tone.BLUE), silent = true, more = true)
     }
 
     private fun finish(text: String, cmd: Command, meant: String?, inRoutine: Boolean): Reply {
@@ -1370,7 +1372,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 }
             }
         }.start()
-        return Reply(say("Looking it up, sir.", "Consulting the internet.", "Looking."), card = Card("⌕", "LOOKING IT UP", sub = q.take(80), tone = Tone.BLUE))
+        return Reply(say("Looking it up, sir.", "Consulting the internet.", "Looking."), card = Card("⌕", "LOOKING IT UP", sub = q.take(80), tone = Tone.BLUE), more = true)
     }
 
     /** Things that change (news, prices, opening times, results): worth a look-up rather than his memory. */
@@ -1427,7 +1429,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 else lookupOffer(said))
             }
         }
-        return Reply(say(pick("One moment, sir.", "Let me think.", "Thinking."), "Cogitating.", "Thinking."), card = Card("✦", "THINKING", sub = if (JarvisBrain.loading) "waking the brain" else said.take(80), tone = Tone.BLUE))
+        return Reply(say(pick("One moment, sir.", "Let me think.", "Thinking."), "Cogitating.", "Thinking."), card = Card("✦", "THINKING", sub = if (JarvisBrain.loading) "waking the brain" else said.take(80), tone = Tone.BLUE), more = true)
     }
 
     /** The question handed to Claude. */
@@ -3727,7 +3729,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 else host.later(readImage(shot, rota, ask))
             }
         }.start()
-        return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), card = Card("▣", "READING YOUR SCREENSHOT", sub = if (rota) "a rota" else ask.take(80), tone = Tone.BLUE))
+        return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), card = Card("▣", "READING YOUR SCREENSHOT", sub = if (rota) "a rota" else ask.take(80), tone = Tone.BLUE), more = true)
     }
 
     /** A picture you attached in the chat: he asks what to do with it, or does what you typed with it. */
@@ -3759,7 +3761,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 host.later(rotaFound(out))
             }
         }
-        return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), card = Card("▣", "READING IT", sub = if (rota) "a rota" else ask.take(80), tone = Tone.BLUE))
+        return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), card = Card("▣", "READING IT", sub = if (rota) "a rota" else ask.take(80), tone = Tone.BLUE), more = true)
     }
 
     /** The rota his brain read: shown day by day, added with one tap (rota to the planner, clocked times for pay only). */
@@ -3811,7 +3813,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 card = Card("✦", "NEW COMMAND", name.uppercase(), "say: “$say”", steps.mapIndexed { i, st -> Row("${i + 1}", st) }, Tone.GREEN),
                 actions = listOf(undoAction, Action("TRY IT", say))))
         }
-        return Reply(say("Let me put that together, sir.", "Building it.", "Building."), card = Card("✦", "NEW COMMAND", sub = description.take(80), tone = Tone.BLUE))
+        return Reply(say("Let me put that together, sir.", "Building it.", "Building."), card = Card("✦", "NEW COMMAND", sub = description.take(80), tone = Tone.BLUE), more = true)
     }
 
     /** "What did I miss?": your notifications, put in a few lines by his brain (or listed, without one). */
@@ -3828,7 +3830,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         JarvisBrain.digest(context, lines.joinToString("\n")) { out ->
             host.later(Reply(out ?: "You've ${lines.size} notifications${sir()}.", card = Card("✉", "WHAT YOU MISSED", "${lines.size}", rows = lines.take(6).map { Row(it.substringBefore(':'), it.substringAfter(": ").take(60)) }, tone = Tone.GOLD)))
         }
-        return Reply(say("Catching you up, sir.", "Let's see what happened.", "Checking."), card = Card("✉", "CATCHING UP", sub = "${lines.size} notifications", tone = Tone.GOLD))
+        return Reply(say("Catching you up, sir.", "Let's see what happened.", "Checking."), card = Card("✉", "CATCHING UP", sub = "${lines.size} notifications", tone = Tone.GOLD), more = true)
     }
 
     private fun teach(name: String, app: AppEntry): Reply = Reply(

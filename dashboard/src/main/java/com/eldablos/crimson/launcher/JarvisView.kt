@@ -427,7 +427,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         JarvisSound.play(context, if (reply.failed) JarvisSound.Cue.ERROR else if (reply.actions.any { it.say == "undo" } || reply.card != null) JarvisSound.Cue.DONE else JarvisSound.Cue.HEARD)
         reply.sheet?.let { s -> main.postDelayed({ openSheet(s) }, 350) }
         if (reply.silent || reply.say.isBlank()) {
-            setState(State.IDLE)
+            setState(if (reply.more) State.THINKING else State.IDLE)
             reply.then?.invoke()
             then?.invoke()
             return
@@ -459,6 +459,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                     showHeard("Go ahead, sir.")
                     listen()
                 }
+                // The answer's still on its way: he waits with you rather than listening over it.
+                reply.more -> setState(State.THINKING)
                 reply.listen -> listen()
                 // A conversation: after answering something you said, he listens for what's next. Silence, "that's
                 // all" or "thanks" ends it; so does him opening an app, or you typing instead.
@@ -897,6 +899,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             } catch (e: Exception) { }
         })
         toggle(body, "Sounds", "A chime when he listens, hears and finishes", JarvisMemory.sounds(context)) { JarvisMemory.setSounds(context, it) }
+        toggle(body, "Always audible", "If the media volume's very low he raises it to half while he speaks, then puts it back", Speech.loud(context)) { Speech.setLoud(context, it) }
         toggle(body, "Learn from phone use", "Which apps you open and when, so he can offer them at the right time. Kept on this phone; never while a VPN is on", PhoneHabits.enabled(context)) {
             PhoneHabits.setEnabled(context, it)
             if (it && !DeckData.hasUsageAccess(context)) try { context.startActivity(DeckData.usageAccessIntent(context).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }

@@ -54,10 +54,9 @@ object Speech {
                 val engine = tts
                 if (status == TextToSpeech.SUCCESS && engine != null) {
                     ready = true
-                    // An assistant's voice: it plays over other apps at the media volume, and ducks their sound.
-                    engine.setAudioAttributes(android.media.AudioAttributes.Builder()
-                        .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
-                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                    // On the media volume, through the speaker or your earbuds, over whatever else is playing.
+                    // (Some phones give "assistant" sound its own, much quieter level, which is why he isn't one.)
+                    engine.setAudioAttributes(ATTRIBUTES)
                     pickVoice(app, engine)
                     waiting.toList().forEach { it(engine) }
                 } else {
@@ -109,23 +108,62 @@ object Speech {
     }
 
     /** Stops whatever's being said; its listener hears it ended, unfinished. */
-    // Audio focus while he talks: music and videos in other apps duck under him, then come back.
+    // Audio focus while he talks: music and videos in other apps go quiet for him, then come back.
     private var focusRequest: android.media.AudioFocusRequest? = null
+
+    private val ATTRIBUTES: android.media.AudioAttributes by lazy {
+        android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build()
+    }
+
+    /** The media volume he raised to be heard, and what it was before: put back when he's done, unless you changed it. */
+    private var raisedTo = -1
+    private var raisedFrom = -1
 
     private fun focus(context: Context, on: Boolean) {
         val am = context.applicationContext.getSystemService(android.media.AudioManager::class.java) ?: return
+        val stream = android.media.AudioManager.STREAM_MUSIC
         if (on) {
             if (focusRequest != null) return
-            val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-                .setAudioAttributes(android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build()).build()
+            val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(ATTRIBUTES).build()
             am.requestAudioFocus(req)
             focusRequest = req
+            // Never a whisper: if the media volume's right down, he brings it up to a level you can hear, for himself only.
+            if (loud(context)) {
+                val max = am.getStreamMaxVolume(stream)
+                val now = am.getStreamVolume(stream)
+                val floor = (max * MIN_LOUDNESS).toInt().coerceAtLeast(1)
+                if (now < floor && !am.isStreamMute(stream)) {
+                    try {
+                        am.setStreamVolume(stream, floor, 0)
+                        raisedFrom = now
+                        raisedTo = floor
+                    } catch (e: Exception) {
+                        // Do not disturb, or not allowed: he plays at what it is.
+                    }
+                }
+            }
         } else {
             focusRequest?.let { am.abandonAudioFocusRequest(it) }
             focusRequest = null
+            if (raisedTo >= 0) {
+                try {
+                    if (am.getStreamVolume(stream) == raisedTo) am.setStreamVolume(stream, raisedFrom, 0)
+                } catch (e: Exception) {
+                    // Left as it is.
+                }
+                raisedTo = -1
+                raisedFrom = -1
+            }
         }
     }
+
+    /** At least this share of the full media volume while he speaks (on unless you turn it off). */
+    private const val MIN_LOUDNESS = .5
+    fun loud(context: Context) = prefs(context).getBoolean("loud", true)
+    fun setLoud(context: Context, on: Boolean) = prefs(context).edit().putBoolean("loud", on).apply()
 
     fun stop() {
         appContext?.let { focus(it, false) }

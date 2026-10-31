@@ -248,6 +248,7 @@ class JarvisEar : Service() {
 
     private fun wakeUp() {
         if (session) return
+        waved = false
         stopWake()
         session = true
         wokeByWord = true
@@ -273,7 +274,10 @@ class JarvisEar : Service() {
 
     private fun showOverlay() {
         val o = overlay ?: JarvisOverlay(this).also {
-            it.onDismiss = { end(goHome = false) }
+            it.onDismiss = {
+                if (waiting) waved = true
+                end(goHome = false)
+            }
             it.onOpen = { openPanel() }
             overlay = it
         }
@@ -423,13 +427,24 @@ class JarvisEar : Service() {
         /** A late answer over another app: said on the strip if he's still there, else in the panel. */
         override fun later(reply: Jarvis.Reply) {
             main.post {
-                if (session) respond(reply) else {
-                    JarvisChat.add(this@JarvisEar, false, reply.say, JarvisChat.EAR)
-                    Speech.speak(this@JarvisEar, listOf("late" to Speech.speakable(Jarvis.spokenFor(reply))), object : Speech.Listener {
-                        override fun onPart(id: String) {}
-                        override fun onEnd(finished: Boolean) {}
-                    })
+                JarvisChat.add(this@JarvisEar, false, reply.say, JarvisChat.EAR)
+                // You waved him off while he was thinking: it's kept in the panel, not said.
+                if (waved) {
+                    waved = false
+                    return@post
                 }
+                // Always on screen while he answers: if the strip had gone, it comes back for this.
+                if (!session) {
+                    stopWake()
+                    session = true
+                    lingering = false
+                    showOverlay()
+                }
+                stopWaiting()
+                recognizer?.destroy()
+                recognizer = null
+                stopCommand()
+                respond(reply)
             }
         }
 
@@ -482,7 +497,15 @@ class JarvisEar : Service() {
             toLauncher(lastText)
             return
         }
-        if (reply.silent) {
+        if (reply.silent && reply.more) {
+            // Checking with a brain first: the strip stays, thinking, until the answer's in.
+            if (reply.say.isNotBlank()) overlay?.said(reply.say)
+            overlay?.state = JarvisOverlay.State.THINKING
+            waitForAnswer()
+            return
+        }
+        // A look-up's result is shown in the panel, not read; over an app there's no panel, so he says it.
+        if (reply.silent && (reply.then != null || reply.say.isBlank())) {
             reply.then?.invoke()
             end(goHome = false)
             return
@@ -501,6 +524,11 @@ class JarvisEar : Service() {
                     cut -> {
                         overlay?.said("Go ahead, sir.")
                         listen(followUp = false)
+                    }
+                    // The real answer's on its way (a brain, the web): he stays, thinking, until it's here.
+                    reply.more -> {
+                        overlay?.state = JarvisOverlay.State.THINKING
+                        waitForAnswer()
                     }
                     reply.listen -> listen(followUp = true)
                     // His hands are off to work an app: they'll report back (and maybe stay a moment).
@@ -529,6 +557,34 @@ class JarvisEar : Service() {
                 after()
             }
         })
+    }
+
+    // --- Waiting for an answer that takes a moment ---
+
+    private var waiting = false
+    /** Dismissed while he was thinking: the answer goes quietly to the panel. */
+    private var waved = false
+    private val tooLong = Runnable {
+        if (!waiting || !session) return@Runnable
+        waiting = false
+        val say = "Still working on it, sir. I'll come back to you with the answer."
+        overlay?.said(say)
+        overlay?.state = JarvisOverlay.State.SPEAKING
+        Speech.speak(this, listOf("ear" to say), object : Speech.Listener {
+            override fun onPart(id: String) {}
+            override fun onEnd(finished: Boolean) = end(goHome = false)
+        })
+    }
+
+    private fun waitForAnswer() {
+        waiting = true
+        main.removeCallbacks(tooLong)
+        main.postDelayed(tooLong, WAIT_MS)
+    }
+
+    private fun stopWaiting() {
+        waiting = false
+        main.removeCallbacks(tooLong)
     }
 
     /** From his hands, still in the app: say how it went, then a few seconds for "next colour" or "brighter" before going back. */
@@ -641,6 +697,7 @@ class JarvisEar : Service() {
 
     /** The conversation's over: the overlay goes, the wake word comes back (or the service stops if it was only here for this). */
     private fun end(goHome: Boolean) {
+        stopWaiting()
         recognizer?.destroy()
         recognizer = null
         stopCommand()
@@ -690,6 +747,8 @@ class JarvisEar : Service() {
             prefs(context).edit().putString("wake_log", lines.joinToString("\n")).apply()
         }
         private const val HOLD_MS = 3 * 60_000L
+        /** How long the strip waits, thinking, for a brain or a look-up before leaving the answer for the panel. */
+        private const val WAIT_MS = 3 * 60_000L
         const val MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
 
         private fun prefs(context: Context) = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)

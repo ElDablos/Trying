@@ -1127,9 +1127,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     private fun greeting() = when (LocalTime.now().hour) {
-        in 5..11 -> "Good morning $name."
-        in 12..17 -> "Good afternoon $name."
-        else -> "Good evening $name."
+        in 5..11 -> "Good morning, $name."
+        in 12..17 -> "Good afternoon, $name."
+        else -> "Good evening, $name."
     }
 
     /** What he leads with when you open him: the hello, and anything he thinks you should know. */

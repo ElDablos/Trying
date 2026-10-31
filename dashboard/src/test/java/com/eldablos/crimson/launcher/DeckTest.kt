@@ -111,6 +111,11 @@ class DeckTest {
     fun speaksTimesAndDurationsLikeAPerson() {
         assertEquals("Shift 6 a.m. to 2 p.m., in about 7 hours.", DeckView.speakable("Shift 06:00–14:00 · in 6h 41m."))
         assertEquals("At 9:30 a.m., in an hour and a half", DeckView.speakable("At 09:30, in 1h 30m"))
+        // What the voice engine gets: nothing it would read out as "dot" or "asterisk".
+        assertEquals("Good afternoon, Vee. How may I help?", Speech.forEngine(". Good afternoon, Vee.\nHow may I help?", false))
+        assertEquals("Shift at 6 AM today. Wait.", Speech.forEngine("**Shift** at 6 a.m. today... Wait.", false))
+        assertEquals("Shift at 6 a.m.", Speech.forEngine("Shift at 6 a.m.", true))
+        assertEquals("Done, sir.", Speech.forEngine("- Done , sir. ✅", false))
         assertEquals("midnight and midday, 2 hours and 10 minutes", DeckView.speakable("00:00 and 12:00, 2h 10m"))
         assertEquals("14 degrees, 80 percent, in 5 minutes", DeckView.speakable("14°, 80%, in 5m"))
     }

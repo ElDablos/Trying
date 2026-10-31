@@ -22,6 +22,8 @@ object Speech {
     private var tts: TextToSpeech? = null
     private var appContext: Context? = null
     private var ready = false
+    /** The engine speaking (null: the phone's default). Neural ones like VoxSherpa read some punctuation aloud. */
+    private var enginePackage: String? = null
     private val waiting = ArrayList<(TextToSpeech) -> Unit>()
 
     /** Who's speaking now: told each part as it starts, and when the script ends or stops. */
@@ -66,6 +68,7 @@ object Speech {
                 waiting.clear()
             }
         }
+        enginePackage = google
         tts = if (google != null) TextToSpeech(app, init, google) else TextToSpeech(app, init)
     }
 
@@ -100,7 +103,7 @@ object Speech {
                 }
             })
             parts.drop(from).forEachIndexed { i, (id, text) ->
-                t.speak(speakable(text), if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, id)
+                t.speak(forEngine(speakable(text), enginePackage == GOOGLE_TTS), if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, id)
                 // A breath between parts, a little longer after the opening.
                 if (from + i < parts.lastIndex) t.playSilentUtterance(if (from + i < 2) 380 else 300, TextToSpeech.QUEUE_ADD, "pause:${from + i}")
             }
@@ -307,6 +310,26 @@ object Speech {
     // --- Saying things like a person ---
 
     /** Times, durations and symbols as they're said: "06:00" → "6 a.m.", "7h 11m" → "about 7 hours". */
+    /**
+     * The words as the engine should get them: nothing it might read out loud ("dot", "asterisk") or stumble on.
+     * No punctuation or symbols before the first word, no markdown, no line breaks or runs of dots, no emoji;
+     * and for engines other than Google's, "a.m." as "AM" (they can say "a dot m").
+     */
+    fun forEngine(text: String, google: Boolean): String {
+        var t = text
+            .replace(Regex("[*_#`~|>\\[\\]{}]"), " ")
+            .replace(Regex("[\\x{1F000}-\\x{1FAFF}\\x{2600}-\\x{27BF}\\x{FE0F}\\x{200B}-\\x{200D}\\x{2060}\\x{FEFF}]"), "")
+            .replace(Regex("\\s*[\\r\\n]+\\s*"), ". ")
+            .replace("…", ", ")
+            .replace(Regex("\\.{2,}"), ".")
+            .replace(Regex("\\s+([.,!?;:])"), "$1")
+            .replace(Regex("([.,!?;:])(?:\\s*[.,;:])+"), "$1")
+            .replace(Regex("\\s{2,}"), " ")
+        if (!google) t = t.replace(Regex("\\b([ap])\\.m\\.", RegexOption.IGNORE_CASE)) { "${it.groupValues[1].uppercase()}M" }
+        // Starts with a word (or a number), never with a stray dot or dash.
+        return t.replace(Regex("^[^\\p{L}\\p{N}\"“'£$]+"), "").trim()
+    }
+
     fun speakable(text: String): String {
         var t = text
         t = Regex("\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b").replace(t) { m ->

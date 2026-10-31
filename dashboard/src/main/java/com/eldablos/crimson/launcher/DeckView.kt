@@ -3329,7 +3329,6 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val hours = days.sumOf { d -> (Shifts.actual(context)[d] ?: shifts[d])?.minutes ?: 0L } / 60f
             val rate = Pay.setup(context).hourly
             val worked = Shifts.actual(context)
-            val weekPay = rate.takeIf { it > 0 }?.takeIf { week.isNotEmpty() }?.let { Pay.week(context, shiftWeek).let { w -> w.gross to w.net } }
 
             // The summary: how many, how long, what's next, with weeks either side.
             var top = y + 24 * u
@@ -3342,11 +3341,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val x2 = r.left + 16 * u + np.measureText("${week.size}") + 6 * u
                 canvas.drawText(if (week.size == 1) "SHIFT" else "SHIFTS", x2, top + 30 * u, Hud.text(7.5f * u, Hud.GOLD, Hud.MONO, .16f))
                 canvas.drawText((if (hours % 1f == 0f) "${hours.toInt()}" else "%.1f".format(Locale.ROOT, hours)) + "H THIS WEEK", x2, top + 44 * u, Hud.text(9 * u, Hud.SOFT, Hud.MONO, .12f))
-                // The week's pay: before tax, and take-home after tax and NI.
-                weekPay?.let { (gross, net) ->
-                    canvas.drawText(Pay.money(net), r.right - 84 * u, top + 30 * u, Hud.text(14 * u, Hud.GOLD, Hud.LIGHT, align = Paint.Align.RIGHT))
-                    canvas.drawText("TAKE-HOME · ${Pay.money(gross)} GROSS", r.right - 84 * u, top + 44 * u, Hud.text(6 * u, Hud.DUST, Hud.MONO, .1f, Paint.Align.RIGHT))
-                }
+
                 val nx = Shifts.next(shifts, System.currentTimeMillis(), zone)
                 val cur = Shifts.current(shifts, System.currentTimeMillis(), zone)
                 val line = when {
@@ -3448,14 +3443,19 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             }
             top += wh + 10 * u
 
-            // Earnings: the week as a payslip would show it, and the payday it lands in.
-            if (week.isNotEmpty()) {
-                val setup = Pay.setup(context)
-                val slip = Pay.week(context, shiftWeek, setup)
-                val (pa, pb) = Pay.periodOf(shiftWeek, setup)
-                val period = Pay.slipFor(context, pa, pb, setup)
-                val lines = listOf(
-                    "BASIC · ${"%.1f".format(Locale.ROOT, slip.hours)}H × ${Pay.money(setup.basicRate)}" to Pay.money(slip.basic),
+            // Earnings: the whole pay period this week is in (a fortnight, both weeks together), as the payslip
+            // will show it, worked out on the period like payroll does, and the Friday it's paid.
+            val setup = Pay.setup(context)
+            val (pa, pb) = Pay.periodOf(shiftWeek, setup)
+            val slip = Pay.slipFor(context, pa, pb, setup)
+            if (slip.hours > 0) {
+                val dm = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
+                fun h(v: Double) = "%.1f".format(Locale.ROOT, v)
+                val weeks = generateSequence(pa) { it.plusWeeks(1) }.takeWhile { !it.isAfter(pb) }.map { m ->
+                    m to Pay.slipFor(context, m, minOf(m.plusDays(6), pb), setup, setup.periods)
+                }.toList()
+                val lines = weeks.map { (m, w) -> "WEEK OF ${m.format(dm).uppercase()}" to "${h(w.hours)}H" } + listOf(
+                    "BASIC · ${h(slip.hours)}H × ${Pay.money(setup.basicRate)}" to Pay.money(slip.basic),
                     "TRONC · EST. ${Pay.money(setup.troncRate)}/H" to Pay.money(slip.tronc),
                     "BEFORE TAX" to Pay.money(slip.gross),
                     "TAX · ${setup.taxCode}" to "−" + Pay.money(slip.tax),
@@ -3467,25 +3467,27 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 card(canvas, now, top, eh) {
                     val r = RectF(14 * u, top, width - 14 * u, top + eh)
                     panel(canvas, r, Hud.GOLD, strong = true)
-                    canvas.drawText("◆ EARNINGS · " + (if (shiftWeek == Shifts.monday(LocalDate.now())) "THIS WEEK" else "WEEK OF " + shiftWeek.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())).uppercase()), r.left + 14 * u, top + 20 * u, Hud.text(8 * u, Hud.GOLD, Hud.MONO, .18f))
+                    val head = "◆ PAY PERIOD · ${pa.format(dm).uppercase()} – ${pb.format(dm).uppercase()}"
+                    canvas.drawText(head, r.left + 14 * u, top + 20 * u, Hud.fit(head, Hud.text(8 * u, Hud.GOLD, Hud.MONO, .18f), r.width() - 28 * u))
                     canvas.drawText(Pay.money(slip.net), r.left + 14 * u, top + 52 * u, Hud.glow(Hud.text(26 * u, Color.WHITE, Hud.LIGHT), 8 * u, Hud.alpha(Hud.GOLD, .5f)))
                     canvas.drawText("TAKE-HOME", r.right - 14 * u, top + 40 * u, Hud.text(7.5f * u, Hud.GOLD, Hud.MONO, .16f, Paint.Align.RIGHT))
                     canvas.drawText("of ${Pay.money(slip.gross)} before tax", r.right - 14 * u, top + 53 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .08f, Paint.Align.RIGHT))
                     var ly = top + 64 * u
                     lines.forEachIndexed { i, (k, v) ->
                         canvas.drawLine(r.left + 14 * u, ly, r.right - 14 * u, ly, Hud.stroke(Hud.alpha(Hud.GOLD, .14f), u))
-                        val strong = i == 2
-                        canvas.drawText(k, r.left + 14 * u, ly + 14 * u, Hud.text(7.5f * u, if (strong) Hud.GOLD else Hud.SOFT, Hud.MONO, .12f))
-                        canvas.drawText(v, r.right - 14 * u, ly + 14 * u, Hud.text(9.5f * u, if (v.startsWith("−")) Hud.DUST else Color.WHITE, Hud.MONO, .04f, Paint.Align.RIGHT))
+                        val isWeek = i < weeks.size
+                        val strong = k == "BEFORE TAX"
+                        val thisOne = isWeek && weeks[i].first == shiftWeek
+                        canvas.drawText(k + if (thisOne) " ◂" else "", r.left + 14 * u, ly + 14 * u, Hud.text(7.5f * u, if (strong || thisOne) Hud.GOLD else if (isWeek) Hud.DUST else Hud.SOFT, Hud.MONO, .12f))
+                        canvas.drawText(v, r.right - 14 * u, ly + 14 * u, Hud.text(9.5f * u, if (v.startsWith("−") || isWeek) Hud.DUST else Color.WHITE, Hud.MONO, .04f, Paint.Align.RIGHT))
                         ly += lh
                     }
-                    // The payday this week's pay comes in, with the whole fortnight's take-home.
+                    // When it's paid.
                     val pr = RectF(r.left + 8 * u, ly + 6 * u, r.right - 8 * u, ly + 36 * u)
                     canvas.drawRect(pr, Hud.fill(Hud.alpha(Hud.GOLD, .1f)))
-                    val day = DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())
-                    canvas.drawText("PAID ${Pay.payday(pb).format(day).uppercase()} · ${pa.format(DateTimeFormatter.ofPattern("d MMM")).uppercase()}–${pb.format(DateTimeFormatter.ofPattern("d MMM")).uppercase()}",
-                        pr.left + 8 * u, pr.centerY() + 3 * u, Hud.fit("PAID ${Pay.payday(pb).format(day).uppercase()} · ${pa.format(DateTimeFormatter.ofPattern("d MMM")).uppercase()}–${pb.format(DateTimeFormatter.ofPattern("d MMM")).uppercase()}", Hud.text(7.5f * u, Hud.GOLD, Hud.MONO, .1f), pr.width() * .62f))
-                    canvas.drawText("≈ " + Pay.money(period.net), pr.right - 8 * u, pr.centerY() + 4 * u, Hud.text(11 * u, Color.WHITE, Hud.MONO_BOLD, align = Paint.Align.RIGHT))
+                    val paid = "PAID ${Pay.payday(pb).format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())).uppercase()}"
+                    canvas.drawText(paid, pr.left + 8 * u, pr.centerY() + 3 * u, Hud.text(8 * u, Hud.GOLD, Hud.MONO, .12f))
+                    canvas.drawText("≈ " + Pay.money(slip.net), pr.right - 8 * u, pr.centerY() + 4 * u, Hud.text(11 * u, Color.WHITE, Hud.MONO_BOLD, align = Paint.Align.RIGHT))
                 }
                 top += eh + 10 * u
             }

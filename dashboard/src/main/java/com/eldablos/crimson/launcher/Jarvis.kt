@@ -309,7 +309,45 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             }
             if (c != null) return finish(text, c, meant, inRoutine)
         }
+        // Not sure his rules caught all of it ("the weather for next week" heard as today's): a brain checks first.
+        if (!inRoutine && meant == null && pending == null && JarvisBrain.ready(context) && unsure(text, parsed)) return styled(doubleCheck(text, parsed))
         return finish(text, parsed, meant, inRoutine)
+    }
+
+    /**
+     * When his rules' reading may have missed part of what you said: a time span ("next week", "the weekend",
+     * "Friday", "this month") that the command he picked ignores. Then he doesn't guess: a brain checks.
+     */
+    private fun unsure(text: String, cmd: Command): Boolean {
+        val t = text.lowercase()
+        val span = Regex("\\b(week|weekend|fortnight|month|next \\w+|last \\w+|(mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow|tonight|\\d{1,2}(st|nd|rd|th))\\b").containsMatchIn(t)
+        if (!span) return false
+        return when (cmd) {
+            is Command.Weather -> cmd.day == 0
+            is Command.Agenda -> cmd.day == 0
+            is Command.Travel -> cmd.day == 0 && !cmd.dayGiven
+            is Command.Shift -> cmd.day == null || cmd.day == 0
+            else -> false
+        }
+    }
+
+    /**
+     * A brain checks what you meant before he acts. If it reads it differently from his rules, he goes with
+     * the brain and learns the phrasing; if it agrees, he carries on as he would have.
+     */
+    private fun doubleCheck(text: String, guess: Command): Reply {
+        JarvisBrain.interpret(context, text, EXAMPLES + JarvisMemory.suggestions(context)) { meant ->
+            val c = meant?.let { JarvisParser.parse(it) }
+            if (meant != null && c != null && c !is Command.Unknown && c != guess && c !is Command.WebSearch && c !is Command.AskClaude) {
+                JarvisMemory.learnMeaning(context, text, meant)
+                val r = answer(meant)
+                host.later(r.copy(card = r.card ?: Card("✦", "LEARNT", sub = "“$text” → $meant", tone = Tone.GREEN)))
+            } else {
+                host.later(finish(text, guess, null, false))
+            }
+        }
+        return Reply(say(pick("One moment, sir.", "Let me make sure I've got that.", "Checking."), "Making sure.", "Checking."),
+            card = Card("✦", "CHECKING", sub = text.take(80), tone = Tone.BLUE), silent = true)
     }
 
     private fun finish(text: String, cmd: Command, meant: String?, inRoutine: Boolean): Reply {
@@ -771,6 +809,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Command.Time -> Reply("It's ${LocalTime.now().format(tf)}${sir()}.", card = Card("◷", "TIME", LocalTime.now().format(tf), LocalDate.now().format(dayName)))
         Command.Date -> Reply("It's ${LocalDate.now().format(dayName)}.", card = Card("▦", "DATE", LocalDate.now().format(DateTimeFormatter.ofPattern("d MMM")), LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE · 'week' w"))))
         is Command.Weather -> weather(cmd)
+        is Command.WeatherWeek -> weatherWeek(cmd.weekend, cmd.rainOnly)
         is Command.Travel -> {
             // "And the Central?" after asking about tomorrow: still tomorrow.
             val prev = last as? Command.Travel
@@ -1132,6 +1171,32 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         } else {
             Reply("${label.replaceFirstChar { it.uppercase() }} looks ${look.lowercase()}, ${day.high} degrees at best and ${day.low} overnight. $rain", card = card)
         }
+    }
+
+    /** The days ahead, one line each (as far as the forecast reaches): or just the weekend. */
+    private fun weatherWeek(weekend: Boolean, rainOnly: Boolean): Reply {
+        val f = Forecast.cached(context) ?: return Reply("I don't have a forecast yet, sir. Open the weather once and I'll keep it to hand.", failed = true)
+        val today = LocalDate.now()
+        var days = f.days.filter { !it.date.isBefore(today) }
+        if (weekend) days = days.filter { it.date.dayOfWeek == java.time.DayOfWeek.SATURDAY || it.date.dayOfWeek == java.time.DayOfWeek.SUNDAY }.take(2)
+        days = days.take(7)
+        if (days.isEmpty()) return Reply("The forecast doesn't reach that far yet${sir()}.")
+        fun name(d: LocalDate) = when (d) { today -> "Today"; today.plusDays(1) -> "Tomorrow"; else -> d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault()) }
+        val wet = days.filter { it.rain >= 50 }
+        val warmest = days.maxByOrNull { it.high }!!
+        val coldest = days.minByOrNull { it.low }!!
+        val say = if (rainOnly) {
+            if (wet.isEmpty()) "No real rain in sight${sir()}${if (weekend) " this weekend" else " for the next ${days.size} days"}."
+            else "Rain's likely ${wet.joinToString(", ") { name(it.date) }}; take a coat then."
+        } else {
+            (if (weekend) "The weekend: " else "The next ${days.size} days: ") +
+                "highs from ${days.minOf { it.high }} to ${days.maxOf { it.high }} degrees, warmest ${name(warmest.date)}, coldest night ${name(coldest.date)} at ${coldest.low}. " +
+                (if (wet.isEmpty()) "It looks dry throughout." else "Rain's likely ${wet.joinToString(", ") { name(it.date) }}.") +
+                if (!weekend && days.size < 7) " That's as far as the forecast reaches." else ""
+        }
+        return Reply(say, card = Card("☁", if (weekend) "WEATHER · WEEKEND" else "WEATHER · DAYS AHEAD", "${days.minOf { it.low }}–${days.maxOf { it.high }}°", "${days.size} days",
+            days.map { d -> Row(d.date.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).uppercase(), "${Weather.describe(d.code, true).label} · ${d.high}°/${d.low}° · rain ${d.rain}%", ok = if (d.rain >= 50) false else null) }, Tone.BLUE),
+            full = true)
     }
 
     /**
@@ -4271,7 +4336,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "What's my rota this week?", "What's my rota next week?", "What have I earned this month?", "How many hours this month?",
             "Have I got uni tomorrow?", "I've got uni every Wednesday 5 till 9", "How's the tube?", "Any delays tomorrow?", "Lock my phone",
             "Next colour", "Set the heating to 24", "Turn the heating off", "Wake log", "Hands log", "When's payday?", "My pay log", "I've clocked in", "I've finished work", "Read my rota from my screenshot",
-            "What did I miss?", "What's 15% of 80?", "How do I teach you?",
+            "What did I miss?", "What's 15% of 80?", "How do I teach you?", "What's the weather this week?", "Weather this weekend",
         )
 
         /** Soundex: names that sound alike share a code ("cloud" and "Claude" are both C430). */

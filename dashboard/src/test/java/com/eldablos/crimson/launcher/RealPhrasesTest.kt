@@ -219,6 +219,9 @@ class RealPhrasesTest {
         assertEquals(Command.Briefing, p("brief me"))
         assertEquals(Command.Weather(1, false), p("what's the weather tomorrow"))
         assertEquals(Command.Weather(0, true), p("will it rain today"))
+        assertEquals(Command.WeatherWeek(false, false), p("the weather for next week what is it"))
+        assertEquals(Command.WeatherWeek(true, false), p("weather this weekend"))
+        assertEquals(Command.WeatherWeek(false, true), p("will it rain this week"))
         assertTrue(p("how's the tube") is Command.Travel)
     }
 }

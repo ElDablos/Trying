@@ -71,6 +71,8 @@ object JarvisParser {
         data class ReadScreenshot(val rota: Boolean, val ask: String) : Command()
         /** A new command of your own, from how you describe it ("when I say heading out, turn off the lights and…"). */
         data class MakeCommand(val description: String) : Command()
+        /** The days ahead's weather ("next week", "this weekend"). */
+        data class WeatherWeek(val weekend: Boolean, val rainOnly: Boolean) : Command()
         /** "What did I miss?": your notifications, summed up. */
         object Missed : Command()
         object ShiftAlarm : Command()
@@ -758,6 +760,10 @@ object JarvisParser {
         if (has("date", "what day is it", "what's today")) return Command.Date
         val dayAhead = whenIn(t, today).first?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() }
         if (has("weather", "rain", "raining", "umbrella", "coat", "temperature", "how cold", "how warm", "forecast", "cold outside", "hot outside", "warm outside", "sunny", "snow", "snowing", "windy", "jacket", "degrees")) {
+            // The days ahead: "the weather for next week", "this weekend", "the next few days".
+            if (has("week", "weekend", "next few days", "coming days", "days ahead", "seven day", "7 day", "rest of the week")) {
+                return Command.WeatherWeek(has("weekend"), has("rain", "umbrella", "coat"))
+            }
             return Command.Weather(dayAhead ?: 0, rainOnly = has("rain", "umbrella", "coat"))
         }
         if (has("next week") && has("shift", "shifts", "work", "hours")) return Command.ShiftWeek(next = true)

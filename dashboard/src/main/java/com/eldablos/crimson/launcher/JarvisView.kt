@@ -223,6 +223,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
      */
     fun show(listen: Boolean, greet: Boolean = true) {
         visibility = VISIBLE
+        // Opened by hand: his greeting doesn't start him listening (that's only after you've spoken to him).
+        if (!listen) spoken = false
         alpha = 0f
         scaleX = .97f
         scaleY = .97f

@@ -151,7 +151,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         // Jarvis's orb under the music bar: its own view, so it turns without redrawing the home screen.
         orb = JarvisOrb(this, u).apply {
             visibility = View.GONE
-            onTap = { openJarvis(listen = true) }
+            // A tap opens his chat, ready but not listening: tap the mic to talk, or the box to type.
+            onTap = { openJarvisChat() }
             onHold = { openJarvis(listen = false) }
         }
         root.addView(orb, FrameLayout.LayoutParams(orb.size, orb.size))
@@ -189,7 +190,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             onWeatherDay = { day -> closeDeck(); handler.postDelayed({ showWeather(day) }, 220) }
             onLaunch = { component -> AppCatalog.launch(this@LauncherActivity, component) }
             onVoice = { askByVoice() }
-            onJarvis = { openJarvis(listen = true) }
+            onJarvis = { openJarvisChat() }
         }
         root.addView(deck)
         jarvis = JarvisView(this, u, jarvisHost).apply {
@@ -567,6 +568,16 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             val n = try { JarvisProactive.unseen(this) } catch (e: Exception) { 0 }
             runOnUiThread { orb.alerts = n }
         }.start()
+    }
+
+    /** His chat, opened by a tap: he waits for you (the mic or the box), not listening and no keyboard. */
+    private fun openJarvisChat() {
+        if (jarvis.visibility == View.VISIBLE) return
+        val midBriefing = deck.visibility == View.VISIBLE && deck.readingBriefing
+        if (midBriefing) deck.stopBriefing()
+        backdrop(true)
+        jarvis.show(listen = false, greet = !midBriefing)
+        orb.alerts = 0
     }
 
     /** Jarvis comes up over whatever's showing; over a briefing being read, he pauses it and listens. */

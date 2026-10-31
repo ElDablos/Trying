@@ -113,6 +113,8 @@ object JarvisParser {
         data class RemoveCountdown(val name: String) : Command()
         data class AddShift(val date: LocalDate, val start: LocalTime, val end: LocalTime) : Command()
         data class RemoveShift(val date: LocalDate) : Command()
+        /** A week (or more) of shifts in one go; a day with no times is a day off. */
+        data class AddShifts(val days: List<RotaDay>) : Command()
         /** "Which lights are on?": he looks in Tapo. */
         object LightsStatus : Command()
         object ScreenTime : Command()
@@ -197,7 +199,7 @@ object JarvisParser {
         val whole = parse(said, today)
         val oneCommand = whole is Command.TickNotes || whole is Command.DeleteNotes || whole is Command.Learn || whole is Command.AddHabit || whole is Command.AddNote || whole is Command.AddNotes ||
             whole is Command.AddEvent || whole is Command.Remember || whole is Command.KeepRule || whole is Command.HeaterNow || whole is Command.WhatsApp ||
-            whole is Command.Text || whole is Command.EditNote || whole is Command.Change || whole is Command.AlarmSeries || whole is Command.AddShift ||
+            whole is Command.Text || whole is Command.EditNote || whole is Command.Change || whole is Command.AlarmSeries || whole is Command.AddShift || whole is Command.AddShifts ||
             whole is Command.AddCountdown || whole is Command.Travel
         if (oneCommand) return null
         val cmds = parts.map { parse(it, today) }
@@ -240,6 +242,8 @@ object JarvisParser {
         Regex("^(?:no,? (?:it's called|it's|its|i mean|i meant|i said)|it's called|it is called|its called|it's named|the app is called|i mean|i meant|i said)\\s+(the )?(.+?)( app)?$").find(t)?.let { return Command.Correct(it.groupValues[2].clean()) }
 
         if (Regex("^(restart|reboot|reset|refresh) ?(yourself|jarvis|your systems|all systems|everything|all of jarvis|your hands)?$").matches(t)) return Command.Reboot
+        // A rota said in one go: "add these shifts for next week: Monday 7 till 3, Tuesday 8 till 4, Wednesday off…".
+        rota(t, today)?.let { return it }
         // Rules about things that must stay as they are: "the 7pm alarm always stays on", "never turn off the hallway light".
         JarvisRules.read(t)?.let { r ->
             return when (r) {
@@ -647,6 +651,11 @@ object JarvisParser {
             if (date != null) return Command.RemoveShift(date)
         }
         if (Regex("^am i (off|free|working|on)\\b|^do i (work|have work|have a shift)|^have i got (work|a shift)").containsMatchIn(t)) return Command.Shift(dayAhead0)
+        // The whole week: "what's my rota for the week", "my shifts next week", "what am I working this week".
+        if (has("week", "weeks") && has("rota", "shift", "shifts", "work", "working", "hours", "doing")) {
+            if (has("next week", "following week", "week after")) return Command.ShiftWeek(next = true)
+            if (has("this week", "the week", "week ahead", "for the week", "this weeks", "the weeks")) return Command.ShiftWeek(next = false)
+        }
         // About work, not the clock: "what time am I working tomorrow", "when do I work Friday", "what's my rota".
         if (has("what time", "when", "what hours", "how long", "what's my", "what is my", "whats my") &&
             has("working", "work", "shift", "shifts", "rota", "start", "finish", "in tomorrow", "on tomorrow") && !has("time is it")) {
@@ -821,6 +830,74 @@ object JarvisParser {
     }
 
     /** A shift's start and end as said: "7 till 3" is 07:00–15:00, "2 till 10" is 14:00–22:00, "10pm to 6" overnight. */
+    /** One day of a rota: its shift, or a day off (no times). */
+    data class RotaDay(val date: LocalDate, val start: LocalTime?, val end: LocalTime?)
+
+    private val WEEKDAY = Regex("\\b(mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?|sun)(?:day)?s?\\b")
+    private val RANGE = Regex("(\\d{1,2}(?:[:.]\\d{2})? ?(?:am|pm)?) ?(?:till|til|until|to|-|–|through|thru) ?(\\d{1,2}(?:[:.]\\d{2})? ?(?:am|pm)?)")
+
+    private fun weekday(w: String): java.time.DayOfWeek = when (w.take(2)) {
+        "mo" -> java.time.DayOfWeek.MONDAY
+        "tu" -> java.time.DayOfWeek.TUESDAY
+        "we" -> java.time.DayOfWeek.WEDNESDAY
+        "th" -> java.time.DayOfWeek.THURSDAY
+        "fr" -> java.time.DayOfWeek.FRIDAY
+        "sa" -> java.time.DayOfWeek.SATURDAY
+        else -> java.time.DayOfWeek.SUNDAY
+    }
+
+    /**
+     * Several days' shifts in one sentence: "Monday 7 till 3, Tuesday 8 to 4, Wednesday off, Thursday and Friday
+     * 7 till 7, Saturday the same". Days without times take the next times said ("Thursday and Friday 7 till 7");
+     * "same" repeats the last; "off" is a day off. "Next week" puts them in next week; otherwise each is the
+     * next one coming (today included). Two days or more, about work; else null.
+     */
+    fun rota(t: String, today: LocalDate): Command.AddShifts? {
+        val days = WEEKDAY.findAll(t).toList()
+        if (days.size < 2 || RANGE.findAll(t).none()) return null
+        if (!Regex("\\b(shifts?|rota|working|work|i'm on|i am on|i'm in|these|my week)\\b").containsMatchIn(t)) return null
+        if (Regex("^(what|when|which|how|am i|do i|is|are)\\b").containsMatchIn(t)) return null
+        val nextWeek = Regex("\\b(next week|the week after|following week)\\b").containsMatchIn(t)
+        val thisWeek = !nextWeek && Regex("\\b(this week)\\b").containsMatchIn(t)
+        fun dateOf(d: java.time.DayOfWeek): LocalDate {
+            val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
+            return when {
+                nextWeek -> monday.plusWeeks(1).plusDays((d.value - 1).toLong())
+                thisWeek -> monday.plusDays((d.value - 1).toLong())
+                else -> today.plusDays(((d.value - today.dayOfWeek.value + 7) % 7).toLong())
+            }
+        }
+        val out = LinkedHashMap<LocalDate, RotaDay>()
+        val waiting = ArrayList<LocalDate>()
+        var last: Pair<LocalTime, LocalTime>? = null
+        days.forEachIndexed { i, m ->
+            val date = dateOf(weekday(m.groupValues[1]))
+            val seg = t.substring(m.range.last + 1, if (i + 1 < days.size) days[i + 1].range.first else t.length)
+            val range = RANGE.find(seg)
+            when {
+                range != null -> {
+                    val (a, b) = shiftTimes(range.groupValues[1].replace('.', ':'), range.groupValues[2].replace('.', ':'))
+                    if (a != null && b != null) {
+                        last = a to b
+                        (waiting + date).forEach { out[it] = RotaDay(it, a, b) }
+                    }
+                    waiting.clear()
+                }
+                Regex("\\b(off|day off|not working|free|rest|nothing|no shift|no work)\\b").containsMatchIn(seg) -> {
+                    (waiting + date).forEach { out[it] = RotaDay(it, null, null) }
+                    waiting.clear()
+                }
+                Regex("\\b(same|again|ditto|as well|too|likewise)\\b").containsMatchIn(seg) && last != null -> {
+                    (waiting + date).forEach { out[it] = RotaDay(it, last!!.first, last!!.second) }
+                    waiting.clear()
+                }
+                else -> waiting += date
+            }
+        }
+        if (out.count { it.value.start != null } < 1 || out.size < 2) return null
+        return Command.AddShifts(out.values.sortedBy { it.date })
+    }
+
     fun shiftTimes(a: String, b: String): Pair<LocalTime?, LocalTime?> {
         fun read(x: String): Pair<Int, Int>? {
             val m = Regex("^(\\d{1,2})(?::(\\d{2}))? ?(am|pm)?$").find(x.trim()) ?: return null

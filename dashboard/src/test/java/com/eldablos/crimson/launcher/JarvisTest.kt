@@ -528,4 +528,23 @@ class JarvisTest {
         assertEquals(Command.Dismiss, p("Goodbye Jarvis"))
         assertEquals(Command.ReadNotes, p("What are my notes"))
     }
+
+    @Test
+    fun rota() {
+        fun d(day: Int) = LocalDate.of(2026, 11, day)
+        fun t(h: Int) = LocalTime.of(h, 0)
+        val R = JarvisParser::RotaDay
+        assertEquals(
+            Command.AddShifts(listOf(R(d(2), t(7), t(15)), R(d(3), t(8), t(16)), R(d(4), null, null), R(d(5), t(7), t(19)), R(d(6), t(7), t(19)), R(d(7), t(7), t(19)))),
+            p("Add these shifts for next week: Monday 7 till 3, Tuesday 8 till 4, Wednesday off, Thursday and Friday 7 till 7, Saturday the same"),
+        )
+        assertEquals(
+            Command.AddShifts(listOf(R(d(2), t(7), t(15)), R(d(3), t(7), t(15)))),
+            p("I'm working next week monday 7 to 3 tuesday 7 to 3"),
+        )
+        assertEquals(Command.ShiftWeek(next = false), p("what's my rota for the week"))
+        assertEquals(Command.ShiftWeek(next = true), p("what's my rota next week"))
+        assertEquals(Command.ShiftWeek(next = true), p("what are my shifts next week"))
+        assertEquals(Command.AddShift(d(2), t(7), t(15)), p("I'm working Monday 7 till 3"))
+    }
 }

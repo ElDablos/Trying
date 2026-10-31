@@ -820,6 +820,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.RemoveCountdown -> removeCountdown(cmd.name)
         is Command.AddShift -> setShift(cmd.date, Shifts.Shift(cmd.start, cmd.end, shiftName(cmd.start, cmd.end)))
         is Command.RemoveShift -> setShift(cmd.date, null)
+        is Command.AddShifts -> setShifts(cmd.days)
         Command.LightsStatus -> lightsStatus()
         Command.ScreenTime -> screenTime()
         is Command.EditNote -> editNote(cmd.old, cmd.new)
@@ -2470,6 +2471,41 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             card = if (shift == null) Card("⧗", "SHIFT REMOVED", "OFF", day.replaceFirstChar { it.uppercase() }, tone = Tone.GREEN)
             else Card("⧗", "SHIFT SAVED", shift.times(), "${day.replaceFirstChar { it.uppercase() }} · ${shift.name}", listOf(Row("CALENDAR", if (synced) "synced" else "not synced", ok = synced)), Tone.HOT),
             actions = listOfNotNull(undoAction, if (shift != null) alarmOffer(date, shift).firstOrNull() else null),
+        )
+    }
+
+    /** A rota in one go: every day saved (days off cleared), one Undo for the lot, read back day by day. */
+    private fun setShifts(days: List<JarvisParser.RotaDay>): Reply {
+        val all = Shifts.all(context)
+        val before = days.associate { it.date to all[it.date] }
+        days.forEach { d -> Shifts.set(context, d.date, if (d.start != null && d.end != null) Shifts.Shift(d.start, d.end, shiftName(d.start, d.end)) else null) }
+        val synced = Shifts.sync(context) >= 0
+        push("Rota put back") {
+            before.forEach { (d, s) -> Shifts.set(context, d, s) }
+            Shifts.sync(context)
+            "Put your shifts back as they were."
+        }
+        fun dayName(d: LocalDate) = d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        val working = days.filter { it.start != null }
+        val off = days.filter { it.start == null }
+        val minutes = working.sumOf { d -> java.time.Duration.between(d.start, d.end).toMinutes().let { if (it <= 0) it + 24 * 60 else it } }
+        val said = working.joinToString(", ") { d -> "${dayName(d.date)} ${d.start!!.format(tf)} till ${d.end!!.format(tf)}" } +
+            if (off.isNotEmpty()) ". Off ${off.joinToString(" and ") { dayName(it.date) }}" else ""
+        val first = days.first().date
+        val span = if (Shifts.monday(first) == Shifts.monday(days.last().date)) {
+            when (Shifts.monday(first)) {
+                Shifts.monday(LocalDate.now()) -> "this week"
+                Shifts.monday(LocalDate.now()).plusWeeks(1) -> "next week"
+                else -> "the week of ${first.dayOfMonth} ${first.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())}"
+            }
+        } else "the coming days"
+        return Reply(
+            "Got it${sir()}: ${working.size} shift${if (working.size == 1) "" else "s"} $span, ${"%.0f".format(Locale.ROOT, minutes / 60.0)} hours. $said." +
+                if (synced) " They're on the Even Us calendar too." else "",
+            card = Card("⧗", "ROTA SAVED · ${span.uppercase()}", "${"%.0f".format(Locale.ROOT, minutes / 60.0)}h", "${working.size} shifts${if (off.isNotEmpty()) " · ${off.size} off" else ""}",
+                days.map { d -> Row(d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.date.dayOfMonth, if (d.start != null) "${d.start.format(tf)}–${d.end!!.format(tf)}" else "OFF", ok = if (d.start != null) true else null) },
+                Tone.HOT),
+            actions = listOf(undoAction, Action("MY WEEK", if (span == "next week") "what's my rota next week" else "what's my rota this week")),
         )
     }
 

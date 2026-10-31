@@ -13,62 +13,109 @@ import java.io.File
 import java.util.concurrent.Executors
 
 /**
- * Jarvis's brain: Google's Gemma 4, running on the phone with Google's LiteRT-LM (on the GPU, the CPU if it
- * must), for whatever his own rules don't cover. Three jobs:
- * - **Working out what you meant**: a request his rules don't know is matched to one of his own commands.
- *   He does it, and remembers the phrasing ([JarvisMemory.learnMeaning]), so next time his rules know it
- *   straight away, without the brain. He learns from it the more you use him.
- * - **Answering** anything else, knowing who you are (your facts and routine).
- * - **Summarising** what a web look-up found ([WebLookup]).
- * The model is a file you download once (Gemma 4 E4B, a .litertlm of a few GB) and load from the phone's
- * storage; he checks now and then for a newer Gemma ([newer]). Nothing you ask leaves the phone; one
- * question at a time, on its own thread.
+ * Jarvis's brains: models running on the phone with Google's LiteRT-LM (on the GPU, the CPU if it must), for
+ * whatever his own rules don't cover. You can give him several, and each job goes to the one best at it:
+ * - **Talk** (Google's Gemma 4 E4B): his voice: answering, chatting, summing up look-ups.
+ * - **Think** (Qwen3 4B Thinking): working things through: "why", plans, comparisons, tricky questions.
+ * - **Quick** (Qwen3 1.7B, or any small one): working out what you meant, fast.
+ * Whichever brain works out what you meant, he does it and remembers the phrasing
+ * ([JarvisMemory.learnMeaning]), so next time his own rules know it without any brain: he learns from all
+ * of them. With one brain, it does every job. Only one is held in memory at a time (they're gigabytes): he
+ * keeps the last used and swaps when a job needs another. Nothing you ask leaves the phone.
  */
 object JarvisBrain {
-    /** Where to get the model: Google's Gemma 4 for phones (accept the licence, then download the .litertlm file). */
+    enum class Role(val label: String) { TALK("TALK"), THINK("THINK"), QUICK("QUICK") }
+    enum class Job { INTERPRET, ANSWER, REASON, SUMMARISE }
+
+    /** A brain on the phone: its file, its name ("gemma-4-E4B-it"), the job it's best at. */
+    class Model(val file: File, val name: String) {
+        val role: Role = roleOf(name)
+        val gb: Double get() = file.length() / 1e9
+    }
+
+    /** The brains worth having, and where to get them (sign in, accept the licence, download the .litertlm). */
+    class Pick(val title: String, val role: Role, val page: String, val match: Regex)
+    val RECOMMENDED = listOf(
+        Pick("Gemma 4 E4B · Google", Role.TALK, "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm", Regex("gemma", RegexOption.IGNORE_CASE)),
+        Pick("Qwen3 4B Thinking · Alibaba", Role.THINK, "https://huggingface.co/litert-community/Qwen3-4B-Thinking-2507", Regex("qwen.*4b|think", RegexOption.IGNORE_CASE)),
+        Pick("Qwen3 1.7B · Alibaba", Role.QUICK, "https://huggingface.co/litert-community/Qwen3-1.7B", Regex("qwen.*(1\\.7|1_7|0\\.6|0\\.8)b", RegexOption.IGNORE_CASE)),
+    )
     const val DOWNLOAD_PAGE = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm"
     const val MODEL_NAME = "Gemma 4 E4B"
 
-    private val worker = Executors.newSingleThreadExecutor { r -> Thread(r, "jarvis-brain").apply { priority = Thread.NORM_PRIORITY - 1 } }
-    private val main = Handler(Looper.getMainLooper())
+    private val worker by lazy { Executors.newSingleThreadExecutor { r -> Thread(r, "jarvis-brain").apply { priority = Thread.NORM_PRIORITY - 1 } } }
+    private val main by lazy { Handler(Looper.getMainLooper()) }
     @Volatile private var engine: Engine? = null
+    @Volatile private var loadedPath: String? = null
     @Volatile var loading = false
         private set
 
-    fun modelFile(context: Context) = File(context.filesDir, "brain/model.litertlm")
+    /** The brain that answered last ("Qwen3-4B-Thinking"), for the card. */
+    @Volatile var lastUsed: String = MODEL_NAME
+        private set
 
+    private fun dir(context: Context) = File(context.filesDir, "brain")
     private fun prefs(context: Context) = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
 
-    /** Which model's in ("gemma-4-E4B-it"), from the file you loaded. */
-    fun installedName(context: Context): String? = prefs(context).getString("brain_name", null)
+    /** Which job a brain suits, from its name: Qwen's 4B and "thinking" ones think, small ones are quick, the rest talk. */
+    fun roleOf(name: String): Role = when {
+        Regex("think|qwen\\D*3\\D*4b|qwen.*-4b", RegexOption.IGNORE_CASE).containsMatchIn(name) -> Role.THINK
+        Regex("(0[._]6|0[._]8|1[._]5|1[._]7|1)b|\\be2b\\b|-e2b", RegexOption.IGNORE_CASE).containsMatchIn(name) -> Role.QUICK
+        else -> Role.TALK
+    }
 
-    /** Downloaded and in place. */
-    fun installed(context: Context) = modelFile(context).let { it.exists() && it.length() > 100_000_000L }
+    /** Every brain he has, Talk first. */
+    fun models(context: Context): List<Model> = (dir(context).listFiles { f -> f.name.endsWith(".litertlm") && f.length() > 100_000_000L } ?: emptyArray())
+        .map { f -> Model(f, prefs(context).getString("brain_name:${f.name}", null) ?: prefs(context).getString("brain_name", null)?.takeIf { f.name == "model.litertlm" } ?: f.nameWithoutExtension) }
+        .sortedBy { it.role.ordinal }
 
-    fun enabled(context: Context) = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).getBoolean("set:brain", true)
+    fun installed(context: Context) = models(context).isNotEmpty()
+    fun installedName(context: Context): String? = models(context).firstOrNull()?.name
+
+    fun enabled(context: Context) = prefs(context).getBoolean("set:brain", true)
     fun setEnabled(context: Context, on: Boolean) {
-        context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).edit().putBoolean("set:brain", on).apply()
+        prefs(context).edit().putBoolean("set:brain", on).apply()
         if (!on) unload()
     }
 
-    /** Installed, switched on: questions can go to it (it loads on first use). */
+    /** At least one brain in, switched on: questions can go to it (it loads on first use). */
     fun ready(context: Context) = enabled(context) && installed(context)
 
     /**
-     * Copies the model you downloaded (picked from the phone's files) into his own storage, with progress
-     * in percent; [done] true when it's in. Big (gigabytes): off the main thread.
+     * Which brain does [job]: the one best at it, unless swapping would cost more than it's worth (working out
+     * what you meant is quick on whichever is already loaded).
+     */
+    private fun pick(context: Context, job: Job): Model? {
+        val all = models(context)
+        if (all.isEmpty()) return null
+        val order = when (job) {
+            Job.INTERPRET -> listOf(Role.QUICK, Role.TALK, Role.THINK)
+            Job.ANSWER -> listOf(Role.TALK, Role.THINK, Role.QUICK)
+            Job.REASON -> listOf(Role.THINK, Role.TALK, Role.QUICK)
+            Job.SUMMARISE -> listOf(Role.TALK, Role.QUICK, Role.THINK)
+        }
+        val loaded = all.firstOrNull { it.file.absolutePath == loadedPath }
+        if (job == Job.INTERPRET && loaded != null) return loaded
+        return order.firstNotNullOfOrNull { r -> all.firstOrNull { it.role == r } } ?: all.first()
+    }
+
+    /**
+     * Copies a brain you downloaded (picked from the phone's files) in next to the others, with progress in
+     * percent; [done] true when it's in. The same file again replaces it. Big (gigabytes): off the main thread.
      */
     fun install(context: Context, uri: Uri, progress: (Int) -> Unit, done: (Boolean, String?) -> Unit) {
         val app = context.applicationContext
-        val name = runCatching {
+        val shown = runCatching {
             app.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
-        }.getOrNull()
+        }.getOrNull() ?: "brain-${System.currentTimeMillis()}.litertlm"
+        val name = shown.substringBeforeLast('.').removeSuffix("-int4").removeSuffix("_int4")
         Thread {
-            val dest = modelFile(app)
-            val tmp = File(dest.parentFile, "model.part")
-            val ok = try {
-                dest.parentFile?.mkdirs()
-                unload()
+            val d = dir(app)
+            val dest = File(d, name.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".litertlm")
+            val tmp = File(d, "incoming.part")
+            try {
+                d.mkdirs()
+                if (dest.absolutePath == loadedPath) unload()
                 val total = app.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
                 app.contentResolver.openInputStream(uri)!!.use { input ->
                     tmp.outputStream().use { out ->
@@ -88,57 +135,67 @@ object JarvisBrain {
                         }
                     }
                 }
-                if (tmp.length() < 100_000_000L) throw IllegalStateException("That file's too small to be the model.")
+                if (tmp.length() < 100_000_000L) throw IllegalStateException("That file's too small to be a brain.")
                 dest.delete()
                 tmp.renameTo(dest)
-                prefs(app).edit().putString("brain_name", name?.substringBeforeLast('.')?.removeSuffix("-int4")?.removeSuffix("_int4") ?: MODEL_NAME).apply()
-                true
+                prefs(app).edit().putString("brain_name:${dest.name}", name).apply()
             } catch (e: Exception) {
                 tmp.delete()
                 main.post { done(false, e.message) }
                 return@Thread
             }
-            main.post { done(ok, null) }
+            main.post { done(true, name) }
         }.start()
     }
 
-    fun remove(context: Context) {
-        unload()
-        modelFile(context).delete()
-        prefs(context).edit().remove("brain_name").apply()
+    fun remove(context: Context, model: Model) {
+        if (model.file.absolutePath == loadedPath) unload()
+        model.file.delete()
+        prefs(context).edit().remove("brain_name:${model.file.name}").apply()
     }
 
     private fun unload() {
         val e = engine
         engine = null
+        loadedPath = null
         if (e != null) worker.execute { runCatching { e.close() } }
     }
 
-    /** The engine with the model loaded, on the brain's thread (up to ten seconds the first time): the GPU, else the CPU. */
-    private fun load(context: Context): Engine {
-        engine?.let { return it }
+    /** The engine with [model] loaded, on the brain's thread (up to ten seconds when it swaps): the GPU, else the CPU. */
+    private fun load(context: Context, model: Model): Engine {
+        val path = model.file.absolutePath
+        engine?.let { if (loadedPath == path) return it }
+        engine?.let { runCatching { it.close() } }
+        engine = null
+        loadedPath = null
         loading = true
         try {
-            val path = modelFile(context).absolutePath
             val cache = context.cacheDir.path
             val e = try {
                 Engine(EngineConfig(modelPath = path, backend = Backend.GPU(), cacheDir = cache)).also { it.initialize() }
             } catch (t: Throwable) {
                 Engine(EngineConfig(modelPath = path, backend = Backend.CPU(), cacheDir = cache)).also { it.initialize() }
             }
+            loadedPath = path
             return e.also { engine = it }
         } finally {
             loading = false
         }
     }
 
-    /** Asks the model [user], with [system] as its instruction; [done] on the main thread with its reply, or null. */
-    private fun ask(context: Context, system: String, user: String, done: (String?) -> Unit) {
+    /** A thinking model's working-out ("<think>…</think>") taken off: just the answer. */
+    private fun tidy(out: String): String = out.replace(Regex("(?s)<think>.*?</think>"), "").substringAfterLast("</think>").trim()
+
+    /** Asks the brain best at [job]: [user], with [system] as its instruction; [done] on the main thread with its reply, or null. */
+    private fun ask(context: Context, job: Job, system: String, user: String, done: (String?) -> Unit) {
         val app = context.applicationContext
         worker.execute {
+            val model = pick(app, job)
             val out = try {
-                load(app).createConversation(ConversationConfig(systemInstruction = Contents.of(system))).use { c ->
-                    c.sendMessage(user).toString().trim()
+                model?.let { m ->
+                    load(app, m).createConversation(ConversationConfig(systemInstruction = Contents.of(system))).use { c ->
+                        tidy(c.sendMessage(user).toString())
+                    }.also { lastUsed = m.name }
                 }
             } catch (e: Throwable) {
                 null
@@ -147,45 +204,46 @@ object JarvisBrain {
         }
     }
 
-    /** Warms the model up in the background, so the first real question isn't slow. */
+    /** Warms his Talk brain in the background, so the first real question isn't slow. */
     fun warm(context: Context) {
         if (!ready(context) || engine != null || loading) return
         val app = context.applicationContext
-        worker.execute { runCatching { load(app) } }
+        worker.execute { runCatching { pick(app, Job.ANSWER)?.let { load(app, it) } } }
     }
 
     // --- Keeping up to date ---
 
     /**
-     * A newer Gemma for phones than the one you've got, if Google's put one out (looked up on Hugging Face's
-     * litert-community, at most once a day): its name and page, or null. Off the main thread.
+     * Newer brains than the ones you've got (a later Gemma, a later Qwen), looked up on Hugging Face's
+     * litert-community at most once a day: name and page each. Off the main thread.
      */
-    fun newer(context: Context): Pair<String, String>? {
+    fun newer(context: Context): List<Pair<String, String>> {
         val p = prefs(context)
         val now = System.currentTimeMillis()
-        val cached = p.getString("brain_newer", null)
-        if (now - p.getLong("brain_checked", 0L) < 24 * 3600_000L) return cached?.split('|')?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
-        val found = try {
-            val json = (java.net.URL("https://huggingface.co/api/models?author=litert-community&search=gemma&limit=100").openConnection() as java.net.HttpURLConnection).run {
-                connectTimeout = 6000
-                readTimeout = 8000
-                inputStream.use { String(it.readBytes()) }
+        fun cached() = p.getString("brain_newer", null).orEmpty().split('\n').mapNotNull { l -> l.split('|').takeIf { it.size == 2 }?.let { it[0] to it[1] } }
+        if (now - p.getLong("brain_checked", 0L) < 24 * 3600_000L) return cached()
+        val mine = models(context).map { it.name }
+        val found = ArrayList<Pair<String, String>>()
+        try {
+            for ((family, sizes) in listOf("gemma" to Regex("E4B|E2B", RegexOption.IGNORE_CASE), "qwen" to Regex("4B|1\\.7B", RegexOption.IGNORE_CASE))) {
+                val json = (java.net.URL("https://huggingface.co/api/models?author=litert-community&search=$family&limit=100").openConnection() as java.net.HttpURLConnection).run {
+                    connectTimeout = 6000
+                    readTimeout = 8000
+                    inputStream.use { String(it.readBytes()) }
+                }
+                val ids = org.json.JSONArray(json).let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("id") } }
+                // "gemma-4-E4B" → 4, "Qwen3.5-4B" → 3.5.
+                fun version(id: String) = Regex("$family-?(\\d+(?:\\.\\d+)?)", RegexOption.IGNORE_CASE).find(id)?.groupValues?.get(1)?.toDoubleOrNull()
+                val have = mine.filter { it.contains(family, true) }.mapNotNull { version(it) }.maxOrNull() ?: continue
+                ids.filter { sizes.containsMatchIn(it) }.mapNotNull { id -> version(id)?.let { v -> id to v } }
+                    .filter { (_, v) -> v > have }.maxByOrNull { it.second }
+                    ?.let { (id, _) -> found += id.substringAfter('/') to "https://huggingface.co/$id" }
             }
-            val ids = org.json.JSONArray(json).let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("id") } }
-            // Phone models with a version number: "litert-community/gemma-4-E4B-it-litert-lm" → 4.
-            fun version(id: String) = Regex("gemma-?(\\d+(?:\\.\\d+)?)", RegexOption.IGNORE_CASE).find(id)?.groupValues?.get(1)?.toDoubleOrNull()
-            val mine = version(installedName(context) ?: MODEL_NAME.replace(" ", "-")) ?: 0.0
-            ids.filter { Regex("E4B|E2B", RegexOption.IGNORE_CASE).containsMatchIn(it) && Regex("litert", RegexOption.IGNORE_CASE).containsMatchIn(it) }
-                .mapNotNull { id -> version(id)?.let { v -> id to v } }
-                .filter { (_, v) -> v > mine }
-                .sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenByDescending { it.first.contains("E4B", true) })
-                .firstOrNull()?.first
         } catch (e: Exception) {
-            return cached?.split('|')?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
+            return cached()
         }
-        val result = found?.let { it.substringAfter('/') to "https://huggingface.co/$it" }
-        p.edit().putLong("brain_checked", now).putString("brain_newer", result?.let { "${it.first}|${it.second}" }).apply()
-        return result
+        p.edit().putLong("brain_checked", now).putString("brain_newer", found.joinToString("\n") { "${it.first}|${it.second}" }).apply()
+        return found
     }
 
     // --- Working out what you meant ---
@@ -200,7 +258,7 @@ object JarvisBrain {
             "\n\nReply with ONE command in the same style as the examples, with the request's names, times, places and numbers filled in. " +
             "If the request isn't asking for one of these kinds of commands (a general question, chat, something it can't do), reply exactly NONE. " +
             "Reply with the command only: no quotes, no explanation."
-        ask(context, system, "Request: $said") { out ->
+        ask(context, Job.INTERPRET, system, "Request: $said") { out ->
             val line = out?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()?.removePrefix("-")?.trim()?.trim('"', '\'', '.', '`')
             done(line?.takeIf { it.isNotEmpty() && !it.equals("NONE", true) && it.length < 160 })
         }
@@ -208,13 +266,17 @@ object JarvisBrain {
 
     // --- Answering ---
 
+    private fun persona(about: String) = "You are Jarvis, a calm, witty British butler-style assistant on Vee's phone. " +
+        "If you aren't sure of a fact, or it could have changed recently (news, prices, opening times, releases, scores), say so briefly instead of guessing. " +
+        "What you know about Vee:\n$about"
+
     /** A short answer to [question], knowing [about] you (facts, routine), as Jarvis: brief, British, helpful. */
-    fun answer(context: Context, question: String, about: String, done: (String?) -> Unit) {
-        val system = "You are Jarvis, a calm, witty British butler-style assistant on Vee's phone. Answer in at most four short sentences, " +
-            "plainly, without markdown or lists. If you aren't sure of a fact, or it could have changed recently (news, prices, opening times, " +
-            "releases, scores), say so briefly instead of guessing. What you know about Vee:\n$about"
-        ask(context, system, question, done)
-    }
+    fun answer(context: Context, question: String, about: String, done: (String?) -> Unit) =
+        ask(context, Job.ANSWER, persona(about) + "\n\nAnswer in at most four short sentences, plainly, without markdown or lists.", question, done)
+
+    /** Something to work through ("why…", a plan, a comparison): the Think brain, a little more room, still plain. */
+    fun reason(context: Context, question: String, about: String, done: (String?) -> Unit) =
+        ask(context, Job.REASON, persona(about) + "\n\nThink it through carefully, then give the answer in at most six short sentences, plainly, without markdown.", question, done)
 
     // --- Summarising a look-up ---
 
@@ -223,6 +285,6 @@ object JarvisBrain {
         val system = "Answer the question using only the sources below, in two or three plain sentences, without markdown. " +
             "If the sources don't answer it, reply exactly NOTHING.\n\n" +
             sources.mapIndexed { i, p -> "Source ${i + 1} (${p.title}):\n${p.text.take(2500)}" }.joinToString("\n\n")
-        ask(context, system, "Question: $question") { out -> done(out?.takeIf { !it.trim().equals("NOTHING", true) }) }
+        ask(context, Job.SUMMARISE, system, "Question: $question") { out -> done(out?.takeIf { !it.trim().equals("NOTHING", true) }) }
     }
 }

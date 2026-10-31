@@ -165,6 +165,16 @@ class RealPhrasesTest {
     }
 
     @Test
+    fun brains() {
+        assertEquals(JarvisBrain.Role.TALK, JarvisBrain.roleOf("gemma-4-E4B-it"))
+        assertEquals(JarvisBrain.Role.THINK, JarvisBrain.roleOf("Qwen3-4B-Thinking-2507"))
+        assertEquals(JarvisBrain.Role.THINK, JarvisBrain.roleOf("Qwen3_4B"))
+        assertEquals(JarvisBrain.Role.QUICK, JarvisBrain.roleOf("Qwen3_1.7B_dynamic_wi4b32_afp32"))
+        assertEquals(JarvisBrain.Role.QUICK, JarvisBrain.roleOf("Gemma3-1B-IT"))
+        assertEquals(JarvisBrain.Role.QUICK, JarvisBrain.roleOf("gemma-4-E2B-it"))
+    }
+
+    @Test
     fun notesAndHabits() {
         assertEquals(Command.TickAllNotes, p("tick my notes"))
         assertEquals(Command.TickNote("#2"), p("I want to finish my second note"))

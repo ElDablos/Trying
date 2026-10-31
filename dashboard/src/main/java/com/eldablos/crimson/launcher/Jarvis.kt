@@ -1323,8 +1323,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 host.later(lookUp(said))
                 return@interpret
             }
-            JarvisBrain.answer(context, said, aboutVee()) { reply ->
-                host.later(if (reply != null) Reply(reply, card = Card("✦", "JARVIS · $MODEL", sub = said.take(80), tone = Tone.BLUE),
+            // Something to work through goes to the Think brain; the rest to his Talk brain.
+            val deep = Regex("\\b(why|explain|how (do|does|should|would|could|can) i|plan|compare|difference between|pros and cons|should i|help me (work out|decide|figure|think)|work out|figure out|what if|which is better|step by step|reason|solve|puzzle|riddle)\\b", RegexOption.IGNORE_CASE).containsMatchIn(said)
+            val ask: (String, String, (String?) -> Unit) -> Unit = if (deep) { q, a, d -> JarvisBrain.reason(context, q, a, d) } else { q, a, d -> JarvisBrain.answer(context, q, a, d) }
+            ask(said, aboutVee()) { reply ->
+                host.later(if (reply != null) Reply(reply, card = Card("✦", "JARVIS · ${JarvisBrain.lastUsed.uppercase().take(28)}", sub = said.take(80), tone = Tone.BLUE),
                     actions = listOf(Action("LOOK IT UP", run = { host.later(lookUp(said)) }), Action("ASK CLAUDE", run = { askClaude(said).then?.invoke() })))
                 else lookupOffer(said))
             }
@@ -4034,7 +4037,6 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         const val DONE = "[x] "
         const val WHATSAPP = "com.whatsapp"
         const val TAPO = "com.tplink.iot"
-        private const val MODEL = "GEMMA"
 
         /** The name on your work alarms in the Clock: the ones he moves for each shift. */
         const val WORK = "Work"

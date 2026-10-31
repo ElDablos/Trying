@@ -218,11 +218,12 @@ back to One UI Home the same way at any time.
     up and out, whether the work alarms are set, uni, the tube on your line and rain on the way.
   - **He checks his work**: after switching a Tapo light he looks again, and tries once more or tells you
     if it didn't take. "Wake log" shows why he woke when he heard his name.
-  - **His brain (optional, on the phone)**: Google's Gemma 4 E4B (free; a one-off download of a few GB, loaded
-    in his settings under Jarvis Brain), run on the phone's GPU with Google's LiteRT-LM. He checks daily for a
-    newer Gemma for phones and offers it there. When his own rules don't
-    know a request, the brain works out which of his commands you meant; he does it and learns the
-    phrasing, so next time he knows it without the brain. Anything else it answers, knowing your routine.
+  - **His brains (optional, on the phone)**: AI models run on the phone's GPU with Google's LiteRT-LM, one
+    or all of: Google's Gemma 4 E4B (TALK: answers, chat, summing up look-ups), Alibaba's Qwen3 4B Thinking
+    (THINK: why, plans, comparisons, tricky questions) and Qwen3 1.7B (QUICK: working out what you meant).
+    Each job goes to the brain best at it. When his own rules don't know a request, a brain works out which
+    of his commands you meant; he does it and learns the phrasing, so next time he knows it without any
+    brain. Free downloads of a few GB each, added in his settings; he checks daily for newer versions.
     Nothing you ask leaves the phone.
   - **Look-ups**: "look up …", or a question about something that changes (news, opening times, prices):
     he searches the web, reads the top pages and puts what they say in two or three sentences on a card,

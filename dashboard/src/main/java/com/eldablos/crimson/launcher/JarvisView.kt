@@ -301,15 +301,19 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     /** The model file you picked: copied in, with progress under the button; then he says it's ready. */
     fun installBrain(uri: android.net.Uri) {
         brainStatus?.text = "Copying… 0%"
-        JarvisBrain.install(context, uri, { pct -> brainStatus?.text = if (pct >= 0) "Copying… $pct%" else "Copying…" }) { ok, error ->
+        JarvisBrain.install(context, uri, { pct -> brainStatus?.text = if (pct >= 0) "Copying… $pct%" else "Copying…" }) { ok, info ->
             if (ok) {
                 brainStatus?.text = "Done."
                 if (sheetOpen) openSheet(Jarvis.Sheet.SETTINGS)
                 JarvisBrain.warm(context)
-                later(Jarvis.Reply("My brain's in, sir. Ask me anything; what I don't know, I'll work out or look up.",
-                    card = Jarvis.Card("✦", "JARVIS BRAIN", "READY", JarvisBrain.MODEL_NAME + " · on this phone", tone = Jarvis.Tone.GREEN)))
+                val role = JarvisBrain.roleOf(info ?: "")
+                later(Jarvis.Reply("${info ?: "The new brain"}'s in, sir. " + when (role) {
+                    JarvisBrain.Role.TALK -> "It'll do my talking and summing up."
+                    JarvisBrain.Role.THINK -> "It'll work things through when you ask me something harder."
+                    JarvisBrain.Role.QUICK -> "It'll work out what you mean, quickly."
+                }, card = Jarvis.Card("✦", "BRAIN ADDED", role.label, (info ?: "") + " · on this phone", tone = Jarvis.Tone.GREEN)))
             } else {
-                brainStatus?.text = "That didn't work: ${error ?: "couldn't copy it"}. Check it's the .task file and there's room."
+                brainStatus?.text = "That didn't work: ${info ?: "couldn't copy it"}. Check it's a .litertlm file and there's room."
             }
         }
     }
@@ -883,42 +887,47 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         val leads = listOf(45, 60, 75, 90, 120)
         body.addView(TextView(context).apply { text = "Shift alarm, before the start"; setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(11f) * u); setTextColor(Hud.SOFT); setPadding(0, dp(10f), 0, dp(6f)) })
         choice(body, leads.map { "${it}m" }, leads.indexOf(JarvisMemory.alarmLead(context)).coerceAtLeast(0)) { JarvisMemory.setAlarmLead(context, leads[it]) }
-        heading(body, "JARVIS BRAIN", "Google's ${JarvisBrain.MODEL_NAME}, the newest Gemma for phones, running on this phone: he works out what you mean when his own rules don't, learns the phrasing for next time, answers anything else, and sums up what he looks up on the web. Nothing you ask leaves the phone. A one-off download of a few GB.")
-        val installed = JarvisBrain.installed(context)
-        item(body, if (installed) "${JarvisBrain.installedName(context) ?: JarvisBrain.MODEL_NAME} · ${"%.1f".format(java.util.Locale.ROOT, JarvisBrain.modelFile(context).length() / 1e9)} GB" else "Not installed yet",
-            if (installed) "Ready. He'll use it for anything his own rules don't cover." else "1. GET IT: sign in on the page, accept Google's licence, download the .litertlm file. 2. LOAD FILE: pick it from Downloads.",
-            if (installed) "REMOVE" else "GET IT", onButton = {
-                if (installed) {
-                    JarvisBrain.remove(context)
-                    openSheet(Jarvis.Sheet.SETTINGS)
-                } else try {
-                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(JarvisBrain.DOWNLOAD_PAGE)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-                } catch (e: Exception) { }
+        heading(body, "JARVIS BRAINS", "AI models running on this phone. Give him one or all three: each job goes to the brain best at it (talking, thinking things through, quickly working out what you meant), and whichever works out what you meant, he learns it for next time. Nothing you ask leaves the phone. Each is a one-off download of a few GB: sign in on the page, accept the licence, download the .litertlm file, then ADD.")
+        val models = JarvisBrain.models(context)
+        models.forEach { m ->
+            item(body, "${m.name} · ${"%.1f".format(java.util.Locale.ROOT, m.gb)} GB", when (m.role) {
+                JarvisBrain.Role.TALK -> "TALK: answers, chat, summing up look-ups"
+                JarvisBrain.Role.THINK -> "THINK: works things through: why, plans, comparisons, tricky questions"
+                JarvisBrain.Role.QUICK -> "QUICK: works out what you meant, fast"
+            }, "REMOVE", onButton = {
+                JarvisBrain.remove(context, m)
+                openSheet(Jarvis.Sheet.SETTINGS)
             })
+        }
+        // The ones he hasn't got yet: where to get each.
+        JarvisBrain.RECOMMENDED.filter { r -> models.none { r.match.containsMatchIn(it.name) } }.forEach { r ->
+            item(body, r.title, "${r.role.label}: not on the phone yet", "GET IT", onButton = {
+                try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(r.page)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
+            })
+        }
         brainStatus = TextView(context).apply { setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(10f) * u); setTextColor(Hud.GOLD); setPadding(0, dp(2f), 0, dp(4f)) }
-        if (!installed) {
-            item(body, "Load the brain file", "After it's downloaded: pick the .task file. Copying takes a minute or two.", "LOAD FILE", onButton = {
-                (context as? LauncherActivity)?.pickBrain()
-            })
-            body.addView(brainStatus)
-        } else {
-            toggle(body, "Use the brain", "Off: he sticks to what he knows and offers Google instead", JarvisBrain.enabled(context)) { JarvisBrain.setEnabled(context, it) }
-            // A newer Gemma for phones: offered here, to download and load the same way (it replaces this one).
-            val update = TextView(context).apply { setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(10f) * u); setTextColor(Hud.SOFT); setPadding(0, dp(2f), 0, dp(4f)); text = "Checking for a newer brain…" }
+        item(body, "Add a brain", "Pick a downloaded .litertlm file. Copying takes a minute or two; the same one again updates it.", "ADD", onButton = {
+            (context as? LauncherActivity)?.pickBrain()
+        })
+        body.addView(brainStatus)
+        if (models.isNotEmpty()) {
+            toggle(body, "Use the brains", "Off: he sticks to what he knows and offers Google instead", JarvisBrain.enabled(context)) { JarvisBrain.setEnabled(context, it) }
+            // Newer versions (a later Gemma or Qwen): offered here, added the same way.
+            val update = TextView(context).apply { setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(10f) * u); setTextColor(Hud.SOFT); setPadding(0, dp(2f), 0, dp(4f)); text = "Checking for newer brains…" }
             body.addView(update)
-            body.addView(brainStatus)
             Thread {
                 val newer = JarvisBrain.newer(context)
                 post {
-                    if (newer == null) update.text = "Up to date: no newer Gemma for phones yet. (Checked daily.)"
+                    if (newer.isEmpty()) update.text = "Up to date: no newer versions yet. (Checked daily.)"
                     else {
-                        update.text = "Newer brain out: ${newer.first}. Download it, then LOAD FILE to swap it in."
+                        update.text = "Newer out: ${newer.joinToString(", ") { it.first }}. Download, then ADD to swap it in."
                         update.setTextColor(Hud.GOLD)
                         val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-                        row.addView(pill("GET THE NEW ONE", Hud.GOLD, true) {
-                            try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(newer.second)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
-                        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(8f) })
-                        row.addView(pill("LOAD FILE", Hud.GOLD, false) { (context as? LauncherActivity)?.pickBrain() })
+                        newer.forEach { (name, page) ->
+                            row.addView(pill("GET ${name.take(16).uppercase()}", Hud.GOLD, true) {
+                                try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(page)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
+                            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(8f) })
+                        }
                         val i = body.indexOfChild(update)
                         if (i >= 0) body.addView(row, i + 1)
                     }

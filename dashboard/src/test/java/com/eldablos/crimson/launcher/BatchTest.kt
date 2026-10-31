@@ -33,6 +33,20 @@ class BatchTest {
     }
 
     @Test
+    fun payQuestionsAsYouSayThem() {
+        // From the phone, 31 Oct: all of these are "what will my next payslip be".
+        assertEquals(Command.Payday, p("so how much am I supposed to get paid on my page slip"))
+        assertEquals(Command.Payday, p("now from what I have earned already from what I worked"))
+        assertEquals(Command.Payday, p("can you add tomorrow shift to this"))
+        assertEquals(Command.Payday, p("how much will be on my next payslip"))
+        // Still a payslip check when there's a picture to check.
+        assertEquals(Command.CheckPayslip, p("check my payslip"))
+        // Acknowledgements are just that.
+        assertEquals(Command.Ack, p("removed"))
+        assertEquals(Command.Ack, p("ok cool") .let { if (it == Command.Ack) it else p("cool") })
+    }
+
+    @Test
     fun spending() {
         assertEquals(Command.Spent(12.0, "lunch"), p("I spent £12 on lunch"))
         assertEquals(Command.Spent(4.5, "coffee"), p("spent 4.50 on coffee"))

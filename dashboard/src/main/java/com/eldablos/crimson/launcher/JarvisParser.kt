@@ -162,6 +162,8 @@ object JarvisParser {
         object PayLog : Command()
         /** "When's payday?": the fortnight you're in, as a payslip. */
         object Payday : Command()
+        /** "OK", "cool", "removed": noted, nothing to do. */
+        object Ack : Command()
         /** A pay detail: "basic" (rate), "tronc" (per hour), "code" (tax code), "pension" (percent). */
         data class SetPay(val what: String, val value: Double?, val code: String?) : Command()
         /** Your hourly rate: "I get paid £12.50 an hour". */
@@ -333,6 +335,8 @@ object JarvisParser {
             .replace(Regex("\\s+"), " ").trim()
             // "Notes" misheard ("nodes", "knots").
             .replace(Regex("\\b(nodes|knots|nots)\\b"), "notes").replace(Regex("\\b(node|knot)\\b"), "note")
+            // "Payslip" as speech recognition hears it.
+            .replace(Regex("\\b(page slip|pay slip|pace lip|paste lip|pay sleep|payslips)\\b"), "payslip")
             // Letters typed or heard one by one ("t i c k my notes"): the word they spell.
             .replace(Regex("\\b(?:[a-z] ){2,}[a-z]\\b")) { it.value.replace(" ", "") }
             .let { spokenNumbers(it) }
@@ -810,8 +814,15 @@ object JarvisParser {
             if (date != null) return Command.RemoveShift(date)
         }
         if (Regex("^am i (off|free|working|on)\\b|^do i (work|have work|have a shift)|^have i got (work|a shift)").containsMatchIn(t)) return Command.Shift(dayAhead0)
+        // Just an acknowledgement ("ok", "removed", "cool"): nothing to do, nothing for his brain.
+        if (Regex("^(ok|okay|k|kk|cool|great|nice|perfect|good|alright|all right|right|sound|removed|deleted|done|got it|lovely|brilliant|cheers|noted|fine|fair enough|sweet|ace|grand|nice one|good stuff)( then| one)?( jarvis| sir| mate)?$").matches(t)) return Command.Ack
+        // "Add tomorrow's shift to this": a pay estimate including the shifts still to come in the period.
+        if (Regex("^(add|include|count|put) (tomorrow'?s?|today'?s?|my next|the next|my upcoming|upcoming) shifts? (to (this|that|it)|in|as well|too|in it)\\b").containsMatchIn(t)) return Command.Payday
+        // What you've earned so far ("from what I've worked already"), and your next payslip: the pay period's estimate.
+        if (Regex("\\b(earned|made) (so far|already|until now|to date)\\b|\\bfrom what i('ve| have)? (already )?(earned|worked)\\b|\\b(on|in) my (next )?payslip\\b|\\bmy (next )?payslip (be|come to|say)\\b").containsMatchIn(t) &&
+            has("how much", "what", "from what", "so far", "already")) return Command.Payday
         // Payday, and pay details from your payslip.
-        if ((Regex("\\b(next )?pay ?day\\b|when (do|will) i (get )?paid|when am i paid|next pay(slip| packet| cheque| check)?\\b|how much (will|do|am|should) i (get|be getting|be paid|get paid|receive|take home)\\b|what (will|do|am) i (get|be getting) paid|how much is my (next )?(pay|wage|wages|payslip|paycheck|paycheque)\\b|what's my next (pay|wage)").containsMatchIn(t) ||
+        if ((Regex("\\b(next )?pay ?day\\b|when (do|will) i (get )?paid|when am i paid|next pay(slip| packet| cheque| check)?\\b|how much (will|do|am|should|shall) i (be )?(supposed to |going to |gonna |meant to )?(get|be getting|be paid|get paid|receive|take home)\\b|what (will|do|am) i (get|be getting) paid|how much is my (next )?(pay|wage|wages|payslip|paycheck|paycheque)\\b|what's my next (pay|wage)").containsMatchIn(t) ||
                 (has("paid", "pay", "get") && Regex("\\b(on )?(friday|the 6th|6th|this friday|next friday)\\b").containsMatchIn(t) && has("how much", "what"))) &&
             !has("log", "this month", "last month", "last week", "hourly")) return Command.Payday
         Regex("\\bbasic (?:pay|rate|hourly rate|wage)?(?: is| of)? (?:£)?(\\d{1,3}(?:\\.\\d{1,2})?)").find(t)?.let { return Command.SetPay("basic", it.groupValues[1].toDouble(), null) }

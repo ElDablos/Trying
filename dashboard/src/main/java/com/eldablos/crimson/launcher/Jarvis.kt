@@ -1688,6 +1688,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.WeatherWeek -> weatherWeek(cmd.weekend, cmd.rainOnly)
         is Command.MakeDoc -> makeDoc(cmd.kind, cmd.what)
         is Command.OpenDoc -> openDocs(cmd.all)
+        Command.Ack -> Reply(say(pick("Very good, sir.", "Splendid.", "Noted."), pick("Marvellous.", "Consider it filed."), "OK."), end = true)
         Command.SelfCheck -> selfCheck()
         Command.Backup -> backupNow()
         Command.Restore -> Reply("Pick the backup file${sir()}: it's in Downloads, Jarvis, Backups, unless you've moved it. Everything I know now will be replaced by what's in it.",
@@ -2442,7 +2443,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     /** Clear enough to do at once, without his brain reading it first: simple answers, and requests that carry your own words. */
     private fun obvious(text: String, cmd: Command): Boolean = when (cmd) {
-        Command.Yes, Command.No, Command.Undo, Command.Repeat, Command.Dismiss, Command.Thanks, Command.Time, Command.Date, Command.Battery,
+        Command.Yes, Command.No, Command.Undo, Command.Repeat, Command.Dismiss, Command.Thanks, Command.Ack, Command.Payday, Command.Time, Command.Date, Command.Battery,
         Command.Reboot, Command.SystemsCheck, Command.Backup, Command.Restore, Command.StudyDone, Command.MorningBrief, Command.Briefing, Command.Habits,
         is Command.Calc, is Command.Spent, is Command.MakeDoc, is Command.OpenDoc, is Command.ClockIn, is Command.ClockOut, is Command.AddShifts, is Command.Timer,
         is Command.AddNote, is Command.WhatsApp, is Command.Text, is Command.Remember -> true

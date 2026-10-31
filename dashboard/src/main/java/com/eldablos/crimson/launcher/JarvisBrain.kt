@@ -365,11 +365,13 @@ object JarvisBrain {
             (if (learnt.isEmpty()) "" else "\n\nThe user has corrected the assistant before; these requests meant these commands (follow the same reading for similar requests):\n" +
                 learnt.joinToString("\n") { (said, meant) -> "- \"$said\" means: $meant" }) +
             "\n\nReply with ONE command in the same style as the examples, with the request's names, times, places and numbers filled in. " +
-            "Only use names (habits, notes, people, places) that are in the request or in the examples marked as the user's own; never invent one or borrow it from another example. " +
+            "Only use names, dates, places and numbers that are in the request (or the conversation) or in the examples marked as the user's own; never invent one or borrow it from another example. " +
             "The request may be typed with spelling mistakes or misheard by speech recognition (\"wprk\" is work, \"habbits\" is habits, \"knotes\" is notes): work out what was meant. " +
             "If the request isn't asking for one of these kinds of commands (a general question, chat, asking for something to be written or made up, something it can't do), reply exactly NONE. " +
             "Reply with the command only: no quotes, no explanation."
-        ask(context, Job.INTERPRET, system, "Request: $said") { out ->
+        // The last few lines of the conversation, so "this", "that" and "it" mean something.
+        val recent = JarvisChat.recent(context, 4).joinToString("\n")
+        ask(context, Job.INTERPRET, system, (if (recent.isNotBlank()) "Conversation so far:\n$recent\n\n" else "") + "Request: $said") { out ->
             val line = out?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()?.removePrefix("-")?.trim()?.trim('"', '\'', '.', '`')
             done(line?.takeIf { it.isNotEmpty() && !it.equals("NONE", true) && it.length < 160 })
         }
@@ -378,6 +380,7 @@ object JarvisBrain {
     // --- Answering ---
 
     private fun persona(about: String) = "You are Jarvis, a calm, witty British butler-style assistant on Vee's phone. " +
+        "You can't do anything yourself in your reply: never say you've set, removed, added, ticked, moved or changed anything; if something could be done, offer it. " +
         "If you aren't sure of a fact, or it could have changed recently (news, prices, opening times, releases, scores), say so briefly instead of guessing. " +
         "What you know about Vee:\n$about"
 

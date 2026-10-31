@@ -599,6 +599,8 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
 
     private val jarvisHost = object : Jarvis.Host {
         override fun later(reply: Jarvis.Reply) {
+            // Kept in the conversation, so his brain remembers what he said a moment ago.
+            JarvisChat.add(this@LauncherActivity, false, reply.say, JarvisChat.PANEL)
             handler.post { jarvis.later(reply) }
         }
 

@@ -2878,7 +2878,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             return needHands("the $label", tapo?.let { t -> Action("OPEN TAPO", run = { host.launch(t.component) }) })
         }
         val verb = when (on) { true -> "ON"; false -> "OFF"; null -> "TOGGLE" }
-        if (skill != null) {
+        // A Tapo light: his own way, which works from Tapo's home screen or the light's own page (a taught
+        // skill only knows the screen it was taught on, and Tapo often reopens on the light's page).
+        val tapoLight = tapo != null && (light || (skill?.pkg == TAPO && Regex("light|lamp|bulb|room").containsMatchIn(label.lowercase())))
+        if (skill != null && !(tapoLight && skill.pkg == TAPO)) {
             push("The $label ${if (on == false) "on" else "off"} again") {
                 JarvisHands.run(skill, on?.not())
                 "Switching it back."
@@ -2886,7 +2889,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             return Reply(say("Certainly, sir.", pick("Leave it with me.", "On it."), "OK."), then = { JarvisHands.run(skill, on) }, afterSpeech = true,
                 card = Card("✋", "HANDS · ${skill.name.uppercase()}", verb, "${skill.steps.size} step${if (skill.steps.size == 1) "" else "s"} · ${appLabel(skill.pkg)}", tone = Tone.GOLD))
         }
-        if (light && tapo != null) {
+        if (tapoLight) {
             push("The $label ${if (on == false) "on" else "off"} again") {
                 tapoPower(name, on?.not())
                 "Switching it back."

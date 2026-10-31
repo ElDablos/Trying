@@ -57,6 +57,7 @@ object Travel {
 
     fun dayLine(context: Context, day: java.time.DayOfWeek): String? = prefs(context).getString("day:${day.name}", null)
     fun setDayLine(context: Context, day: java.time.DayOfWeek, line: String) = prefs(context).edit().putString("day:${day.name}", line).apply()
+    fun clearDayLine(context: Context, day: java.time.DayOfWeek) = prefs(context).edit().remove("day:${day.name}").apply()
     fun dayLines(context: Context): Map<java.time.DayOfWeek, String> =
         java.time.DayOfWeek.values().mapNotNull { d -> dayLine(context, d)?.let { d to it } }.toMap()
 

@@ -994,6 +994,33 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         facts.forEach { f ->
             item(body, f.value, f.key.replaceFirstChar { it.uppercase() }, "FORGET", onButton = { JarvisMemory.forgetFact(context, f.key); openSheet(Jarvis.Sheet.MEMORY) })
         }
+        // Everything he's picked up about how you live, in one place, each one to put right or forget.
+        heading(body, "YOUR ROUTINE", "How you work and wake, as you've taught me. Tell me differently any time and it changes here.")
+        val lead = JarvisMemory.alarmLead(context)
+        item(body, "Up ${if (lead % 60 == 0) "${lead / 60} hour${if (lead == 60) "" else "s"}" else "$lead minutes"} before a shift", "From \"I wake at 5 to start at 7\"")
+        val count = JarvisMemory.alarmCount(context)
+        item(body, if (count > 1) "$count alarms, ${JarvisMemory.alarmGap(context)} minutes apart" else "One alarm", "Your work alarms, named Work in the Clock" +
+            (JarvisMemory.workAlarms(context)?.let { if (it == "off") " · off for now" else " · set from $it" } ?: ""))
+        item(body, "Out the door ${JarvisMemory.commuteMinutes(context)} minutes before", "Door to door to work")
+        Travel.dayLines(context).forEach { (d, line) ->
+            item(body, "${d.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())}s: ${line.replaceFirstChar { it.uppercase() }} line", "From what you told me", "FORGET",
+                onButton = { Travel.clearDayLine(context, d); openSheet(Jarvis.Sheet.MEMORY) })
+        }
+        JarvisMemory.hourlyRate(context)?.let { r ->
+            item(body, "£${if (r % 1.0 == 0.0) "%.0f".format(java.util.Locale.ROOT, r) else "%.2f".format(java.util.Locale.ROOT, r)} an hour", "For what your weeks come to", "FORGET",
+                onButton = { JarvisMemory.setHourlyRate(context, 0.0); openSheet(Jarvis.Sheet.MEMORY) })
+        }
+        Uni.weekly(context).forEach { (d, sess) ->
+            item(body, "Uni ${d.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())}s ${sess.times()}", "Every week, in the calendar", "REMOVE",
+                onButton = { Uni.set(context, java.time.LocalDate.now().with(java.time.temporal.TemporalAdjusters.nextOrSame(d)), null, everyWeek = true); Uni.syncSoon(context); openSheet(Jarvis.Sheet.MEMORY) })
+        }
+        val rules = JarvisRules.all(context)
+        if (rules.isNotEmpty()) {
+            heading(body, "RULES YOU'VE SET", "Things I always ask about before switching off.")
+            rules.forEach { k ->
+                item(body, k.said.replaceFirstChar { it.uppercase() }, "Always stays on", "FORGET", onButton = { JarvisRules.remove(context, k.kind, k.key); openSheet(Jarvis.Sheet.MEMORY) })
+            }
+        }
         heading(body, "WHAT I'VE LEARNT", "The phrases you use at each time of day, which apps and people you mean.")
         val phrases = JarvisMemory.phrases(context)
         item(body, "${phrases.size} phrases", phrases.sortedByDescending { it.count }.take(4).joinToString(" · ") { it.text })

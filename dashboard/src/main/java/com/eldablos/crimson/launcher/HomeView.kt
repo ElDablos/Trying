@@ -512,8 +512,40 @@ class HomeView(context: Context) : View(context) {
         canvas.drawText(now.format(DateTimeFormatter.ofPattern("MMMM", locale)).uppercase(), right - 12 * u, top + 46 * u, Hud.text(8 * u, Hud.CRIMSON, Hud.MONO, .3f, Paint.Align.RIGHT))
         val alarm = t.alarm?.let { "⏰ ALARM " + Format.alarm(it, now, DateFormat.is24HourFormat(context), locale).uppercase() } ?: "NO ALARM SET"
         canvas.drawText(alarm, right - 12 * u, top + 64 * u, Hud.text(8 * u, Hud.BONE, Hud.MONO, .12f, Paint.Align.RIGHT))
+        // Your day at a glance: today's shift and uni, or tomorrow's once today's are done.
+        dayLine()?.let { (text, soon) ->
+            canvas.drawText(text, right - 12 * u, top + 78 * u, Hud.text(7.5f * u, if (soon) Hud.HOT else Hud.GOLD, Hud.MONO, .12f, Paint.Align.RIGHT))
+            hits += RectF(right - 170 * u, top + 70 * u, right, top + 86 * u) to { host?.openCalendar() }
+        }
         hits += RectF(right - 150 * u, top - 6 * u, right, top + 50 * u) to { host?.openCalendar() }
-        hits += RectF(right - 150 * u, top + 50 * u, right, top + 74 * u) to { host?.openAlarms() }
+        hits += RectF(right - 150 * u, top + 50 * u, right, top + 70 * u) to { host?.openAlarms() }
+    }
+
+    private var dayLineText: Pair<String, Boolean>? = null
+    private var dayLineAt = 0L
+
+    /** "WORK 07:00–15:00 · UNI 17:00" (today), "TMRW WORK 07:00" (once today's done); worked out once a minute. True when work's within 2 hours. */
+    private fun dayLine(): Pair<String, Boolean>? {
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - dayLineAt < 60_000L) return dayLineText
+        dayLineAt = nowMs
+        dayLineText = try {
+            val now = java.time.LocalDateTime.now()
+            val shifts = Shifts.all(context)
+            fun of(d: java.time.LocalDate, after: java.time.LocalTime?): String? {
+                val s = shifts[d]?.takeIf { after == null || it.overnight || it.end.isAfter(after) }
+                val uni = Uni.on(context, d)?.takeIf { after == null || it.end.isAfter(after) }
+                return listOfNotNull(s?.let { "WORK ${it.times()}" }, uni?.let { "UNI ${it.start.format(DateTimeFormatter.ofPattern("HH:mm"))}" }).joinToString(" · ").ifEmpty { null }
+            }
+            val today = now.toLocalDate()
+            of(today, now.toLocalTime())?.let { t ->
+                val soon = shifts[today]?.let { java.time.Duration.between(now.toLocalTime(), it.start).toMinutes() in 0..120 } == true
+                t to soon
+            } ?: of(today.plusDays(1), null)?.let { "TMRW $it" to false }
+        } catch (e: Exception) {
+            null
+        }
+        return dayLineText
     }
 
     // --- The ring ---

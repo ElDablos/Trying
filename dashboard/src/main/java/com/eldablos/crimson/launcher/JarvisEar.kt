@@ -83,12 +83,21 @@ class JarvisEar : Service() {
     private val battery = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val now = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
-            if (now != charging) {
+            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1).let { l ->
+                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+                if (l < 0 || scale <= 0) -1 else l * 100 / scale
+            }
+            val wasLow = low
+            low = !now && level in 0..LOW_BATTERY
+            if (now != charging || low != wasLow) {
                 charging = now
-                if (chargingOnly(this@JarvisEar)) if (charging) startWake() else stopWake()
+                if (canWake()) startWake() else if (!session) stopWake()
             }
         }
     }
+
+    /** The battery's low and not charging: the wake word rests until it's charged (a tap still works). */
+    private var low = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -151,7 +160,7 @@ class JarvisEar : Service() {
 
     // --- The wake word ---
 
-    private fun canWake() = wakeEnabled(this) && modelReady(this) && !session && paused == 0 && (!chargingOnly(this) || charging) &&
+    private fun canWake() = wakeEnabled(this) && modelReady(this) && !session && paused == 0 && (!chargingOnly(this) || charging) && !low &&
         checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun startWake() {
@@ -643,6 +652,9 @@ class JarvisEar : Service() {
         private const val ACTION_STOP = "stop"
         /** Where the wake word's confidence bar starts (it rises after false starts, eases back after real calls). */
         private const val WAKE_CONFIDENCE = .8
+
+        /** At or below this (and not charging), "Hey Jarvis" rests to save the battery. */
+        private const val LOW_BATTERY = 15
 
         /** The wake words, and sound-alikes for everything that isn't them to land on. */
         private val GRAMMAR = listOf(

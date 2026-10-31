@@ -3401,10 +3401,23 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         } else {
                             canvas.drawRect(xAt(s.start), track.top + 2 * u, xAt(s.end), track.bottom - 2 * u, bar)
                         }
-                        val label = "${s.name} · ${s.times()} · ${s.minutes / 60}H" + (if (s.minutes % 60 != 0L) "${s.minutes % 60}M" else "")
-                        canvas.drawText(label, bl, row.centerY() + 18 * u, Hud.fit(label, Hud.text(7 * u, Hud.SOFT, Hud.MONO, .1f), br - bl))
-                    } else {
-                        canvas.drawText("OFF", track.centerX(), track.centerY() + 3 * u, Hud.text(8 * u, Hud.DUST, Hud.MONO, .3f, Paint.Align.CENTER))
+                    }
+                    // Uni, in blue on the same track, below the shift.
+                    val uni = Uni.on(context, d)
+                    if (uni != null) {
+                        fun xAt(t: java.time.LocalTime) = track.left + track.width() * (t.toSecondOfDay() / 86400f)
+                        val blue = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = UNI_BLUE; setShadowLayer(4 * u, 0f, 0f, Hud.alpha(UNI_BLUE, .7f)) }
+                        canvas.drawRect(xAt(uni.start), track.bottom - 5 * u, if (uni.end.isAfter(uni.start)) xAt(uni.end) else track.right, track.bottom - 1 * u, blue)
+                    }
+                    if (s != null || uni != null) {
+                        val label = listOfNotNull(
+                            s?.let { "${it.name} · ${it.times()} · ${it.minutes / 60}H" + (if (it.minutes % 60 != 0L) "${it.minutes % 60}M" else "") },
+                            uni?.let { "UNI ${it.times()}" },
+                        ).joinToString("  ·  ")
+                        canvas.drawText(label, bl, row.centerY() + 18 * u, Hud.fit(label, Hud.text(7 * u, if (s == null) UNI_BLUE else Hud.SOFT, Hud.MONO, .1f), br - bl))
+                    }
+                    if (s == null) {
+                        canvas.drawText(if (uni != null) "" else "OFF", track.centerX(), track.centerY() + 3 * u, Hud.text(8 * u, Hud.DUST, Hud.MONO, .3f, Paint.Align.CENTER))
                     }
                     canvas.drawRect(track, Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f), u))
                     // Saved to the calendar, or still to go.
@@ -3972,6 +3985,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private const val DONE = "[x] "
         private const val TODO = ""
         private const val UP = 0xFF3DDC84.toInt()
+        /** Uni on the shift planner. */
+        private const val UNI_BLUE = 0xFF5EC8FF.toInt()
         private const val DOWN = 0xFFFF5A5A.toInt()
 
         fun duration(ms: Long): String {

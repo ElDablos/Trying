@@ -186,18 +186,15 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             setOnEditorActionListener { _, a, _ -> if (a == EditorInfo.IME_ACTION_SEND) { send(); true } else false }
         }
         row.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        fun round(label: String, solid: Boolean, act: () -> Unit) = TextView(context).apply {
-            text = label
-            gravity = Gravity.CENTER
-            setTextSize(TypedValue.COMPLEX_UNIT_PX, 16 * u)
-            setTextColor(if (solid) Theme.on(Hud.HOT) else Hud.HOT)
-            background = Hex(if (solid) Hud.HOT else Hud.alpha(Hud.HOT, .08f), Hud.HOT, solid)
+        fun round(icon: Icon, solid: Boolean, what: String, act: () -> Unit) = View(context).apply {
+            background = Hex(if (solid) Hud.HOT else Hud.alpha(Hud.HOT, .08f), Hud.HOT, solid, icon, if (solid) Theme.on(Hud.HOT) else Hud.HOT)
+            contentDescription = what
             setOnClickListener { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); act() }
         }
         // Attach a screenshot or photo: the phone's picker, over Jarvis; then he asks what to do with it.
-        row.addView(round("⊕", false) { (context as? LauncherActivity)?.pickImage() }, LinearLayout.LayoutParams(dp(40f), dp(48f)).apply { leftMargin = dp(8f) })
-        row.addView(round("◉", false) { micTap() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(6f) })
-        row.addView(round("➤", true) { send() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(6f) })
+        row.addView(round(Icon.ATTACH, false, "Attach a picture") { (context as? LauncherActivity)?.pickImage() }, LinearLayout.LayoutParams(dp(44f), dp(48f)).apply { leftMargin = dp(8f) })
+        row.addView(round(Icon.MIC, false, "Speak") { micTap() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(4f) })
+        row.addView(round(Icon.SEND, true, "Send") { send() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(4f) })
         column.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(14f), dp(10f), dp(14f), dp(26f)) })
 
         // The launcher draws edge to edge, so nothing makes room for the keyboard by itself: lift the whole
@@ -1315,7 +1312,57 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     }
 
     /** A hexagonal button. */
-    private inner class Hex(private val fill: Int, private val edge: Int, private val glow: Boolean) : android.graphics.drawable.Drawable() {
+    /** The drawn icons on his buttons. */
+    private enum class Icon { NONE, ATTACH, MIC, SEND }
+
+    private inner class Hex(private val fill: Int, private val edge: Int, private val glow: Boolean, private val icon: Icon = Icon.NONE, private val ink: Int = Hud.HOT) : android.graphics.drawable.Drawable() {
+        /** The icon, drawn in the middle of the hex: line-art, in the HUD's weight. */
+        private fun drawIcon(canvas: Canvas, cx: Float, cy: Float, s: Float) {
+            val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.9f * u; color = ink; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+            val fillP = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ink }
+            fun x(v: Float) = cx + v * s
+            fun y(v: Float) = cy + v * s
+            fun rect(l: Float, t: Float, r: Float, b: Float) = RectF(x(l), y(t), x(r), y(b))
+            when (icon) {
+                Icon.ATTACH -> {
+                    // A paperclip, tilted.
+                    canvas.save()
+                    canvas.rotate(-38f, cx, cy)
+                    val p = android.graphics.Path()
+                    p.moveTo(x(.3f), y(-.15f))
+                    p.lineTo(x(.3f), y(.5f))
+                    p.arcTo(rect(-.3f, .2f, .3f, .8f), 0f, 180f)
+                    p.lineTo(x(-.3f), y(-.5f))
+                    p.arcTo(rect(-.3f, -.82f, .14f, -.38f), 180f, 180f)
+                    p.lineTo(x(.14f), y(.42f))
+                    p.arcTo(rect(-.12f, .3f, .14f, .56f), 0f, 180f)
+                    p.lineTo(x(-.12f), y(-.28f))
+                    canvas.drawPath(p, line)
+                    canvas.restore()
+                }
+                Icon.MIC -> {
+                    // A microphone: the capsule, its cradle, the stand.
+                    canvas.drawRoundRect(rect(-.2f, -.78f, .2f, .12f), .2f * s, .2f * s, line)
+                    canvas.drawArc(rect(-.4f, -.3f, .4f, .42f), 0f, 180f, false, line)
+                    canvas.drawLine(x(0f), y(.42f), x(0f), y(.68f), line)
+                    canvas.drawLine(x(-.24f), y(.68f), x(.24f), y(.68f), line)
+                    canvas.drawCircle(x(0f), y(-.33f), .055f * s, fillP)
+                }
+                Icon.SEND -> {
+                    // A paper dart, flying right.
+                    val p = android.graphics.Path()
+                    p.moveTo(x(-.62f), y(-.58f))
+                    p.lineTo(x(.72f), y(0f))
+                    p.lineTo(x(-.62f), y(.58f))
+                    p.lineTo(x(-.34f), y(0f))
+                    p.close()
+                    canvas.drawPath(p, fillP)
+                    canvas.drawLine(x(-.34f), y(0f), x(.2f), y(0f), Paint(line).apply { color = fill; strokeWidth = 1.4f * u })
+                }
+                Icon.NONE -> {}
+            }
+        }
+
         override fun draw(canvas: Canvas) {
             val r = RectF(bounds)
             val cx = r.centerX()
@@ -1331,6 +1378,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             p.close()
             canvas.drawPath(p, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill; if (glow) setShadowLayer(8 * u, 0f, 0f, edge) })
             canvas.drawPath(p, Hud.stroke(edge, 1.4f * u))
+            if (icon != Icon.NONE) drawIcon(canvas, cx, cy, rad * .5f)
         }
 
         override fun setAlpha(alpha: Int) {}

@@ -517,7 +517,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     private fun fromJarvisShortcut(intent: Intent?) = intent?.component?.className?.endsWith(".JarvisShortcut") == true
 
     private fun jarvisExtras(intent: Intent?) = intent != null &&
-        (intent.hasExtra(JarvisHands.EXTRA_NOTE) || intent.hasExtra(JarvisProactive.EXTRA_SAY) || intent.hasExtra(JarvisProactive.EXTRA_INSIGHT) ||
+        (intent.hasExtra(EXTRA_FILE) || intent.hasExtra(JarvisHands.EXTRA_NOTE) || intent.hasExtra(JarvisProactive.EXTRA_SAY) || intent.hasExtra(JarvisProactive.EXTRA_INSIGHT) ||
             intent.hasExtra(JarvisEar.EXTRA_BACK))
 
     /** Jarvis reporting back from another app, or a notification's button: open him and carry on. */
@@ -530,6 +530,14 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         intent.removeExtra(JarvisProactive.EXTRA_INSIGHT)
         val back = intent.getBooleanExtra(JarvisEar.EXTRA_BACK, false)
         intent.removeExtra(JarvisEar.EXTRA_BACK)
+        // A file shared to Jarvis from another app.
+        @Suppress("DEPRECATION")
+        (intent.getParcelableExtra<android.net.Uri>(EXTRA_FILE))?.let { uri ->
+            intent.removeExtra(EXTRA_FILE)
+            if (jarvis.visibility != View.VISIBLE) { backdrop(true); jarvis.show(listen = false, greet = false) }
+            jarvis.attachFile(uri)
+            return
+        }
         if (say != null && insight != null) JarvisProactive.dismiss(this, insight)
         val open = jarvis.visibility == View.VISIBLE
         if (!open) {
@@ -598,6 +606,10 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     }
 
     private val jarvisHost = object : Jarvis.Host {
+        override fun pick(what: String) {
+            handler.post { if (what == "backup") pickBackup() else pickFile() }
+        }
+
         override fun later(reply: Jarvis.Reply) {
             // Kept in the conversation, so his brain remembers what he said a moment ago.
             JarvisChat.add(this@LauncherActivity, false, reply.say, JarvisChat.PANEL)
@@ -657,12 +669,34 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         // The brain's model file, picked from the phone's storage: copied into Jarvis's own.
         if (requestCode == BRAIN_REQUEST && resultCode == RESULT_OK) data?.data?.let { jarvis.installBrain(it) }
         if (requestCode == IMAGE_REQUEST && resultCode == RESULT_OK) data?.data?.let { jarvis.attachImage(it) }
+        if (requestCode == FILE_REQUEST && resultCode == RESULT_OK) data?.data?.let { jarvis.attachFile(it) }
+        if (requestCode == BACKUP_REQUEST && resultCode == RESULT_OK) data?.data?.let { jarvis.restoreFrom(it) }
     }
 
     /** The phone's photo picker (no permission needed), for a screenshot or photo to show Jarvis. */
     fun pickImage() {
         @Suppress("DEPRECATION")
         startActivityForResult(Intent(android.provider.MediaStore.ACTION_PICK_IMAGES).setType("image/*"), IMAGE_REQUEST)
+    }
+
+    /** A picture or a document (PDF, Word, Excel, text) for Jarvis: pictures from the photo picker, files from Files. */
+    fun pickFile() {
+        val photos = Intent(android.provider.MediaStore.ACTION_PICK_IMAGES).setType("image/*")
+        val files = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "application/pdf", Documents.Kind.WORD.mime, Documents.Kind.EXCEL.mime, "text/*"))
+        @Suppress("DEPRECATION")
+        try {
+            startActivityForResult(Intent.createChooser(files, "Show Jarvis").putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(photos)), FILE_REQUEST)
+        } catch (e: Exception) {
+            pickImage()
+        }
+    }
+
+    /** The backup file to restore Jarvis's memory from. */
+    fun pickBackup() {
+        @Suppress("DEPRECATION")
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            .putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/json", "text/plain", "application/octet-stream")), BACKUP_REQUEST)
     }
 
     /** Opens the file picker for Jarvis's brain (the .task file you downloaded). */
@@ -972,6 +1006,9 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         private const val VOICE_REQUEST = 41
         private const val BRAIN_REQUEST = 42
         private const val IMAGE_REQUEST = 43
+        private const val FILE_REQUEST = 44
+        private const val BACKUP_REQUEST = 45
+        const val EXTRA_FILE = "jarvis_file"
         private const val JARVIS_REQUEST = 42
         private val SAMSUNG_WEATHER = listOf("com.sec.android.daemonapp", "com.samsung.android.weather")
     }

@@ -463,6 +463,9 @@ class JarvisEar : Service() {
         }
 
         override fun ask(permissions: Array<String>) = toLauncher(lastText)
+
+        /** Picking a file needs the screen: carried on in the launcher. */
+        override fun pick(what: String) = toLauncher(lastText)
     }
 
     private fun brain() = Jarvis.shared(this, host)

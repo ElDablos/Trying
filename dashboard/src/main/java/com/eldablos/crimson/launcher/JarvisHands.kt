@@ -479,7 +479,7 @@ class JarvisHands : AccessibilityService() {
         private var lastSeen = ""
         private var jobStarted = 0L
 
-        private fun act(what: String) {
+        fun act(what: String) {
             if (actions.size < 120) actions += "+${(System.currentTimeMillis() - jobStarted) / 100 / 10.0}s $what"
         }
 

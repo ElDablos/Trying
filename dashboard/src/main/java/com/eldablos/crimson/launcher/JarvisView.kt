@@ -192,7 +192,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             setOnClickListener { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); act() }
         }
         // Attach a screenshot or photo: the phone's picker, over Jarvis; then he asks what to do with it.
-        row.addView(round(Icon.ATTACH, false, "Attach a picture") { (context as? LauncherActivity)?.pickImage() }, LinearLayout.LayoutParams(dp(44f), dp(48f)).apply { leftMargin = dp(8f) })
+        row.addView(round(Icon.ATTACH, false, "Attach a picture or file") { (context as? LauncherActivity)?.pickFile() }, LinearLayout.LayoutParams(dp(44f), dp(48f)).apply { leftMargin = dp(8f) })
         row.addView(round(Icon.MIC, false, "Speak") { micTap() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(4f) })
         row.addView(round(Icon.SEND, true, "Send") { send() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(4f) })
         column.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(14f), dp(10f), dp(14f), dp(26f)) })
@@ -335,6 +335,39 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 respond(jarvis.attached(file, typed), typed)
             }
         }.start()
+    }
+
+    /** A file you attached or shared to him (PDF, Word, Excel, text, or a picture): shown as yours, then read. */
+    fun attachFile(uri: android.net.Uri) {
+        if (visibility != VISIBLE) show(listen = false, greet = false)
+        val typed = input.text?.toString()?.trim().orEmpty()
+        input.setText("")
+        Thread {
+            val picked = DocText.copy(context, uri)
+            post {
+                if (picked == null) {
+                    respond(Jarvis.Reply("I couldn't open that file, sir.", failed = true), "")
+                    return@post
+                }
+                if (picked.isImage) {
+                    bubble(if (typed.isNotEmpty()) "📎 $typed" else "📎 Picture attached", mine = true)
+                    respond(jarvis.attached(picked.file, typed), typed)
+                    return@post
+                }
+                bubble("📎 ${picked.name}" + if (typed.isNotEmpty()) "\n$typed" else "", mine = true)
+                setState(State.THINKING)
+                Thread {
+                    val r = jarvis.attachedFile(picked, typed)
+                    post { respond(r, typed) }
+                }.start()
+            }
+        }.start()
+    }
+
+    /** The backup file you picked: his memory put back. */
+    fun restoreFrom(uri: android.net.Uri) {
+        if (visibility != VISIBLE) show(listen = false, greet = false)
+        respond(jarvis.restored(uri), "")
     }
 
     /** An answer that took a moment (his brain, a look-up): shown when it's ready, opening him if he'd closed. */
@@ -1131,6 +1164,11 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 item(body, k.said.replaceFirstChar { it.uppercase() }, "Always stays on", "FORGET", onButton = { JarvisRules.remove(context, k.kind, k.key); openSheet(Jarvis.Sheet.MEMORY) })
             }
         }
+        heading(body, "BACKUP", "Everything I know in one file: shifts, pay, lessons, routines, facts, habits, spending and study. I make one by myself each week.")
+        val last = JarvisBackup.last(context)
+        item(body, "Back up now", if (last > 0) "Last: ${java.time.Instant.ofEpochMilli(last).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("d MMM, HH:mm"))}" else "Never backed up yet",
+            "BACK UP", onButton = { closeSheet(); submit("back up your memory") })
+        item(body, "Restore from a backup", "Replaces what I know now with the file you pick", "RESTORE", onButton = { closeSheet(); submit("restore your memory") })
         val docs = Documents.recent(context)
         if (docs.isNotEmpty()) {
             heading(body, "YOUR DOCUMENTS", "What I've made for you, newest first. All in Downloads, in the Jarvis folder.")

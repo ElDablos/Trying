@@ -59,6 +59,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         fun briefingActive(): Boolean = false
         /** An answer that's taken a moment (his brain, a look-up): shown and said when it's ready. */
         fun later(reply: Reply) {}
+        /** The phone's file picker, for a [what] ("backup", "file"); what's picked comes back to Jarvis. */
+        fun pick(what: String) {}
     }
 
     enum class Tone { GOLD, HOT, GREEN, BLUE }
@@ -167,6 +169,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         class CountdownWhen(val name: String) : Pending()
         /** A message written but not sent yet: you can add to it, change it, send it or scrap it. */
         class Draft(val whatsapp: Boolean, val name: String, val number: String, var text: String) : Pending()
+        /** A file you handed him (shared or attached): its words once read, for what you ask next. */
+        class File(val picked: DocText.Picked, var text: String?, var reading: Boolean, var ask: String? = null) : Pending()
         /** He got [asked] wrong and asked what you meant: your answer puts it right and he learns it. */
         class Teach(val asked: String) : Pending()
     }
@@ -285,6 +289,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             if (c == Command.No) return styled(Reply(say("Very well.", "Fair enough.", "OK.")))
             // "Put it in a PDF with…": the picture goes into the document.
             if (c is Command.MakeDoc) return styled(makeDoc(c.kind, c.what, java.io.File(p.path))).also { lastReply = it }
+            if (c == Command.CheckPayslip) return styled(checkPayslip(java.io.File(p.path))).also { lastReply = it }
             if (c !is Command.Unknown && c !is Command.Yes && !Regex("rota|shift|schedule|clock|what|read|describe|explain|tell|summar|translate|how|who|which|is |are ").containsMatchIn(t)) return@let
             return styled(readImage(java.io.File(p.path), Regex("rota|shift|schedule|clock|hours").containsMatchIn(t), text))
         }
@@ -304,6 +309,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             return styled(addNote(text.trim().trimEnd('.')))
         }
         (pending as? Pending.Draft)?.let { d -> draftAnswer(d, text)?.let { return styled(it).also { r -> lastReply = r } } }
+        // About the file you handed him: a document from it, or a question on it.
+        (pending as? Pending.File)?.let { f -> fileTalk(f, text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } } }
+        // A change to the document he just made.
+        if (!inRoutine && JarvisParser.parse(text) !is Command.MakeDoc) editDoc(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         // You told him what you meant, after he got it wrong.
         (pending as? Pending.Teach)?.let { p ->
             pending = null
@@ -339,6 +348,435 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         return finish(text, parsed, meant, inRoutine)
     }
 
+    // --- Checking himself ---
+
+    /** Every part of him tested: what works, what needs you, and a quick test of his brain (answered later). */
+    private fun selfCheck(): Reply {
+        val rows = ArrayList<Row>()
+        val fixes = ArrayList<Action>()
+        fun check(label: String, ok: Boolean, good: String, bad: String, fix: Action? = null) {
+            rows += Row(label, if (ok) good else bad, ok)
+            if (!ok && fix != null) fixes += fix
+        }
+        val p = { perm: String -> context.checkSelfPermission(perm) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+        check("VOICE", Speech.engineLabel(context) != null, Speech.engineLabel(context) ?: "", "no voice engine", Action("VOICE", "jarvis settings"))
+        check("HEY JARVIS", JarvisEar.wakeEnabled(context) && JarvisEar.modelReady(context) && p(android.Manifest.permission.RECORD_AUDIO),
+            "listening", when {
+                !JarvisEar.modelReady(context) -> "needs its download"
+                !p(android.Manifest.permission.RECORD_AUDIO) -> "no microphone permission"
+                else -> "switched off"
+            }, Action("SETTINGS", "jarvis settings"))
+        val handsOn = JarvisHands.enabled(context)
+        check("HANDS", JarvisHands.instance != null, "connected", if (handsOn) "stopped: switch off and on" else "off in Accessibility",
+            Action("✋ ACCESSIBILITY", run = { start(JarvisHands.settingsIntent()) }))
+        check("MICROPHONE", p(android.Manifest.permission.RECORD_AUDIO), "allowed", "not allowed")
+        check("OVER APPS", android.provider.Settings.canDrawOverlays(context), "allowed", "not allowed")
+        check("TAPO", AppCatalog.apps().any { it.component.packageName == TAPO }, "installed", "not installed")
+        check("AIR+", airApp() != null, "installed", "not installed")
+        val models = JarvisBrain.models(context)
+        check("BRAINS", JarvisBrain.ready(context), "${models.size}: ${models.joinToString(", ") { it.name.substringBefore("-it").substringBefore("_").take(16) }}",
+            if (models.isEmpty()) "none added" else "switched off", Action("BRAINS", "jarvis settings"))
+        // A tiny document, saved and removed again.
+        val docOk = Documents.save(context, Documents.Doc("Jarvis self-check", listOf(Documents.Block.Para("ok"))), Documents.Kind.EXCEL)?.let { u ->
+            runCatching { context.contentResolver.delete(u, null, null) }
+            true
+        } ?: false
+        check("DOCUMENTS", docOk, "saving to Downloads", "can't save")
+        val last = JarvisBackup.last(context)
+        check("BACKUP", last > 0 && System.currentTimeMillis() - last < 8 * 86_400_000L,
+            if (last > 0) "last ${at(last).format(DateTimeFormatter.ofPattern("d MMM"))}" else "", if (last > 0) "over a week old" else "never made", Action("BACK UP NOW", "back up your memory"))
+        check("NOTIFICATIONS", p(android.Manifest.permission.POST_NOTIFICATIONS), "allowed", "not allowed", Action("ALLOW", run = {
+            start(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
+        }))
+        check("CALENDAR", Shifts.canWrite(context), "allowed", "not allowed")
+        check("CONTACTS", p(android.Manifest.permission.READ_CONTACTS), "allowed", "not allowed")
+        check("INTERNET", online(context), "connected", "offline")
+        val free = context.filesDir.usableSpace / 1_000_000_000.0
+        check("STORAGE", free > 2, "%.0f GB free".format(Locale.ROOT, free), "%.1f GB free, low".format(Locale.ROOT, free))
+        // His brain, actually thinking: a word back, and how long it took.
+        if (JarvisBrain.ready(context)) {
+            val t0 = System.currentTimeMillis()
+            JarvisBrain.answer(context, "Reply with just the word ready.", "") { out ->
+                val secs = (System.currentTimeMillis() - t0) / 1000.0
+                host.later(styled(if (out != null) Reply("Brain test passed${sir()}: ${JarvisBrain.lastUsed} answered in ${"%.1f".format(Locale.ROOT, secs)} seconds.",
+                    card = Card("✦", "BRAIN TEST", "${"%.1f".format(Locale.ROOT, secs)}s", JarvisBrain.lastUsed, tone = Tone.GREEN))
+                else Reply("My brain didn't answer the test${sir()}. Restarting the phone usually frees enough memory.", failed = true)))
+            }
+        }
+        val bad = rows.filter { it.ok == false }
+        val say = if (bad.isEmpty()) say("All systems go, sir. ${if (JarvisBrain.ready(context)) "Testing my brain now." else ""}", "Fighting fit. Every last circuit.", "All good.")
+            else "${bad.size} thing${if (bad.size == 1) "" else "s"} need${if (bad.size == 1) "s" else ""} you${sir()}: ${bad.joinToString(", ") { "${it.label.lowercase()} ${it.value}" }}." +
+                if (JarvisBrain.ready(context)) " Testing my brain now." else ""
+        return Reply(say.trim(), card = Card(if (bad.isEmpty()) "✓" else "!", "SELF-CHECK", "${rows.size - bad.size}/${rows.size}", if (bad.isEmpty()) "all systems go" else "needs you", rows,
+            if (bad.isEmpty()) Tone.GREEN else Tone.HOT), actions = fixes.distinctBy { it.label }.take(4), full = bad.isNotEmpty())
+    }
+
+    // --- Backup ---
+
+    private fun backupNow(): Reply {
+        val uri = JarvisBackup.save(context) ?: return Reply("I couldn't save the backup${sir()}.", failed = true)
+        return Reply("Backed up${sir()}: everything I know, in Downloads, Jarvis, Backups. Send it to Drive and it's safe even if the phone isn't.",
+            card = Card("⟲", "MEMORY BACKED UP", sub = "shifts, pay, lessons, routines, facts, habits, spending, study", tone = Tone.GREEN),
+            actions = listOf(Action("SEND TO DRIVE", primary = true, run = {
+                try {
+                    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, uri)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Save your Jarvis backup").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                } catch (e: Exception) {
+                    // Nothing to send it with.
+                }
+            })))
+    }
+
+    /** The backup file you picked: everything put back. */
+    fun restored(uri: android.net.Uri): Reply {
+        val n = JarvisBackup.restore(context, uri)
+        if (n < 0) return Reply("That isn't one of my backups${sir()}. It's a .json file whose name starts with Jarvis memory.", failed = true)
+        return Reply("Memory restored${sir()}: $n parts of it. Give me a moment to settle; reopening me shows everything as it was.",
+            card = Card("⟲", "MEMORY RESTORED", "$n", "parts of my memory", tone = Tone.GREEN))
+    }
+
+    // --- Spending ---
+
+    private fun spent(amount: Double, what: String): Reply {
+        val item = Spending.add(context, amount, what)
+        push("Removed ${gbp(amount)} on $what") {
+            Spending.remove(context, item)
+            "Taken off."
+        }
+        val today = LocalDate.now()
+        val week = Spending.between(context, today.with(java.time.DayOfWeek.MONDAY), today)
+        val total = week.sumOf { it.amount }
+        return Reply("${gbp(amount)} on $what, logged${sir()}. That's ${gbp(total)} this week.",
+            card = Card("£", "SPENT", gbp(amount), "$what · ${item.category}", listOf(Row("THIS WEEK", gbp(total)),
+                Row(item.category.uppercase() + " THIS WEEK", gbp(week.filter { it.category == item.category }.sumOf { it.amount }))), Tone.GOLD),
+            actions = listOf(undoAction, Action("THIS MONTH", "how much have I spent this month")))
+    }
+
+    private fun spendingSummary(period: String): Reply {
+        val today = LocalDate.now()
+        val (from, to, label) = when (period) {
+            "today" -> Triple(today, today, "today")
+            "month" -> Triple(today.withDayOfMonth(1), today, "this month")
+            "lastmonth" -> today.minusMonths(1).let { Triple(it.withDayOfMonth(1), it.withDayOfMonth(it.lengthOfMonth()), "last month") }
+            else -> Triple(today.with(java.time.DayOfWeek.MONDAY), today, "this week")
+        }
+        val items = Spending.between(context, from, to)
+        if (items.isEmpty()) return Reply("Nothing logged $label${sir()}. Tell me as you go, like \"I spent £12 on lunch\".")
+        val kinds = Spending.byKind(items)
+        val total = items.sumOf { it.amount }
+        return Reply("${gbp(total)} $label${sir()}, most on ${kinds.first().first.lowercase()} (${gbp(kinds.first().second)}).",
+            card = Card("£", "SPENT ${label.uppercase()}", gbp(total), "${items.size} things", kinds.take(6).map { (k, v) -> Row(k.uppercase(), gbp(v)) }, Tone.GOLD),
+            actions = listOf(Action("SPREADSHEET", "put my spending in a spreadsheet", primary = true)))
+    }
+
+    private fun spendingBook(): Documents.Doc {
+        val items = Spending.all(context).sortedByDescending { it.at }
+        val df = DateTimeFormatter.ofPattern("d MMM yyyy")
+        val months = items.groupBy { it.date.withDayOfMonth(1) }.toSortedMap(compareByDescending { it })
+        return Documents.Doc("My spending", listOf(
+            Documents.Block.Table("By month", listOf("Month", "Total") + Spending.byKind(items).map { it.first },
+                months.map { (m, list) -> listOf(m.format(DateTimeFormatter.ofPattern("MMMM yyyy")), gbp(list.sumOf { it.amount })) +
+                    Spending.byKind(items).map { (k, _) -> gbp(list.filter { it.category == k }.sumOf { it.amount }) } }),
+            Documents.Block.Table("Everything", listOf("Date", "What", "Kind", "Amount"), items.map { listOf(it.date.format(df), it.what, it.category, gbp(it.amount)) }),
+        ))
+    }
+
+    // --- Study ---
+
+    private fun studyDone(): Reply {
+        val s = Study.markDone(context) ?: return Study.next(context)?.let { n ->
+            Reply("Nothing was planned for now${sir()}, but well done all the same. Next up: ${n.subject}, ${whenText(n.date, n.time)}.")
+        } ?: Reply("Well done${sir()}. There's no study plan to tick it off on; say \"create a study plan for…\" and I'll keep track.")
+        push("Unticked ${s.subject}") {
+            Study.undoDone(context, s)
+            "Unticked."
+        }
+        val today = LocalDate.now()
+        val week = Study.progress(context, today.with(java.time.DayOfWeek.MONDAY), today.with(java.time.DayOfWeek.SUNDAY))
+        val next = Study.next(context)
+        return Reply("${s.subject}, ticked off${sir()}. That's ${week.done} of ${week.planned} sessions this week" +
+            (next?.let { ". Next: ${it.subject}, ${whenText(it.date, it.time)}." } ?: ". That's the plan done. Splendid."),
+            card = Card("✎", "STUDY · DONE", "${week.done}/${week.planned}", "sessions this week", listOfNotNull(Row(s.subject, "${s.minutes} min", true),
+                next?.let { Row("NEXT", "${it.subject} · ${whenText(it.date, it.time)}") }), Tone.GREEN),
+            actions = listOf(undoAction, Action("PROGRESS", "how's my study going")))
+    }
+
+    private fun studyNext(): Reply {
+        val n = Study.next(context) ?: return Reply("No study sessions planned${sir()}. Say \"create a study plan for…\" and I'll make one around your shifts.")
+        return Reply("${n.subject}, ${whenText(n.date, n.time)}, for ${minutesSaid(n.minutes.toLong())}${sir()}.",
+            card = Card("✎", "NEXT STUDY SESSION", n.time?.format(tf) ?: "", "${n.subject} · ${n.minutes} min · ${whenText(n.date, null)}", tone = Tone.BLUE))
+    }
+
+    private fun studyProgress(report: Boolean): Reply {
+        if (report) return deliver(studyBook(), Documents.Kind.PDF)
+        val all = Study.all(context)
+        if (all.isEmpty()) return Reply("There's no study plan yet${sir()}. Say \"create a study plan for my exams\" and I'll keep track of it with you.")
+        val today = LocalDate.now()
+        val week = Study.progress(context, today.with(java.time.DayOfWeek.MONDAY), today.with(java.time.DayOfWeek.SUNDAY))
+        val sofar = Study.progress(context, all.first().date, today)
+        val pct = if (sofar.planned == 0) 100 else sofar.done * 100 / sofar.planned
+        val verdict = when {
+            pct >= 90 -> "Exemplary, sir."
+            pct >= 70 -> "Solid going."
+            pct >= 40 -> "A few have slipped; nothing that can't be caught up."
+            else -> "We've fallen behind, sir. Shall we move the missed ones?"
+        }
+        return Reply("This week: ${week.done} of ${week.planned} sessions, ${minutesSaid(week.doneMinutes.toLong())} studied. So far, $pct percent of the plan. $verdict",
+            card = Card("✎", "STUDY PROGRESS", "$pct%", "${sofar.done} of ${sofar.planned} sessions so far",
+                sofar.bySubject.entries.take(6).map { (k, v) -> Row(k.uppercase().take(24), "${v.second}/${v.first}", v.second == v.first) }, if (pct >= 70) Tone.GREEN else Tone.GOLD),
+            actions = listOf(Action("REPORT AS PDF", "study progress report as a pdf", primary = true), Action("NEXT SESSION", "when's my next study session")))
+    }
+
+    private fun studyBook(): Documents.Doc {
+        val all = Study.all(context)
+        val today = LocalDate.now()
+        val sofar = Study.progress(context, all.firstOrNull()?.date ?: today, today)
+        val df = DateTimeFormatter.ofPattern("EEE d MMM")
+        return Documents.Doc("Study progress", listOf(
+            Documents.Block.Para("${sofar.done} of ${sofar.planned} sessions done so far (${minutesSaid(sofar.doneMinutes.toLong())} of ${minutesSaid(sofar.plannedMinutes.toLong())})."),
+            Documents.Block.Table("By subject", listOf("Subject", "Planned", "Done", "Done %"), sofar.bySubject.map { (k, v) -> listOf(k, "${v.first}", "${v.second}", "${if (v.first == 0) 0 else v.second * 100 / v.first}%") }),
+            Documents.Block.Table("Sessions", listOf("Date", "Time", "Subject", "Minutes", "Done"), all.map {
+                listOf(it.date.format(df), it.time?.format(tf) ?: "", it.subject, "${it.minutes}", if (it.done) "Yes" else if (it.date.isBefore(today)) "Missed" else "")
+            }),
+        ))
+    }
+
+    // --- Payslips ---
+
+    /** Your payslip read from a picture (attached, or your latest screenshot) and set against his own sums. */
+    private fun checkPayslip(file: java.io.File?): Reply {
+        if (!JarvisBrain.canSee(context)) return Reply("I need my Gemma brain to read a payslip${sir()}. Add it in my settings, under Jarvis Brains.", failed = true)
+        val pic = file ?: (pending as? Pending.Image)?.path?.let { java.io.File(it) } ?: latestScreenshot()
+            ?: return Reply("Attach a photo or screenshot of your payslip${sir()}, then say \"check my payslip\".", failed = true)
+        pending = null
+        JarvisBrain.see(context, pic.path, "This is a UK payslip. Reply with these lines only, numbers without £ or commas, NONE when not shown:\n" +
+            "PAY_DATE=YYYY-MM-DD\nPERIOD_END=YYYY-MM-DD\nHOURS=\nBASIC=\nTRONC=\nGROSS=\nTAX=\nNI=\nPENSION=\nNET=") { out ->
+            host.later(styled(payslipCompared(out)))
+        }
+        return Reply(say("Let me check it against my sums, sir.", "Audit mode. One moment.", "Checking."), more = true)
+    }
+
+    private fun payslipCompared(out: String?): Reply {
+        val v = Regex("(PAY_DATE|PERIOD_END|HOURS|BASIC|TRONC|GROSS|TAX|NI|PENSION|NET)\\s*=\\s*([^\\n]+)").findAll(out.orEmpty())
+            .associate { it.groupValues[1] to it.groupValues[2].trim() }
+        fun num(k: String) = v[k]?.replace(Regex("[£,\\s]"), "")?.toDoubleOrNull()
+        fun date(k: String) = v[k]?.let { runCatching { LocalDate.parse(it.trim().take(10)) }.getOrNull() }
+        if (num("NET") == null && num("GROSS") == null) return Reply("I couldn't read that payslip${sir()}. A clear, straight screenshot of it works best.", failed = true)
+        val setup = Pay.setup(context)
+        val end = date("PERIOD_END") ?: date("PAY_DATE")?.minusDays(5) ?: LocalDate.now()
+        val (a, b) = Pay.periodOf(end, setup)
+        val mine = Pay.slipFor(context, a, b, setup)
+        val pairs = listOf(
+            Triple("Hours", num("HOURS"), mine.hours), Triple("Basic", num("BASIC"), mine.basic), Triple("TRONC", num("TRONC"), mine.tronc),
+            Triple("Gross", num("GROSS"), mine.gross), Triple("Tax", num("TAX"), mine.tax), Triple("NI", num("NI"), mine.ni),
+            Triple("Pension", num("PENSION"), mine.pension), Triple("Take-home", num("NET"), mine.net),
+        )
+        fun fmt(label: String, x: Double) = if (label == "Hours") "%.2f".format(Locale.ROOT, x) else gbp(x)
+        val off = pairs.filter { (label, theirs, ours) -> theirs != null && kotlin.math.abs(theirs - ours) > if (label == "Hours") .25 else 1.0 }
+        val df = DateTimeFormatter.ofPattern("d MMM")
+        val head = if (off.isEmpty()) "Your payslip matches my sums${sir()}, for ${a.format(df)} to ${b.format(df)}."
+            else "${off.size} thing${if (off.size == 1) "" else "s"} differ${if (off.size == 1) "s" else ""}${sir()}: " + off.joinToString("; ") { (label, theirs, ours) ->
+                val d = theirs!! - ours
+                "${label.lowercase()} ${fmt(label, theirs)} against my ${fmt(label, ours)} (${if (d > 0) "+" else "−"}${fmt(label, kotlin.math.abs(d))})"
+            } + "." + if (off.any { it.first == "Hours" }) " Worth checking your clocked hours with your manager." else ""
+        return Reply(head, full = true,
+            card = Card("£", "PAYSLIP CHECK", if (off.isEmpty()) "✓" else "${off.size} OFF", "${a.format(df)} – ${b.format(df)} · payslip vs Jarvis",
+                pairs.filter { it.second != null }.map { (label, theirs, ours) -> Row(label.uppercase(), "${fmt(label, theirs!!)} · mine ${fmt(label, ours)}", off.none { it.first == label }) },
+                if (off.isEmpty()) Tone.GREEN else Tone.HOT),
+            actions = listOf(Action("MY SHIFTS & PAY", "put my shifts and pay in a spreadsheet")))
+    }
+
+    // --- The morning ---
+
+    /** The day ahead: work or uni, the weather, money so far this pay period, study and habits. */
+    fun morningBrief(): Reply {
+        val today = LocalDate.now()
+        val parts = ArrayList<String>()
+        val rows = ArrayList<Row>()
+        val shift = Shifts.all(context)[today]
+        val uni = Uni.on(context, today)
+        when {
+            shift != null -> { parts += "You're working ${shift.start.format(tf)} till ${shift.end.format(tf)}."; rows += Row("WORK", shift.times()) }
+            else -> { parts += "No work today."; rows += Row("WORK", "day off") }
+        }
+        uni?.let { parts += "Uni ${it.start.format(tf)} to ${it.end.format(tf)}."; rows += Row("UNI", it.times()) }
+        Forecast.cached(context)?.days?.firstOrNull { it.date == today }?.let { d ->
+            parts += "${d.high} degrees${if (d.rain >= 50) ", and rain's likely: take a coat" else if (d.rain >= 25) ", a chance of rain" else ", dry"}."
+            rows += Row("WEATHER", "${d.low}–${d.high}° · rain ${d.rain}%")
+        }
+        runCatching {
+            val setup = Pay.setup(context)
+            val (a, b) = Pay.periodOf(today, setup)
+            val sofar = Pay.slipFor(context, a, today.minusDays(1).coerceAtLeast(a), setup)
+            if (sofar.hours > 0) {
+                parts += "You're about ${gbp(sofar.net)} into this pay period, paid ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))}."
+                rows += Row("PAY SO FAR", "${gbp(sofar.net)} · ${"%.1f".format(Locale.ROOT, sofar.hours)}h")
+            }
+        }
+        Study.all(context).filter { it.date == today && !it.done }.takeIf { it.isNotEmpty() }?.let { s ->
+            parts += "Study: ${s.joinToString(" and ") { it.subject + (it.time?.let { t -> " at ${t.format(tf)}" } ?: "") }}."
+            rows += Row("STUDY", s.joinToString(", ") { it.subject })
+        }
+        DeckStore.habits(context).filter { today !in it.done }.takeIf { it.isNotEmpty() }?.let { h ->
+            rows += Row("HABITS TO DO", h.joinToString(", ") { it.name }.take(40))
+        }
+        datedFacts(today).firstOrNull()?.let { (what, days) -> parts += if (days == 0L) "And $what is today." else "And $what is in $days day${if (days == 1L) "" else "s"}." }
+        context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).edit().putString("brief_day", today.toString()).apply()
+        return Reply("${greeting()} ${parts.joinToString(" ")}", card = Card("☀", "MORNING BRIEF", today.format(DateTimeFormatter.ofPattern("EEE d MMM")).uppercase(), rows = rows, tone = Tone.GOLD),
+            full = true, actions = listOf(Action("MY WEEK", "what's my rota this week"), Action("WEATHER", "what's the weather")))
+    }
+
+    /** The first time you open him on a morning: the brief instead of a plain hello. */
+    private fun briefDue(): Boolean {
+        val now = LocalDateTime.now()
+        if (now.hour !in 5..11 || persona == Persona.BRIEF) return false
+        return context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).getString("brief_day", null) != now.toLocalDate().toString()
+    }
+
+    /** Facts you asked him to remember that carry a date (a birthday, an anniversary): what, and days until. */
+    private fun datedFacts(today: LocalDate): List<Pair<String, Long>> = JarvisMemory.facts(context).mapNotNull { f ->
+        val d = JarvisParser.dateIn(f.value, today) ?: JarvisParser.dateIn(f.key, today) ?: return@mapNotNull null
+        var next = d
+        while (next.isBefore(today)) next = next.plusYears(1)
+        val days = java.time.temporal.ChronoUnit.DAYS.between(today, next)
+        if (days > 14) null else f.key to days
+    }.sortedBy { it.second }
+
+    // --- Your files ---
+
+    /** A file you handed him: read (Word, Excel, text at once; a PDF's first pages by his eyes), then he asks what to do. */
+    fun attachedFile(p: DocText.Picked, typed: String): Reply {
+        if (p.isImage) return attached(p.file, typed)
+        val pending = Pending.File(p, DocText.text(p), reading = false)
+        this.pending = pending
+        if (pending.text == null && p.isPdf) {
+            if (!JarvisBrain.canSee(context)) return Reply("I can only read PDFs with my Gemma brain${sir()}. Add it in my settings, under Jarvis Brains. Word, Excel and text files I can read without it.", failed = true)
+            pending.reading = true
+            val pages = DocText.pdfPages(context, p)
+            val total = DocText.pageCount(p)
+            val texts = ArrayList<String>()
+            fun next(i: Int) {
+                if (i >= pages.size) {
+                    pending.text = texts.joinToString("\n\n")
+                    pending.reading = false
+                    val waitingFor = pending.ask
+                    pending.ask = null
+                    if (waitingFor != null) host.later(styled(answerNow(waitingFor, false))) else
+                        host.later(styled(Reply("I've read ${pages.size} page${if (pages.size == 1) "" else "s"}${if (total > pages.size) " of $total" else ""}${sir()}. What shall I do with it?",
+                            listen = true, actions = fileActions())))
+                    return
+                }
+                JarvisBrain.see(context, pages[i].path, "Write out all the text on this page, in reading order. Keep headings and tables (cells separated by |). Nothing else.") { out ->
+                    out?.let { texts += it }
+                    next(i + 1)
+                }
+            }
+            next(0)
+            if (typed.isNotBlank()) pending.ask = typed
+            return Reply("Reading ${p.name}${sir()}: ${if (total > 3) "the first 3 of $total pages" else "$total page${if (total == 1) "" else "s"}"}, page by page. A moment.",
+                card = Card("▤", "READING", sub = p.name, tone = Tone.BLUE), more = true)
+        }
+        if (pending.text.isNullOrBlank()) {
+            this.pending = null
+            return Reply("I couldn't read anything in ${p.name}${sir()}.", failed = true)
+        }
+        if (typed.isNotBlank()) return answerNow(typed, false)
+        val words = pending.text!!.split(Regex("\\s+")).size
+        return Reply("Got ${p.name}${sir()}: about $words words. What shall I do with it?", listen = true,
+            card = Card("▤", "FILE", sub = p.name, rows = listOf(Row("WORDS", "$words")), tone = Tone.BLUE), actions = fileActions())
+    }
+
+    private fun fileActions() = listOf(Action("SUMMARISE AS PDF", "summarise it into a pdf", primary = true), Action("FLASHCARDS", "make flashcards from it"),
+        Action("KEY POINTS", "what are the key points"))
+
+    /** What you say after handing him a file: a document from it, or a question answered from it. Null: not about the file. */
+    private fun fileTalk(f: Pending.File, text: String): Reply? {
+        val c = JarvisParser.parse(text)
+        if (f.reading) {
+            if (c is Command.MakeDoc || c is Command.Unknown || looksLikeQuestion(text)) {
+                f.ask = text
+                return Reply("Still reading it${sir()}; I'll do that the moment I'm through.", more = true)
+            }
+            return null
+        }
+        val material = f.text?.takeIf { it.isNotBlank() } ?: run { pending = null; return null }
+        if (c is Command.MakeDoc) return makeDoc(c.kind, c.what, material = "From the file \"${f.picked.name}\":\n$material", fileName = f.picked.name)
+        val about = c is Command.Unknown || looksLikeQuestion(text) || Regex("\\b(it|this|the file|the document|the pdf)\\b").containsMatchIn(text.lowercase())
+        if (!about || c is Command.No || c == Command.Dismiss) {
+            pending = null
+            return null
+        }
+        if (!JarvisBrain.ready(context)) return Reply("I need one of my brains to answer from it${sir()}. I can still turn it into a document of its own words.", failed = true)
+        JarvisBrain.answer(context, "$text\n\nAnswer from this file (${f.picked.name}):\n${material.take(6000)}", aboutVee()) { out ->
+            host.later(styled(Reply(out ?: "I couldn't find that in it${sir()}.", failed = out == null, actions = fileActions())))
+            pending = f
+        }
+        return Reply("", silent = true, more = true)
+    }
+
+    // --- Editing the last document ---
+
+    /** A change to the document he just made ("add a section on…", "make it shorter", "change the title to…"), or null. */
+    private fun editDoc(text: String): Reply? {
+        val doc = lastDocument() ?: return null
+        val t = text.lowercase().trim().trimEnd('.', '!')
+        val about = Regex("\\b(section|title|heading|paragraph|table|row|column|bullet|document|doc|pdf|spreadsheet|sheet|the plan|the summary|the report)\\b").containsMatchIn(t)
+        val restyle = Regex("^(make it|can you make it|now make it) (shorter|longer|simpler|clearer|friendlier|more formal|less formal|more casual|formal|casual|more detailed|less detailed|detailed|briefer|more concise|concise|more professional)$").containsMatchIn(t) ||
+            Regex("^(shorten|expand|simplify|rewrite|reword|tidy up|polish) (it|the (document|doc|pdf|plan|summary))").containsMatchIn(t)
+        val verb = Regex("^(add|remove|delete|take out|drop|change|rename|retitle|call|rewrite|update|edit|put|include|insert|move|swap|replace|fix|split|merge)\\b").containsMatchIn(t)
+        if (!restyle && !(verb && about)) return null
+        val kind = lastDocKind()
+        // Simple ones done straight away: a new title, a section taken out.
+        Regex("^(?:change|rename|retitle)(?: the)? (?:title|it|document|doc|pdf)(?: to| as)? (.+)$|^call (?:it|the (?:document|doc|pdf)) (.+)$").find(t)?.let { m ->
+            val title = (m.groupValues[1].ifEmpty { m.groupValues[2] }).trim().replaceFirstChar { it.uppercase() }
+            return deliver(doc.copy(title = title), kind)
+        }
+        Regex("^(?:remove|delete|take out|drop) the (?:section|part|bit) (?:on|about|called|for) (.+)$").find(t)?.let { m ->
+            val name = m.groupValues[1].trim()
+            val i = doc.blocks.indexOfFirst { it is Documents.Block.Heading && it.text.lowercase().contains(name) }
+            if (i >= 0) {
+                val level = (doc.blocks[i] as Documents.Block.Heading).level
+                val end = doc.blocks.drop(i + 1).indexOfFirst { it is Documents.Block.Heading && it.level <= level }.let { if (it < 0) doc.blocks.size else i + 1 + it }
+                return deliver(doc.copy(blocks = doc.blocks.take(i) + doc.blocks.drop(end)), kind)
+            }
+        }
+        if (!JarvisBrain.ready(context)) return Reply("I need one of my brains to rewrite it${sir()}. I can change the title or take a section out without one.", failed = true)
+        val pictures = doc.images
+        JarvisBrain.write(context, false, "Edit this document as asked: \"$text\". Keep everything else as it is, and return the whole document.", aboutVee(),
+            Documents.markup(doc.copy(blocks = doc.blocks.filterNot { it is Documents.Block.Image })), kind == Documents.Kind.EXCEL, false) { out ->
+            if (out.isNullOrBlank()) host.later(styled(Reply("I couldn't make that change${sir()}.", failed = true)))
+            else {
+                val edited = Documents.parse(out, doc.title)
+                host.later(styled(deliver(if (pictures.isEmpty()) edited else edited.copy(blocks = edited.blocks + pictures), kind)))
+            }
+        }
+        return Reply(say("Making the change, sir. A new version's on its way; the old one stays.", "Revising. Version two, coming up.", "Editing."), more = true)
+    }
+
+    private fun lastDocument(): Documents.Doc? {
+        val p = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
+        val at = maxOf(lastDocAt, p.getLong("doc_at", 0))
+        if (System.currentTimeMillis() - at > 6 * 3600_000L) return null
+        return lastDoc ?: p.getString("doc_markup", null)?.let { Documents.parse(it, "Document") }
+    }
+
+    private fun lastDocKind(): Documents.Kind =
+        runCatching { Documents.Kind.valueOf(context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).getString("doc_kind", "PDF")!!) }.getOrDefault(Documents.Kind.PDF)
+
+    // --- Self-repair ---
+
+    /**
+     * Stuck in [pkg] (an app update moved things): his brain finds the control to [goal], or the one it found
+     * before, and presses it; the job ends with [done]. Null while it thinks; [failed] when it can't.
+     */
+    private fun selfRepair(pkg: String, goal: String, root: android.view.accessibility.AccessibilityNodeInfo, done: String, failed: String): String? {
+        JarvisRepair.find(context, pkg, goal, root)?.let {
+            JarvisHands.press(it)
+            return done
+        }
+        return if (JarvisRepair.thinking(pkg, goal)) null else failed
+    }
+
     // --- Documents ---
 
     /** The last document he made: "make it a PDF instead" rebuilds it in another format. */
@@ -357,17 +795,26 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      * brain (plans and breakdowns by the Think brain, summaries and explainers by the Talk brain, from the web
      * when online, or from a picture with Gemma's eyes). Saved to Downloads/Jarvis, ready to open or send.
      */
-    private fun makeDoc(kindWord: String?, what: String, attached: java.io.File? = null): Reply {
+    private fun makeDoc(kindWord: String?, what: String, attached: java.io.File? = null, material: String? = null, fileName: String? = null): Reply {
         val w = what.lowercase().trim()
+        val study = Regex("\\b(study|revision|revise|exam|exams|lessons?|coursework|uni|module)\\b").containsMatchIn(w) && Regex("\\b(plan|planner|schedule|timetable)\\b").containsMatchIn(w)
+        val cards = Regex("\\b(flash ?cards|revision cards|quiz|practice questions)\\b").containsMatchIn(w)
+        // What the brain's asked for: flashcards as a question-and-answer table; a study plan with its sessions laid out to follow up.
+        val request = when {
+            cards -> "$what. Make them as a table with columns Question | Answer, 15 to 25 cards, short and testable."
+            study -> "$what. Include a table headed Sessions with columns Date | Time | Subject | Minutes (dates as YYYY-MM-DD, times as HH:MM), one row per study session, " +
+                "fitted around the shifts and uni you know about."
+            else -> what
+        }
         // A picture: the one you attached, or your latest screenshot when you mention one.
         val pic = attached ?: (pending as? Pending.Image)?.path?.let { java.io.File(it) }
             ?: if (Regex("\\b(picture|screenshot|screen shot|photo|image)\\b").containsMatchIn(w)) latestScreenshot() else null
         val asked = docKind(kindWord)
         val that = Regex("^(that|this|it|them|those|what you (just )?said|your (last )?answer|that answer|the answer|the last one|the same|same)$").matches(w)
         // "Make it a PDF instead": the last document again, in the new format.
-        if (that && lastDoc != null && System.currentTimeMillis() - lastDocAt < 30 * 60_000L && asked != null) return deliver(lastDoc!!, asked)
+        if (material == null && that && lastDoc != null && System.currentTimeMillis() - lastDocAt < 30 * 60_000L && asked != null) return deliver(lastDoc!!, asked)
         // From what he keeps: no brain needed, ready at once.
-        localDoc(w)?.let { (doc, kind) ->
+        if (material == null) localDoc(w)?.let { (doc, kind) ->
             // "My shifts, with the screenshot": the picture goes on the end.
             val shown = pic?.let { Documents.picture(context, it, "Your picture") }
             if (pic != null) pending = null
@@ -394,7 +841,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 add(at, picture)
             })
             if (sources.isNotEmpty()) doc = doc.copy(blocks = doc.blocks + Documents.Block.Heading("Sources") + Documents.Block.Bullets(sources.map { "${it.title}: ${it.url}" }))
-            host.later(styled(deliver(doc, kind)))
+            val made = deliver(doc, kind)
+            // A study plan: its sessions kept, so he can remind you and tick them off.
+            val sessions = if (study) Study.fromDoc(doc) else emptyList()
+            if (sessions.isNotEmpty()) {
+                Study.replace(context, sessions)
+                host.later(styled(made.copy(say = made.say + " I've noted its ${sessions.size} study sessions: I'll remind you as each comes round, and say \"I've finished studying\" to tick one off.")))
+            } else host.later(styled(made))
         }
         if (pic != null) {
             pending = null
@@ -405,6 +858,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             else JarvisBrain.write(context, planLike, what, aboutVee(), null, sheet, planLike) { finished(it, picture = shown) }
             return Reply(start, more = true)
         }
+        // From a file you handed him.
+        if (material != null) {
+            JarvisBrain.write(context, cards || planLike, request, aboutVee(), material, sheet, false) { finished(it) }
+            return Reply(say("Working from ${fileName ?: "your file"}, sir. It'll be ready shortly.", "Reading, then writing. Then admiring.", "Writing it."), more = true)
+        }
         // About what he just said, or your conversation.
         if (that || Regex("\\b(our|this|the) (conversation|chat)\\b").containsMatchIn(w)) {
             val material = (listOfNotNull(lastReply?.say?.takeIf { it.isNotBlank() }) + JarvisChat.recent(context, 14)).joinToString("\n")
@@ -412,8 +870,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             return Reply(start, more = true)
         }
         // Plans and breakdowns: thought through, fitted around your week. Facts: looked up first when online.
-        if (planLike || !online(context)) {
-            JarvisBrain.write(context, planLike, what, aboutVee(), null, sheet, planLike) { finished(it) }
+        if (planLike || cards || !online(context)) {
+            JarvisBrain.write(context, planLike || cards, request, aboutVee(), null, sheet, planLike) { finished(it) }
             return Reply(start, more = true)
         }
         Thread {
@@ -446,6 +904,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun deliver(doc: Documents.Doc, kind: Documents.Kind): Reply {
         lastDoc = doc
         lastDocAt = System.currentTimeMillis()
+        // Kept, so "add a section on…" works after he's been closed too.
+        context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).edit().putString("doc_markup", Documents.markup(doc)).putString("doc_kind", kind.name)
+            .putLong("doc_at", lastDocAt).apply()
         val uri = Documents.save(context, doc, kind) ?: return Reply("I wrote it${sir()}, but couldn't save it to your Downloads.", failed = true)
         val parts = listOfNotNull(
             doc.headings.size.takeIf { it > 0 }?.let { "$it section${if (it == 1) "" else "s"}" },
@@ -461,11 +922,14 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     /** Documents from what he keeps: shifts and pay, notes, habits. Null when it's something to write. */
     private fun localDoc(w: String): Pair<Documents.Doc, Documents.Kind>? {
+        if (Regex("^(my )?(study|revision) (progress|report|sessions)\\b").containsMatchIn(w)) return studyBook() to Documents.Kind.PDF
         if (Regex("\\b(plan|planner|schedule around|study|revision|advice|tips|ideas|how to|why)\\b").containsMatchIn(w)) return null
         return when {
             Regex("\\b(shifts?|rota|hours|pay|payslips?|earnings|wages?|salary|money i|tax|clocked|worked)\\b").containsMatchIn(w) -> payBook() to Documents.Kind.EXCEL
             Regex("^(my )?(notes?|to ?dos?|to-do list|list)\\b").containsMatchIn(w) -> notesBook() to Documents.Kind.PDF
             Regex("^(my )?(habits?|streaks?|habit tracker)\\b").containsMatchIn(w) -> habitsBook() to Documents.Kind.EXCEL
+            Regex("^(my )?(spending|expenses|spends|money spent)\\b").containsMatchIn(w) -> spendingBook() to Documents.Kind.EXCEL
+            Regex("^(my )?(study|revision) (progress|report|sessions)\\b").containsMatchIn(w) -> studyBook() to Documents.Kind.PDF
             else -> null
         }
     }
@@ -1178,6 +1642,21 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.WeatherWeek -> weatherWeek(cmd.weekend, cmd.rainOnly)
         is Command.MakeDoc -> makeDoc(cmd.kind, cmd.what)
         is Command.OpenDoc -> openDocs(cmd.all)
+        Command.SelfCheck -> selfCheck()
+        Command.Backup -> backupNow()
+        Command.Restore -> Reply("Pick the backup file${sir()}: it's in Downloads, Jarvis, Backups, unless you've moved it. Everything I know now will be replaced by what's in it.",
+            then = { host.pick("backup") }, afterSpeech = true, card = Card("⟲", "RESTORE MEMORY", sub = "pick a Jarvis memory .json file", tone = Tone.GOLD))
+        is Command.Spent -> spent(cmd.amount, cmd.what)
+        is Command.Spending -> spendingSummary(cmd.period)
+        Command.StudyDone -> studyDone()
+        is Command.StudyProgress -> studyProgress(cmd.report)
+        Command.StudyNext -> studyNext()
+        Command.StudyClear -> {
+            Study.clear(context)
+            Reply("Study plan cleared${sir()}. What you'd already done stays in your progress.")
+        }
+        Command.CheckPayslip -> checkPayslip(null)
+        Command.MorningBrief -> morningBrief()
         is Command.Travel -> {
             // "And the Central?" after asking about tomorrow: still tomorrow.
             val prev = last as? Command.Travel
@@ -1273,7 +1752,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.ChangeIt -> changeIt(cmd.value)
         Command.Reboot -> Reply(say("Rebooting, sir. Back in a moment.", "Have you tried turning me off and on again? Rebooting.", "Rebooting."),
             afterSpeech = true, then = { reboot(context) }, card = Card("⟳", "REBOOT", "RESTARTING", "everything restarts; Hands reconnect", tone = Tone.HOT))
-        Command.SystemsCheck -> systemsCheck(rebooted = false)
+        Command.SystemsCheck -> selfCheck()
         is Command.Learn -> learn(cmd.lessons)
         is Command.AlarmSeries -> {
             val first = cmd.from ?: return Reply("From what time${sir()}?", listen = true)
@@ -1391,6 +1870,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     /** What he leads with when you open him: the hello, and anything he thinks you should know. */
     fun opening(): Reply {
+        // The first time on a morning: the day ahead, not just hello.
+        if (briefDue()) {
+            val b = morningBrief()
+            // Anything pressing (no alarm before your shift, rain on the way in) still said.
+            val top = JarvisProactive.insights(context).also { JarvisProactive.markSeen(context, it) }.firstOrNull()
+            return styled(if (top == null) b else b.copy(say = "${b.say} ${top.say}", actions = listOfNotNull(top.action?.let { Action(top.actionLabel ?: "DO IT", it, primary = true) }) + b.actions))
+        }
         val insights = JarvisProactive.insights(context)
         JarvisProactive.markSeen(context, insights)
         val hello = (if (persona == Persona.BRIEF) greeting() else JarvisVoice.hello(context, greeting(), name)) +
@@ -2112,7 +2598,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val (_, b) = Pay.periodOf(date, setup)
         val startNote = if (inAt == null && before == null) " I've taken your start as ${start.format(tf)}; if it was different, say \"I started work at …\"." else ""
         return Reply("Clocked out at ${at.toLocalTime().format(tf)}${sir()}. ${if (date == now.toLocalDate()) "Today" else whenText(date, null).replaceFirstChar { it.uppercase() }}: ${start.format(tf)} till ${at.toLocalTime().format(tf)}, " +
-            "${minutesSaid(shift.minutes)}$vsPlan. That's ${money(gross)} before tax, in your ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))} pay. Your calendar keeps the planned shift.$startNote",
+            "${minutesSaid(shift.minutes)}$vsPlan. That's ${money(gross)} before tax, in your ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))} pay" +
+            Pay.slipFor(context, Pay.periodOf(date, setup).first, b, setup).let { so -> ", which comes to about ${money(so.net)} take-home so far." } +
+            " Your calendar keeps the planned shift.$startNote",
             card = Card("⧗", "CLOCKED OUT", shift.times(), "${minutesSaid(shift.minutes)} · ${money(gross)} before tax", listOfNotNull(
                 planned?.let { Row("PLANNED · CALENDAR", it.times()) },
                 Row("WORKED", "${shift.times()} · ${minutesSaid(shift.minutes)}", ok = true),
@@ -3515,7 +4003,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             if (!JarvisReaders.airDevicePage(root)) {
                 // A moment first: Air+ often opens straight on the heater's page, drawing it in bits.
                 JarvisReaders.airCard(root, null)?.let { if (t >= 2 && t % 3 == 2) JarvisHands.press(it) } ?: run { if (t == 3 || t == 6) JarvisHands.back() }
-                return@custom if (t < 12) null else "I couldn't open the heater in ${app.label}, sir."
+                if (t < 12) return@custom null
+                JarvisRepair.find(context, app.component.packageName, "open the heater's control page", root)?.let { JarvisHands.press(it); return@custom null }
+                return@custom if (JarvisRepair.thinking(app.component.packageName, "open the heater's control page") || t < 40) null else "I couldn't open the heater in ${app.label}, sir."
             }
             if (pressed) {
                 // Checking it took: the page says it's off, or the Power toggle shows it.
@@ -3527,7 +4017,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             if (++settled < 3 || !JarvisReaders.airReady(root)) return@custom if (++waiting < 45) null else "${app.label} couldn't connect to the heater, sir."
             val off = JarvisReaders.airIsOff(root)
             if (off != on) return@custom "It's already ${if (on) "on" else "off"}, sir."
-            val p = JarvisReaders.airPower(root) ?: return@custom if (t < 8) null else "I couldn't find the power button in ${app.label}, sir."
+            val p = JarvisReaders.airPower(root) ?: if (t < 8) return@custom null
+                else JarvisRepair.find(context, app.component.packageName, "switch the heater ${if (on) "on" else "off"} (its Power button)", root)
+                    ?: return@custom if (JarvisRepair.thinking(app.component.packageName, "switch the heater ${if (on) "on" else "off"} (its Power button)")) null
+                    else "I couldn't find the power button in ${app.label}, sir."
             JarvisHands.press(p)
             pressed = true
             null
@@ -3910,7 +4403,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var pressedAt = 0
         var presses = 0
         var who = "The light"
-        return JarvisHands.custom(TAPO, null, "I couldn't find the light in Tapo, sir. Show me once: say \"learn the light\".", timeout = 20_000) { root, tries ->
+        return JarvisHands.custom(TAPO, null, "I couldn't find the light in Tapo, sir. Show me once: say \"learn the light\".", timeout = 45_000) { root, tries ->
             // Checking it took: the light's own page says "Power, On"; the home card says on/off where Tapo shows it.
             want?.let { w ->
                 val now = if (JarvisReaders.tapoLightPage(root)) JarvisReaders.tapoPagePower(root).first
@@ -3943,15 +4436,20 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 }
                 // Can't tell from here: back to the list, where it says.
                 if (tries % 2 == 1 && backs < 2) { backs++; JarvisHands.back() }
-                return@custom if (tries < 12) null else "I couldn't work the light's page, sir."
+                if (tries < 12) return@custom null
+                return@custom selfRepair(TAPO, "press the light's Power button", root,
+                    "Done, sir. Tapo's page had changed, so I found Power myself; I'll remember it.", "I couldn't work the light's page, sir.")
             }
             val l = JarvisReaders.light(JarvisReaders.lights(root), name) ?: run {
                 if ((tries == 3 || tries == 6) && backs < 3) { backs++; JarvisHands.back() }
-                return@custom if (tries < 9) null else "I couldn't see any lights in Tapo, sir."
+                if (tries < 9) return@custom null
+                return@custom selfRepair(TAPO, "switch the light ${if (on == false) "off" else "on"}", root,
+                    "Done, sir. Tapo had moved things about, so I found the switch myself; I'll remember it.", "I couldn't see any lights in Tapo, sir.")
             }
             who = l.name
             if (on != null && l.on == on) return@custom "${l.name} is already ${if (on) "on" else "off"}, sir."
-            val p = l.power ?: return@custom "I couldn't find ${l.name}'s power button, sir."
+            val p = l.power ?: return@custom selfRepair(TAPO, "switch ${l.name} ${if (on == false) "off" else "on"}", root,
+                "Done, sir. I had to find ${l.name}'s switch myself; I'll remember where it is.", "I couldn't find ${l.name}'s power button, sir.")
             JarvisHands.press(p)
             // The home card may not say whether it's on: then the press is all he can vouch for.
             val target = on ?: l.on?.not()
@@ -3983,7 +4481,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var cool = 0
         val job = {
             JarvisEar.start(context)
-            JarvisHands.custom(TAPO, null, "I couldn't open the light in Tapo, sir.", timeout = 20_000, linger = true) { root, tries ->
+            JarvisHands.custom(TAPO, null, "I couldn't open the light in Tapo, sir.", timeout = 45_000, linger = true) { root, tries ->
                 if (cool > 0) {
                     cool--
                     return@custom null
@@ -3992,7 +4490,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                     val l = JarvisReaders.light(JarvisReaders.lights(root), name) ?: run {
                         // Somewhere else in Tapo (not still opening): back out towards the list of lights.
                         if ((tries == 4 || tries == 7) && JarvisHands.nodes(root).size > 15) JarvisHands.back()
-                        return@custom if (tries < 10) null else "I couldn't see the light in Tapo, sir."
+                        if (tries < 10) return@custom null
+                        JarvisRepair.find(context, TAPO, "open the light's own page (its card)", root)?.let { JarvisHands.press(it); cool = 2; return@custom null }
+                        return@custom if (JarvisRepair.thinking(TAPO, "open the light's own page (its card)") || tries < 30) null else "I couldn't see the light in Tapo, sir."
                     }
                     // Its card, once (and again if the page still hasn't opened after a few looks).
                     if (opened == 0 || (opened < 2 && tries > 6)) {
@@ -4021,7 +4521,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 } else {
                     val recent = System.currentTimeMillis() - prefs.getLong("preset_at", 0) < 2 * 3600_000L
                     val picked = JarvisReaders.choosePreset(root, colour, if (recent) prefs.getInt("preset", -1) else -1)
-                        ?: return@custom if (tries < 8) null else "I couldn't find your colour presets, sir."
+                        ?: return@custom if (tries < 8) null else selfRepair(TAPO, "choose the ${colour ?: "next"} colour preset", root,
+                            "Done, sir. ${(colour ?: "The next colour").replaceFirstChar { it.uppercase() }}; I had to find the presets myself and I'll remember them.", "I couldn't find your colour presets, sir.")
                     if (picked.first < 0) {
                         val have = JarvisReaders.presets(root).map { JarvisReaders.presetName(it.second) }.filter { it != "auto" }
                         return@custom "You haven't got a $colour preset, sir. You've got ${have.dropLast(1).joinToString(", ")} and ${have.lastOrNull() ?: ""}."
@@ -4720,6 +5221,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         /** Things he can do, to offer when he didn't follow. */
         val EXAMPLES = listOf(
             "Make me a PDF of my shifts", "Put my pay in a spreadsheet", "Create a study plan for my exams", "Summarise that into a Word doc",
+            "Run a systems check", "Back up your memory", "I spent £12 on lunch", "How much have I spent this week?", "I've finished studying",
+            "How's my study going?", "When's my next study session?", "Check my payslip", "Morning brief", "Make flashcards from it", "Open my last document",
             "Make a note", "Read my notes", "Add dentist on Monday at 3pm to my calendar", "What's on tomorrow", "Am I working tomorrow?",
             "When's my next shift?", "Set an alarm for 7", "Set an alarm for my next shift", "Show my alarms", "Set a timer for 10 minutes",
             "What's the weather?", "Will it rain tomorrow?", "Any emails from Even Us?", "Any messages?", "Open Spotify", "Call Mum",

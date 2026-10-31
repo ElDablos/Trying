@@ -99,6 +99,58 @@ object JarvisProactive {
             if (days == 0L && now.hour >= 7) out += Insight("count:${c.name}:${c.date}", "★", "${c.name} is today", "${c.name} is today, sir.")
             if (days == 1L && now.hour >= 17) out += Insight("count:${c.name}:${c.date}", "★", "${c.name} is tomorrow", "A reminder: ${c.name} is tomorrow.")
         }
+        val today = now.toLocalDate()
+        // A shift just finished: what it earned, and the pay period so far.
+        Shifts.worked(context)[today]?.let { sh ->
+            val end = sh.finish(today, zone)
+            if (nowMs - end in 0..3 * 3_600_000L) runCatching {
+                val setup = Pay.setup(context)
+                val (a, b) = Pay.periodOf(today, setup)
+                val so = Pay.slipFor(context, a, b, setup)
+                val earned = sh.minutes / 60.0 * setup.hourly
+                out += Insight("shiftdone:$today", "£", "Shift done: £${"%.0f".format(java.util.Locale.ROOT, earned)}",
+                    "Shift done, sir: ${sh.times()}, about £${"%.0f".format(java.util.Locale.ROOT, earned)} before tax. That's roughly £${"%.0f".format(java.util.Locale.ROOT, so.net)} " +
+                        "take-home so far for ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEEE d MMMM"))}. If you finished at a different time, tell me.",
+                    "what's my next payday", "PAY")
+            }
+        }
+        // Payday.
+        runCatching {
+            val setup = Pay.setup(context)
+            val (a, b) = Pay.periodOf(today.minusDays(5), setup)
+            if (Pay.payday(b) == today && now.hour >= 7) {
+                val slip = Pay.slipFor(context, a, b, setup)
+                if (slip.hours > 0) out += Insight("payday:$today", "£", "It's payday", "It's payday, sir: about £${"%.0f".format(java.util.Locale.ROOT, slip.net)} should land today, " +
+                    "for ${"%.1f".format(java.util.Locale.ROOT, slip.hours)} hours. Send me the payslip and I'll check it.", "check my payslip", "CHECK IT")
+            }
+        }
+        // A study session coming up (or just started and not ticked off).
+        Study.all(context).firstOrNull { s ->
+            val at = s.startsAt() ?: return@firstOrNull false
+            !s.done && java.time.Duration.between(now, at).toMinutes() in -20L..30L
+        }?.let { s ->
+            out += Insight("study:${s.id}", "✎", "Study: ${s.subject}", "Study time at ${s.time?.format(HM)}, sir: ${s.subject}, ${s.minutes} minutes. Tell me when you're done.",
+                "I've finished studying", "DONE")
+        }
+        // Things you asked him to remember with a date: a week before, the day before and on the day.
+        for (f in JarvisMemory.facts(context)) {
+            val d = JarvisParser.dateIn(f.value, today) ?: JarvisParser.dateIn(f.key, today) ?: continue
+            var next = d
+            while (next.isBefore(today)) next = next.plusYears(1)
+            val days = ChronoUnit.DAYS.between(today, next)
+            val what = f.key.replaceFirstChar { it.uppercase() }
+            when {
+                days == 0L && now.hour >= 7 -> out += Insight("fact:${f.key}:$next:0", "★", "$what: today", "$what is today, sir (${f.value}).")
+                days == 1L && now.hour >= 17 -> out += Insight("fact:${f.key}:$next:1", "★", "$what: tomorrow", "A reminder: $what is tomorrow.")
+                days == 7L && now.hour >= 9 -> out += Insight("fact:${f.key}:$next:7", "★", "$what: next week", "$what is a week today, sir. Time to sort a card or a present?")
+            }
+        }
+        // A free evening with habits still to tick off.
+        if (now.hour in 17..20 && Shifts.all(context)[today]?.let { it.finish(today, zone) > nowMs } != true) {
+            val todo = DeckStore.habits(context).filter { today !in it.done }
+            if (todo.isNotEmpty()) out += Insight("free:$today", "✦", "A free evening",
+                "A free evening, sir, and ${todo.joinToString(" and ") { it.name }} ${if (todo.size == 1) "is" else "are"} still to tick off today.", "my habits", "HABITS")
+        }
         // The evening wind-down.
         val wd = JarvisMemory.windDown(context)
         val minutes = now.hour * 60 + now.minute

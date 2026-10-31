@@ -90,6 +90,12 @@ object Documents {
             when {
                 line.isEmpty() -> { flushPara(); flushBullets() }
                 line.startsWith("```") -> {}
+                // A picture kept from before ("[picture: path|w|h|caption]").
+                line.startsWith("[picture: ") && line.endsWith("]") -> {
+                    flushAll()
+                    val f = line.removePrefix("[picture: ").removeSuffix("]").split('|')
+                    if (f.size >= 3) blocks += Block.Image(f[0], f[1].toIntOrNull() ?: 0, f[2].toIntOrNull() ?: 0, f.getOrNull(3)?.ifBlank { null })
+                }
                 // A table: "a | b | c", or "| a | b |"; rule lines ("|---|---|") skipped.
                 line.count { it == '|' } >= 1 && line.split('|').count { it.isNotBlank() } >= 2 -> {
                     flushPara(); flushBullets()
@@ -123,6 +129,21 @@ object Documents {
         }
         flushAll()
         return Doc((title ?: fallbackTitle).take(90), blocks)
+    }
+
+    /** A document back in the plain form [parse] reads: for his brain to edit, and to keep between visits. */
+    fun markup(doc: Doc): String = buildString {
+        append("# ${doc.title}\n\n")
+        for (b in doc.blocks) {
+            when (b) {
+                is Block.Heading -> append("${"#".repeat(b.level + 1)} ${b.text}\n")
+                is Block.Para -> append("${b.text}\n")
+                is Block.Bullets -> b.items.forEachIndexed { i, it -> append(if (b.numbered) "${i + 1}. $it\n" else "- $it\n") }
+                is Block.Table -> (listOf(b.header) + b.rows).forEach { append(it.joinToString(" | ")).append('\n') }
+                is Block.Image -> append("[picture: ${b.path}|${b.w}|${b.h}|${b.caption ?: ""}]\n")
+            }
+            append('\n')
+        }
     }
 
     // --- Word ---

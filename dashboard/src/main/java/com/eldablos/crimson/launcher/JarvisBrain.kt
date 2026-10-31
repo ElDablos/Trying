@@ -394,6 +394,14 @@ object JarvisBrain {
             "Only if there's an obviously useful thing to do, end with a separate last line \"OFFER: <command>\" where the command is written like one of these:\n" +
             commands.take(60).joinToString("\n") { "- $it" } + "\nand phrase the offer as a question in your reply.", "Vee: $said", done)
 
+    /** Self-repair: which of the [controls] on screen (one per line, numbered) does [goal]; its number, or null. */
+    fun pickControl(context: Context, goal: String, controls: String, done: (Int?) -> Unit) =
+        ask(context, Job.INTERPRET, "You operate an Android app for its owner. Below is every control on the screen that can be tapped, " +
+            "numbered, with its id, text, label, position and size. Reply with ONLY the number of the one control to tap next to " +
+            "$goal. If none of them does it, reply NONE.", controls) { out ->
+            done(out?.let { Regex("\\b(\\d{1,2})\\b").find(it)?.groupValues?.get(1)?.toIntOrNull() }?.takeIf { out?.contains("NONE", true) != true })
+        }
+
     /** How a document is written for [Documents.parse]: plain lines, headings, lists, tables. */
     fun documentRules(spreadsheet: Boolean, plan: Boolean): String =
         "Write the document Vee asked for. Output ONLY the document, in this plain format:\n" +

@@ -84,6 +84,12 @@ class RefreshJob : JobService() {
             } catch (e: Exception) {
                 Log.w(TAG, "Uni calendar failed", e)
             }
+            // A weekly backup of everything Jarvis knows, by itself.
+            try {
+                com.eldablos.crimson.launcher.JarvisBackup.weekly(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "Jarvis backup failed", e)
+            }
             if (background) try {
                 com.eldablos.crimson.launcher.JarvisProactive.notify(context)
             } catch (e: Exception) {

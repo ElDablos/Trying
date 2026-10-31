@@ -73,6 +73,24 @@ object JarvisParser {
         data class MakeCommand(val description: String) : Command()
         /** The days ahead's weather ("next week", "this weekend"). */
         data class WeatherWeek(val weekend: Boolean, val rainOnly: Boolean) : Command()
+        /** "Run a check": he tests his own parts and says what needs you. */
+        object SelfCheck : Command()
+        /** "Back up your memory" / "restore your memory". */
+        object Backup : Command()
+        object Restore : Command()
+        /** "I spent £12 on lunch". */
+        data class Spent(val amount: Double, val what: String) : Command()
+        /** "How much have I spent this week?" ([period]: today, week, month, lastmonth). */
+        data class Spending(val period: String) : Command()
+        /** Study mode: a session done, how it's going ([report]: as a PDF), the next one, or the plan cleared. */
+        object StudyDone : Command()
+        data class StudyProgress(val report: Boolean) : Command()
+        object StudyNext : Command()
+        object StudyClear : Command()
+        /** "Check my payslip": read from a picture and compared with his estimate. */
+        object CheckPayslip : Command()
+        /** "Morning brief": the day ahead in a few sentences. */
+        object MorningBrief : Command()
         /** "Open my last document", "my documents": the files he's made ([all] lists them). */
         data class OpenDoc(val all: Boolean) : Command()
         /** A document made for you: [kind] "word", "excel", "pdf" (or null: he picks), about [what]. */
@@ -254,18 +272,34 @@ object JarvisParser {
     private val DOC_FORMAT = Regex("\\b(word doc(ument)?|word file|docx|doc|document|pdf|spreadsheet|excel( sheet| file| spreadsheet)?|xlsx|sheet|workbook)s?\\b")
     private val DOC_VERB = Regex("^(make|create|build|generate|write|put|export|turn|save|give|draft|prepare|produce|do|summari[sz]e|summary of|convert|compile|get|send|i need|i want|need|want)\\b")
 
+    /** "I spent £12 on lunch", "paid 30 quid for a haircut", "bought a book for £8", "£4.50 coffee". */
+    fun spent(t: String): Command.Spent? {
+        val money = "(£\\s*\\d+(?:[.,]\\d{1,2})?|\\d+(?:[.,]\\d{1,2})?\\s*(?:pounds?|quid|p\\b)|\\d+(?:[.,]\\d{1,2})?)"
+        Regex("^(?:i(?:'ve| have)? )?(?:just )?(?:spent|paid)\\s+$money\\s+(?:on|for|at)\\s+(.+)$").find(t)?.let { m ->
+            return Spending.amountIn(m.groupValues[1])?.let { Command.Spent(it, m.groupValues[2].trim()) }
+        }
+        Regex("^(?:i )?(?:just )?bought (.+?) for $money$").find(t)?.let { m ->
+            return Spending.amountIn(m.groupValues[2])?.let { Command.Spent(it, m.groupValues[1].trim()) }
+        }
+        Regex("^(?:log|add|record|note) $money (?:for |on )?(.+?) (?:to|in|as) (?:my )?(?:spending|expenses)$").find(t)?.let { m ->
+            return Spending.amountIn(m.groupValues[1])?.let { Command.Spent(it, m.groupValues[2].trim()) }
+        }
+        return null
+    }
+
     /** A request for a document, with what it's about and in which format. */
     fun makeDoc(t: String): Command.MakeDoc? {
-        if (Regex("\\b(bed ?sheets?|the sheets|sheets on|sheet music|cheat sheet)\\b").containsMatchIn(t)) return null
+        if (Regex("\\b(bed ?sheets?|the sheets|sheets on|sheet music)\\b").containsMatchIn(t)) return null
         val format = DOC_FORMAT.find(t)
-        val plan = Regex("^(make|create|build|write|draft|prepare|plan|give me|i need|need|generate)( me)? (a |an |my )?((weekly|daily|monthly|revision|study|exam|workout|gym|meal|savings?|budget|training|reading|learning|work) )+(plan|schedule|timetable|planner|tracker|routine|breakdown|guide|checklist)\\b").containsMatchIn(t)
+        val cards = Regex("^(make|create|build|write|give me|generate|do)( me)? (some |a set of |a deck of |a )?(flash ?cards|revision cards|quiz|quiz questions|practice questions)\\b").containsMatchIn(t)
+        val plan = cards || Regex("^(make|create|build|write|draft|prepare|plan|give me|i need|need|generate)( me)? (a |an |my )?((weekly|daily|monthly|revision|study|exam|workout|gym|meal|savings?|budget|training|reading|learning|work) )+(plan|schedule|timetable|planner|tracker|routine|breakdown|guide|checklist)\\b").containsMatchIn(t)
         if (format == null && !plan) return null
         // Not a document request: "read the document", "open my excel", "what's in the pdf".
         if (format != null && !DOC_VERB.containsMatchIn(t) && !Regex("\\b(into|in|as|to) (an? |my |the )?(${format.value})").containsMatchIn(t)) return null
         if (Regex("^(open|read|show|find|where|what|delete|close)\\b").containsMatchIn(t)) return null
         val f = format?.value.orEmpty()
         val kind = when {
-            Regex("pdf").containsMatchIn(f) -> "pdf"
+            Regex("pdf").containsMatchIn(f) || Regex("\\b(cheat|summary|revision|fact) sheet").containsMatchIn(t) -> "pdf"
             Regex("spreadsheet|excel|xlsx|sheet|workbook").containsMatchIn(f) -> "excel"
             f.isNotEmpty() -> "word"
             else -> null
@@ -317,6 +351,19 @@ object JarvisParser {
         // A document: "make me a PDF of my shifts", "put my pay in a spreadsheet", "summarise that into a Word doc",
         // "create a study plan for my exams".
         makeDoc(t)?.let { return it }
+        if (Regex("^(run (a |an )?(self[- ]?)?(check|diagnostic|diagnostics|system check|health check|systems check)|(self|system|systems|health)[- ]?check|check (yourself|your systems|all systems|everything)|diagnostics|are (you|all systems) (ok|okay|working)|is everything working)$").matches(t)) return Command.SystemsCheck
+        if (Regex("^(back ?up|save|export) (your |my |all )?(memory|memories|everything|data|brain|settings)( now)?$|^(make|do|create) a backup( now)?$").matches(t)) return Command.Backup
+        if (Regex("^(restore|import|load|bring back) (your |my |the )?(memory|memories|backup|data|everything)( from (a |the )?(backup|file))?$").matches(t)) return Command.Restore
+        if (Regex("^(check|compare|read|verify|is) (my |the |this |that )?(payslip|pay slip|wage slip|payslip right|pay)( (right|correct|ok|okay))?$|^(check|compare) (my )?(payslip|pay slip) (against|with) (your|my) (estimate|maths|numbers)$").matches(t)) return Command.CheckPayslip
+        if (Regex("^(morning brief(ing)?|my morning brief(ing)?|brief me for (today|the day)|what's my day (like|looking like)|how does my day look)$").matches(t)) return Command.MorningBrief
+        spent(t)?.let { return it }
+        if (Regex("^(how much (have i|did i|i've) spen[dt]|my spending|spending|what have i spent|what did i spend|show (me )?my spending)( money)?( so far)?( (today|this week|this month|last month|in total|altogether))?$").matches(t)) {
+            return Command.Spending(when { has("today") -> "today"; has("last month") -> "lastmonth"; has("month") -> "month"; else -> "week" })
+        }
+        if (Regex("^(i('ve| have)? (just )?(finished|done|completed) (my |the |today's |a )?(study|studying|revision|revising|study session|session)( session)?( for today)?|(study|revision) (session )?done|done (studying|revising|with (my )?(study|studying|revision))|tick off (my |the )?(study|revision)( session)?|i (studied|revised)( today)?)$").matches(t)) return Command.StudyDone
+        if (Regex("^(how('s| is| am i doing with) my (study|studying|revision)( going)?|my study progress|study progress( report)?|how am i doing with (my )?(study|studying|revision)|(study|revision) report)( as a pdf)?$").matches(t)) return Command.StudyProgress(has("report", "pdf"))
+        if (Regex("^(when'?s|what'?s|when is|what is) my next (study|revision) session$|^next (study|revision) session$").matches(t)) return Command.StudyNext
+        if (Regex("^(clear|delete|cancel|scrap) (my |the )?(study|revision) (plan|sessions|schedule)$").matches(t)) return Command.StudyClear
         if (Regex("^(open|show|show me|get|find|where'?s|where is|where are)( me)? (my |the |that )?(last |latest |new |newest |recent )?(document|doc|pdf|spreadsheet|excel|word doc|file|report)s?( you (just )?made| you made| again)?$").matches(t))
             return Command.OpenDoc(Regex("(document|doc|pdf|spreadsheet|file|report)s$").containsMatchIn(t) || t.startsWith("where"))
         if (Regex("^(my|all my|list my|show my) (documents|docs|files|pdfs|spreadsheets)$").matches(t)) return Command.OpenDoc(true)

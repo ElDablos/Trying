@@ -168,6 +168,16 @@ object Speech {
     fun loud(context: Context) = prefs(context).getBoolean("loud", true)
     fun setLoud(context: Context, on: Boolean) = prefs(context).edit().putBoolean("loud", on).apply()
 
+    /** The voice engine he speaks with ("VoxSherpa", "Speech Recognition and Synthesis from Google"), or null if there's none. */
+    fun engineLabel(context: Context): String? {
+        val pm = context.packageManager
+        val pkg = prefs(context).getString("engine", null)?.takeIf { installed(context, it) }
+            ?: GOOGLE_TTS.takeIf { installed(context, it) }
+            ?: runCatching { android.speech.tts.TextToSpeech(context.applicationContext, null).let { t -> t.defaultEngine.also { t.shutdown() } } }.getOrNull()
+            ?: return null
+        return runCatching { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
+    }
+
     fun stop() {
         appContext?.let { focus(it, false) }
         tts?.stop()

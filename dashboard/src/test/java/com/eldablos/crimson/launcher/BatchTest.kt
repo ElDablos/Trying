@@ -47,6 +47,19 @@ class BatchTest {
     }
 
     @Test
+    fun typedAsYouTypeIt() {
+        assertEquals(Command.Shift(1), p("do i work tmrw"))
+        assertEquals(Command.Shift(1), p("wat time do i start tmr"))
+        assertEquals(Command.Lights(true, null), p("turn the lite on"))
+        assertEquals(Command.Lights(false, null), p("switch of the light"))
+        assertEquals(Command.Climate(false, "heat"), p("heating of"))
+        assertEquals(Command.SetTemp(25.0), p("put the heater on 25"))
+        assertEquals(Command.Hours("month", true), p("whats my take home this month"))
+        assertEquals(Command.MorningBrief, p("whats my day like"))
+        assertTrue(p("countdown to my holiday on 3 march") is Command.AddCountdown)
+    }
+
+    @Test
     fun spending() {
         assertEquals(Command.Spent(12.0, "lunch"), p("I spent £12 on lunch"))
         assertEquals(Command.Spent(4.5, "coffee"), p("spent 4.50 on coffee"))

@@ -51,7 +51,11 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
-- **1.65** (pending "build it") — Pay questions as said: "how much am I supposed to get paid on my page slip",
+- **1.65** — Phrase sweep (90 everyday phrases run through the parser, misses fixed): text-speak and typos
+  ("tmrw", "tmr", "wat", "nxt", "lite", "switch of the light", "heating of", "ive"); "put the heater on 25" sets
+  25°; "whats my take home this month" is pay; "whats my day like" is the morning brief; "countdown to my
+  holiday on 3 March" creates it; "I had a long day", "work was busy", "I'm tired" are chat, not habit/shift.
+  Pay questions as said: "how much am I supposed to get paid on my page slip",
   "from what I've earned already", "add tomorrow's shift to this" → next payslip estimate. "Page slip" etc.
   heard as payslip. Brain sees the last lines of the conversation (so "this"/"it" mean something) and may not
   borrow dates/places from examples (it had set a "Holiday 3 March" countdown). No brain reply may claim an
@@ -71,6 +75,10 @@ Clock-in/out times are kept separately; the calendar only ever shows the planned
 - **1.58** — Documents: Word, Excel, PDF.  **1.57** — Tapo home vs light page, Air+ wait fix.
 - **1.56** — Talks back to remarks; voice text cleaned ("dot").  **1.55** — Voice engine picker, double-check.
 - Earlier: 1.54 brains, 1.48 deck/uni, 1.32 UI, etc. (see `git log`).
+
+## Phrase sweep
+Before a build, run a batch of everyday phrases through `JarvisParser.parse` (a throwaway `Sweep.kt` in the
+scratchpad) and fix anything that lands on the wrong command; put the fixed ones in `BatchTest`.
 
 ## Known issues / watch list
 - Tapo and Air+ change their screens with updates: if a hands job fails, get the Hands log first.

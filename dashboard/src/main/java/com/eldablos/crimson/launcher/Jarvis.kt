@@ -1054,11 +1054,18 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      */
     private fun remark(text: String, cmd: Command): Boolean {
         val t = text.lowercase().trim().replace(Regex("^(hey |ok )?jarvis[,]?\\s*"), "")
-        if (t.split(Regex("\\s+")).size < 5 || looksLikeQuestion(t)) return false
+        // Short feelings count too ("I'm tired", "I'm knackered"); otherwise a sentence of five words or more.
+        val feeling = Regex("^(i'm|im|i am|i feel|feeling|i was|i've been) (so |really |very |a bit |pretty )?(tired|knackered|exhausted|shattered|bored|stressed|happy|sad|ill|sick|done|fed up|annoyed|excited|nervous|hungry|cold|hot|fine|good|great|ok|okay|alright)\\b").containsMatchIn(t)
+        if ((t.split(Regex("\\s+")).size < 5 && !feeling) || looksLikeQuestion(t)) return false
         if (Regex("^(can|could|would|will) you|^please|\\b(remind me|tell me|show me|let me know|look up|find out|check|what|when|where|how|which)\\b|\\b(want|need|wanna|like|have) to (know|see|hear|check)\\b").containsMatchIn(t)) return false
         val aboutMe = Regex("^(i|i'll|ill|i'm|im|i am|i've|ive|i have|i had|i was|i will|i just|i think|i feel|i guess|i hope|we|we're|my|so|that|that's|thats|it|it's|its|today|tonight|this morning|honestly|well|yeah|yes|haha|lol|oh|ah|anyway|by the way|btw)\\b").containsMatchIn(t)
+            || Regex("^(work|uni|the day|my day|my shift|the shift|today|tonight|lunch|dinner|class|the gym|gym) (was|is|has been|went|felt)\\b").containsMatchIn(t)
         if (!aboutMe) return false
         return when (cmd) {
+            // "I had a long day": not one of your habits, just how it went.
+            is Command.Habit -> findHabit(cmd.name) == null && Regex("\\b(day|night|shift|time|week|morning|evening|nap|rest|break|chat|laugh|row|argument)\\b").containsMatchIn(t)
+            // "I'm cold" stays the heating; "I'm tired" is a chat.
+            is Command.Climate, is Command.SetTemp -> false
             is Command.Unknown, is Command.Shift, is Command.ShiftWeek, is Command.Weather, is Command.WeatherWeek, is Command.Agenda, is Command.Travel,
             Command.Time, Command.Date, Command.Battery, Command.Greet -> true
             // "I'm okay, thanks for asking": an answer to him, not a thank-you to wave off.

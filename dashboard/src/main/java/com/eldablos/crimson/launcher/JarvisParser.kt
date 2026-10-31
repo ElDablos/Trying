@@ -322,6 +322,14 @@ object JarvisParser {
         val raw = said.trim().trimEnd('.', '!', '?')
         // "Jarvis, …" and politeness aside.
         val t = raw.lowercase()
+            // Text-speak and typos as you'd type them: "tmrw", "wat", "nxt", "lite", "switch of the light", "ive".
+            .replace(Regex("\\b(tmrw|tmr|tmw|tmoz|tomoz|2moro|2morrow|tomorow|tommorow|tommorrow|tomorro)\\b"), "tomorrow")
+            .replace(Regex("\\b(2day|tday|todai)\\b"), "today").replace(Regex("\\b(2nite|tonite)\\b"), "tonight")
+            .replace(Regex("\\bwat\\b"), "what").replace(Regex("\\bwats\\b"), "whats").replace(Regex("\\bwot\\b"), "what")
+            .replace(Regex("\\bnxt\\b"), "next").replace(Regex("\\b(plz|pls)\\b"), "please").replace(Regex("\\bu\\b"), "you").replace(Regex("\\bur\\b"), "your")
+            .replace(Regex("\\blite\\b"), "light").replace(Regex("\\blites\\b"), "lights")
+            .replace(Regex("\\b(switch|turn|put|shut) of\\b"), "$1 off").replace(Regex("\\b(light|lights|heating|heater|lamp) of\\b"), "$1 off")
+            .replace(Regex("^ive\\b"), "i've")
             .replace(Regex("^(hey |ok |okay |hi |hello )?jarvis[,!.]?\\s*"), "")
             .replace(Regex("[,]?\\s*jarvis$"), "")
             // Courtesies, but only as openers: "what can you do" keeps its "can you".
@@ -359,7 +367,7 @@ object JarvisParser {
         if (Regex("^(back ?up|save|export) (your |my |all )?(memory|memories|everything|data|brain|settings)( now)?$|^(make|do|create) a backup( now)?$").matches(t)) return Command.Backup
         if (Regex("^(restore|import|load|bring back) (your |my |the )?(memory|memories|backup|data|everything)( from (a |the )?(backup|file))?$").matches(t)) return Command.Restore
         if (Regex("^(check|compare|read|verify|is) (my |the |this |that )?(payslip|pay slip|wage slip|payslip right|pay)( (right|correct|ok|okay))?$|^(check|compare) (my )?(payslip|pay slip) (against|with) (your|my) (estimate|maths|numbers)$").matches(t)) return Command.CheckPayslip
-        if (Regex("^(morning brief(ing)?|my morning brief(ing)?|brief me for (today|the day)|what's my day (like|looking like)|how does my day look)$").matches(t)) return Command.MorningBrief
+        if (Regex("^(morning brief(ing)?|my morning brief(ing)?|brief me for (today|the day)|what'?s my day (like|looking like)|how'?s my day (looking|look)|how does my day look|what'?s today (like|looking like)|what'?s (the )?plan for today)$").matches(t)) return Command.MorningBrief
         spent(t)?.let { return it }
         if (Regex("^(how much (have i|did i|i've) spen[dt]|my spending|spending|what have i spent|what did i spend|show (me )?my spending)( money)?( so far)?( (today|this week|this month|last month|in total|altogether))?$").matches(t)) {
             return Command.Spending(when { has("today") -> "today"; has("last month") -> "lastmonth"; has("month") -> "month"; else -> "week" })
@@ -484,7 +492,8 @@ object JarvisParser {
             if (!has("weather", "outside", "forecast")) return Command.SetTemp(m.groupValues[1].replace(',', '.').toDouble())
         }
         if (climateWords && !has("weather", "outside", "forecast")) {
-            Regex("\\b(to|at) (\\d{1,2}(?:[.,]5)?)\\b").find(t)?.let { return Command.SetTemp(it.groupValues[2].replace(',', '.').toDouble()) }
+            Regex("\\b(to|at|on) (\\d{1,2}(?:[.,]5)?)\\b").find(t)?.takeIf { (it.groupValues[2].replace(',', '.').toDoubleOrNull() ?: 0.0) in 10.0..32.0 }
+                ?.let { return Command.SetTemp(it.groupValues[2].replace(',', '.').toDouble()) }
             val step = Regex("\\b(\\d|one|two|three|a degree|a bit)\\b").find(t)?.value?.let { NUMS[it] ?: it.toIntOrNull() ?: 1 }?.toDouble() ?: 1.0
             if (has("up", "warmer", "higher", "raise", "increase", "hotter")) return Command.SetTemp(null, step)
             if (has("down", "cooler", "lower", "decrease", "colder")) return Command.SetTemp(null, -step)
@@ -832,9 +841,9 @@ object JarvisParser {
         // The log, week by week: "my weekly log", "pay log", "show my earnings week by week".
         if (Regex("\\b(pay|earnings?|money|wages?|hours|work|weekly|shift) (log|history|breakdown|record|summary)\\b|\\bweek by week\\b|\\bweekly (pay|earnings|hours|log)\\b|\\blog of (my )?(hours|pay|earnings|money)").containsMatchIn(t)) return Command.PayLog
         // Hours and pay over a stretch: "how many hours this month", "what did I earn last week", "how much will I get paid this month".
-        if (has("hours", "earn", "earned", "earning", "earnings", "paid", "pay", "wages", "salary", "make", "made") &&
-            (has("how many", "how much", "what", "total", "add up") || has("earnings", "wages")) && !has("hourly rate", "an hour", "per hour", "1 hour")) {
-            val pay = has("earn", "earned", "earning", "earnings", "paid", "pay", "wages", "salary", "make", "made", "money")
+        if (has("hours", "earn", "earned", "earning", "earnings", "paid", "pay", "wages", "salary", "make", "made", "take home", "take-home", "takehome") &&
+            (has("how many", "how much", "what", "whats", "what's", "total", "add up") || has("earnings", "wages", "take home", "take-home", "takehome")) && !has("hourly rate", "an hour", "per hour", "1 hour")) {
+            val pay = has("earn", "earned", "earning", "earnings", "paid", "pay", "wages", "salary", "make", "made", "money", "take home", "take-home", "takehome")
             val period = when {
                 has("last month", "previous month") -> "lastmonth"
                 has("month", "monthly") -> "month"
@@ -896,6 +905,11 @@ object JarvisParser {
         }
         Regex("^(change|move|update|rename|push) (the |my )?(.+?) countdown (to|for|into|until) (.+)$").find(t)?.let { return Command.Change(it.groupValues[3].clean() + " countdown", orig(it.groupValues[5])) }
         if (has("countdown", "countdowns", "how long until", "how many days until", "days until", "how long till")) {
+            // "Countdown to my holiday on 3 March": a new one, when it says when.
+            Regex("^(?:countdown|count down|start a countdown|make a countdown) (?:to|till|until|for) (?:my |the )?(.+?) (?:on|is on|is|for|at) (.+)$").find(t)?.let { m ->
+                val d = dateIn(m.groupValues[2], today) ?: whenIn(m.groupValues[2], today).first
+                if (d != null) return Command.AddCountdown(orig(m.groupValues[1]).replaceFirstChar { it.uppercase() }, d)
+            }
             return Command.Countdown(Regex("(until|till|to) (my |the )?(.+)$").find(t)?.groupValues?.get(3)?.clean())
         }
         Regex("^(i (went to|did|finished|done|had)|tick( off)?|done) (the |my )?(.+)$").find(t)?.let { return Command.Habit(it.groupValues[5].clean()) }

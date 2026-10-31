@@ -492,7 +492,15 @@ object JarvisReaders {
                 val on = when {
                     texts.any { Regex("^\\d+%$").matches(it) } -> true
                     texts.any { Regex("^(off|offline)$", RegexOption.IGNORE_CASE).matches(it) } -> false
-                    else -> power?.let { if (it.isCheckable) it.isChecked else null }
+                    else -> power?.let { b ->
+                        val d = listOfNotNull(b.contentDescription, b.stateDescription).joinToString(" ").lowercase()
+                        when {
+                            b.isCheckable -> b.isChecked
+                            Regex("\\b(on|turned on)\\b").containsMatchIn(d.replace("power", "")) -> true
+                            Regex("\\b(off|turned off)\\b").containsMatchIn(d) -> false
+                            else -> null
+                        }
+                    }
                 }
                 seen += n
                 out += Light(n, power, name, on)

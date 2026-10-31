@@ -46,7 +46,9 @@ object JarvisReaders {
             if (ampm.startsWith("p") && h < 12) h += 12
             if (ampm.startsWith("a") && h == 12) h = 0
             if (h !in 0..23 || min !in 0..59) continue
-            val (label, days) = tidy(texts, text)
+            val (tidied, days) = tidy(texts, text)
+            // The name box, where the Clock gives one ("Work · 08:00": a name with a time in it is still a name).
+            val label = JarvisHands.nodes(r).firstOrNull { it.viewIdResourceName?.endsWith("alarm_name") == true }?.text?.toString()?.trim()?.ifEmpty { null } ?: tidied
             out += AlarmRow(LocalTime.of(h, min), if (sw.isCheckable) sw.isChecked else null, listOfNotNull(label, days).joinToString(" · "), sw, label, days, r)
         }
         return out.sortedBy { it.time }.also { lastAlarms = it; lastAlarmsAt = System.currentTimeMillis() }
@@ -63,9 +65,23 @@ object JarvisReaders {
         ((n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()).equals("Delete", true)
     }
 
-    /** A time wheel in the Clock's alarm editor: the wheel, and what it shows ("05", "30", "AM"). */
-    class Wheel(val node: AccessibilityNodeInfo, val value: String, val area: android.graphics.Rect, val step: Float) {
+    /**
+     * A time wheel in the Clock's alarm editor: the wheel, what it seems to show ("05", "30", "AM"), and
+     * every number on it with its height on screen ([marks]), so the chosen one can be told by where it sits.
+     */
+    class Wheel(val node: AccessibilityNodeInfo, val value: String, val area: android.graphics.Rect, val step: Float, val marks: List<Pair<String, Int>>) {
         val number: Int? get() = value.toIntOrNull()
+
+        /** The number sitting at [level] (the height of the chosen row). */
+        fun at(level: Int): Int? = marks.minByOrNull { kotlin.math.abs(it.second - level) }?.first?.toIntOrNull()
+
+        /** Where [n] sits on the wheel now, if it's showing. */
+        fun levelOf(n: Int): Int? = marks.filter { it.first.toIntOrNull() == n }.minByOrNull { kotlin.math.abs(it.second - area.centerY()) }?.second
+    }
+
+    private fun marks(nodes: List<AccessibilityNodeInfo>) = nodes.mapNotNull { n ->
+        val t = n.text?.toString()?.trim().orEmpty()
+        if (Regex("^\\d{1,2}$").matches(t) && bounds(n).height() > 0) t to bounds(n).centerY() else null
     }
 
     /** The alarm editor (after tapping an alarm): its Save button, or null when it isn't showing. */
@@ -94,7 +110,7 @@ object JarvisReaders {
             val box = JarvisHands.nodes(w).drop(1).firstOrNull { isBox(it) }
             val v = (box?.text ?: w.text ?: w.contentDescription)?.toString()?.trim()?.substringBefore(' ')?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
             val b = bounds(w)
-            Wheel(w, v, b, b.height() / 3f)
+            Wheel(w, v, b, b.height() / 3f, marks(JarvisHands.nodes(w).drop(1)))
         }.distinctBy { it.area.left to it.area.top }.sortedBy { it.area.left }
         if (found.count { it.number != null } >= 2) return found
         // Wheels that don't say what they are (Samsung Clock's "05 / 06 / 07" and "59 / 00 / 01"): the big
@@ -115,7 +131,7 @@ object JarvisReaders {
             val tops = col.map { bounds(it).centerY() }
             val step = tops.zipWithNext { a, b -> (b - a).toFloat() }.filter { it > 0 }.minOrNull() ?: bounds(mid).height().toFloat()
             val area = android.graphics.Rect(bounds(col.first())).apply { union(bounds(col.last())) }
-            Wheel(mid, mid.text.toString().trim(), area, step)
+            Wheel(mid, mid.text.toString().trim(), area, step, marks(col))
         }
     }
 

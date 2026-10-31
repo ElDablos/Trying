@@ -276,7 +276,7 @@ object JarvisParser {
         if (has("systems check", "system check", "diagnostics", "status report", "are you working", "are your hands working", "run a check")) return Command.SystemsCheck
 
         // Yes, no, undo: answers to him.
-        if (Regex("^(yes|yeah|yep|yup|sure|do it|go ahead|go for it|please do|confirm|ok|okay|alright|correct|that's right|affirmative)( (do it|go ahead|thanks))?$").matches(t)) return Command.Yes
+        if (Regex("^(yes|yeah|yep|yup|sure|do it|just do it|do it now|do it anyway|go ahead|go for it|please do|confirm|ok|okay|alright|correct|that's right|affirmative)( (do it|go ahead|thanks|now|anyway))?$").matches(t)) return Command.Yes
         if (Regex("^(no|nope|nah|cancel|don't|do not|never ?mind|forget it|leave it|no thanks|no thank you|not now)$").matches(t)) return Command.No
         if (Regex("^(delete|remove|scrap|bin|get rid of|cross out) (it|that one|this one|that note|this note)( please)?$").matches(t)) return Command.ItAction("delete")
         if (Regex("^(tick|mark|cross) (it|that|that one|this one|that note)( off)?( as done| as complete| done)?( please)?$|^(it's|that's) done$").matches(t)) return Command.ItAction("tick")

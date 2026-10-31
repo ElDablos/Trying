@@ -1345,8 +1345,17 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (wakeAt.isBefore(now)) return if (auto) null else Reply("It's past your wake-up time for that shift${sir()} (${wake.format(tf)}). Best get moving.")
         // The Clock rings an alarm at its next time, so only today's or tomorrow's can be set now.
         if (wakeAt.toLocalDate().isAfter(today.plusDays(1)) || (wakeAt.toLocalDate() == today.plusDays(1) && wake.isAfter(now.toLocalTime()))) {
-            return if (auto) null else Reply("You're on ${s.start.format(tf)} to ${s.end.format(tf)} $dayName. I'll move your work alarms the evening before, sir.",
-                card = Card("⧗", "SHIFT · ${dayName.removePrefix("on ").uppercase()}", s.times(), "work alarms the evening before", tone = Tone.GOLD))
+            if (auto) return null
+            // Why not now: moved now, they'd ring this morning (and today's shift may still need them).
+            val todays = shifts[today]?.let { t -> t to t.start.minusMinutes(lead.toLong()) }?.takeIf { it.second.isAfter(now.toLocalTime()) }
+            val why = when {
+                todays != null -> "Your work alarms are still set for today's ${todays.first.start.format(tf)} shift, from ${todays.second.format(tf)}. I'll move them for $dayName this evening, once they've done their job."
+                wakeAt.toLocalDate() == today.plusDays(1) -> "If I moved them now they'd ring this morning at ${wake.format(tf)}, not $dayName's, so I'll move them this evening."
+                else -> "I'll move your work alarms the evening before."
+            }
+            pending = Pending.Confirm({ Reply("The Clock rings an alarm at the next ${wake.format(tf)}${sir()}, which is this morning. I'll do it this evening; it'll be the first thing I tell you after 8.") }, "Very good.")
+            return Reply("You're on ${s.start.format(tf)} to ${s.end.format(tf)} $dayName, up at ${wake.format(tf)}. $why",
+                card = Card("⧗", "SHIFT · ${dayName.removePrefix("on ").uppercase()}", s.times(), "work alarms moved the evening before", tone = Tone.GOLD))
         }
         if (auto && JarvisMemory.workAlarms(context) == wake.toString() && JarvisMemory.workAlarmsFor(context) == date.toString()) return null
         val leave = s.start.minusMinutes(JarvisMemory.commuteMinutes(context).toLong())
@@ -1427,6 +1436,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var scrolls = 0
         var moved = 0
         var drag = false
+        var level: Int? = null
+        var fresh = false
         var before = emptyList<LocalTime>()
         val failed = "I couldn't get to the Clock's alarms, sir."
         JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), failed, timeout = 180_000) { root, tries ->
@@ -1451,13 +1462,26 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                     if (++stuck > 8) return@custom wheelsStuck(root, times, date, outro, moved)
                     return@custom null
                 }
-                val seen = wheels.joinToString { it.value }
+                // Which row is the chosen one: where this alarm's own time sits when it opens (06 and 25 for
+                // 06:25), found once; from then on, whatever number sits at that height.
+                if (level == null) level = nums[1].levelOf(job.first.minute) ?: nums[0].levelOf(job.first.hour)
+                val at = level
+                val hour = (if (at != null) nums[0].at(at) else null) ?: nums[0].number!!
+                val minute = (if (at != null) nums[1].at(at) else null) ?: nums[1].number!!
+                // Opened, and not showing the alarm's own time: he's reading the wheels wrong, so hands off.
+                if (fresh) {
+                    fresh = false
+                    if (hour != job.first.hour || minute != job.first.minute) {
+                        JarvisReaders.clockCancel(root)?.let { JarvisHands.press(it) } ?: JarvisHands.back()
+                        return@custom "I opened your ${job.first.format(tf)} alarm but couldn't read the Clock's time wheels properly, sir, so I've left it alone. " +
+                            "Send the hands log and it'll be fixed."
+                    }
+                }
+                val seen = "$hour:$minute"
                 // A wheel that said it turned but didn't: by finger from now on.
                 if (seen == last) { stuck++; drag = true } else stuck = 0
                 last = seen
                 if (stuck > 4) return@custom wheelsStuck(root, times, date, outro, moved)
-                val hour = nums[0].number!!
-                val minute = nums[1].number!!
                 // Minutes first: going round past the hour can nudge the hour, which is then put right.
                 var dragged = false
                 when {
@@ -1542,6 +1566,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 editing = next
                 opened = 0
                 named = false
+                fresh = true
                 cool = 2
                 return@custom null
             }

@@ -573,7 +573,8 @@ object JarvisReaders {
         // now carry the light's name the same way the page does.
         if (all.any { idOf(it) in setOf("device_switch", "srv_home_list", "tab_home", "cl_family_name_toolbar", "content_view_pager") }) return false
         return all.any {
-            idOf(it) in setOf("brightness_seek_bar", "cl_power", "ib_power", "color_view", "tv_brightness_title") ||
+            // tv_device_name too: with the home screen ruled out, it's the page, even half-drawn.
+            idOf(it) in setOf("brightness_seek_bar", "cl_power", "ib_power", "color_view", "tv_brightness_title", "tv_device_name") ||
                 says(it, "Brightness") || says(it, "Power") || descOf(it).startsWith("Power,", true) || descOf(it).startsWith("Brightness,", true)
         }
     }

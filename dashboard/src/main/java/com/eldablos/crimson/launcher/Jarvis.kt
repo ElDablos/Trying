@@ -3790,8 +3790,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 }
                 if (!JarvisReaders.tapoLightPage(root)) {
                     val l = JarvisReaders.light(JarvisReaders.lights(root), name) ?: run {
-                        // Somewhere else in Tapo: back out towards the list of lights.
-                        if (tries == 3 || tries == 6) JarvisHands.back()
+                        // Somewhere else in Tapo (not still opening): back out towards the list of lights.
+                        if ((tries == 4 || tries == 7) && JarvisHands.nodes(root).size > 15) JarvisHands.back()
                         return@custom if (tries < 10) null else "I couldn't see the light in Tapo, sir."
                     }
                     // Its card, once (and again if the page still hasn't opened after a few looks).

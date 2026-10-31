@@ -1383,10 +1383,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     /** One wheel on by [steps] (back when negative): the wheel's own scroll, or a finger drag where it hasn't one. */
     /** True when it took a drag, which needs longer to settle before he looks again. */
-    private fun roll(w: JarvisReaders.Wheel, steps: Int): Boolean {
+    private fun roll(w: JarvisReaders.Wheel, steps: Int, drag: Boolean): Boolean {
         if (steps == 0) return false
         val action = if (steps > 0) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-        if (w.node.performAction(action)) {
+        if (!drag && w.node.performAction(action)) {
             repeat(abs(steps) - 1) { w.node.performAction(action) }
             return false
         }
@@ -1426,6 +1426,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var named = false
         var scrolls = 0
         var moved = 0
+        var drag = false
         var before = emptyList<LocalTime>()
         val failed = "I couldn't get to the Clock's alarms, sir."
         JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), failed, timeout = 180_000) { root, tries ->
@@ -1451,7 +1452,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                     return@custom null
                 }
                 val seen = wheels.joinToString { it.value }
-                if (seen == last) stuck++ else stuck = 0
+                // A wheel that said it turned but didn't: by finger from now on.
+                if (seen == last) { stuck++; drag = true } else stuck = 0
                 last = seen
                 if (stuck > 4) return@custom wheelsStuck(root, times, date, outro, moved)
                 val hour = nums[0].number!!
@@ -1459,10 +1461,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 // Minutes first: going round past the hour can nudge the hour, which is then put right.
                 var dragged = false
                 when {
-                    minute != to.minute -> dragged = roll(nums[1], turns(minute, to.minute, 60))
-                    half == null && hour != to.hour -> dragged = roll(nums[0], turns(hour, to.hour, 24))
-                    half != null && hour % 12 != to.hour % 12 -> dragged = roll(nums[0], turns(hour % 12, to.hour % 12, 12))
-                    half != null && half.value.lowercase().startsWith("p") != (to.hour >= 12) -> dragged = roll(half, if (to.hour >= 12) 1 else -1)
+                    minute != to.minute -> dragged = roll(nums[1], turns(minute, to.minute, 60), drag)
+                    half == null && hour != to.hour -> dragged = roll(nums[0], turns(hour, to.hour, 24), drag)
+                    half != null && hour % 12 != to.hour % 12 -> dragged = roll(nums[0], turns(hour % 12, to.hour % 12, 12), drag)
+                    half != null && half.value.lowercase().startsWith("p") != (to.hour >= 12) -> dragged = roll(half, if (to.hour >= 12) 1 else -1, drag)
                     // Named just "Work" (not "Work · 08:00", which goes out of date as it moves).
                     !named && JarvisReaders.clockNameBox(root)?.text?.toString()?.trim() != WORK -> {
                         named = true

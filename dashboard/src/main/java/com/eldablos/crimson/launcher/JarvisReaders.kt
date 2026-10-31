@@ -107,8 +107,11 @@ object JarvisReaders {
             val col = columns.firstOrNull { c -> kotlin.math.abs(bounds(c[0]).centerX() - x) < bounds(c[0]).width() } ?: ArrayList<AccessibilityNodeInfo>().also { columns += it }
             if (col.none { bounds(it).top == bounds(n).top }) col += n
         }
+        // The chosen number sits level with the ":" between the wheels (mid-turn there can be four showing).
+        val colon = all.firstOrNull { (it.text ?: it.contentDescription)?.toString()?.trim() == ":" }?.let { bounds(it).centerY() }
         return columns.filter { it.size >= 2 }.sortedBy { bounds(it[0]).left }.map { col ->
-            val mid = if (col.size >= 3) col[col.size / 2] else col.maxByOrNull { bounds(it).height() }!!
+            val level = colon ?: ((bounds(col.first()).centerY() + bounds(col.last()).centerY()) / 2)
+            val mid = col.minByOrNull { kotlin.math.abs(bounds(it).centerY() - level) }!!
             val tops = col.map { bounds(it).centerY() }
             val step = tops.zipWithNext { a, b -> (b - a).toFloat() }.filter { it > 0 }.minOrNull() ?: bounds(mid).height().toFloat()
             val area = android.graphics.Rect(bounds(col.first())).apply { union(bounds(col.last())) }

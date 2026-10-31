@@ -210,6 +210,9 @@ back to One UI Home the same way at any time.
     paid fortnightly. "What have I earned this week / this month", "when's payday?", and "my pay log"
     (week by week, with paydays, to share). Each shift shows what it pays before and after tax. Change the
     details by saying them ("my basic rate is…", "tronc is about… an hour", "my tax code is…").
+  - **Clocking in and out**: "I've clocked in" / "I'm starting work now" takes the exact time (or "I started
+    work at 7:10"); "I've finished work" / "I clocked out at 6:15" ends the shift then. The shift is saved
+    as you really worked it (calendar too), and he says how it compares with the plan and what it pays.
   - **The evening before**: from 7pm before a working or uni day, one heads-up with the shift, when you're
     up and out, whether the work alarms are set, uni, the tube on your line and rain on the way.
   - **He checks his work**: after switching a Tapo light he looks again, and tries once more or tells you

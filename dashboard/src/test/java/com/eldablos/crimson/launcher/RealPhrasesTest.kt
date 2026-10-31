@@ -107,6 +107,23 @@ class RealPhrasesTest {
     }
 
     @Test
+    fun clockingInAndOut() {
+        assertEquals(Command.ClockIn(null), p("Hey Jarvis I start work now"))
+        assertEquals(Command.ClockIn(null), p("I have clocked in for work now"))
+        assertEquals(Command.ClockIn(null), p("clock me in"))
+        assertEquals(Command.ClockIn(null), p("I'm at work now"))
+        assertEquals(Command.ClockIn(LocalTime.of(7, 10)), p("I started work at 7:10"))
+        assertEquals(Command.ClockOut(null), p("I have finished work now"))
+        assertEquals(Command.ClockOut(null), p("I've clocked out"))
+        assertEquals(Command.ClockOut(null), p("just finished my shift"))
+        assertEquals(Command.ClockOut(LocalTime.of(6, 15)), p("I finished work at 6:15"))
+        assertEquals(Command.ClockOut(LocalTime.of(18, 30)), p("I clocked out at 6:30pm"))
+        // Questions about the shift aren't clocking.
+        assertEquals(Command.Shift(1), p("what time do I finish tomorrow"))
+        assertEquals(Command.Shift(1), p("when do I start work tomorrow"))
+    }
+
+    @Test
     fun notesAndHabits() {
         assertEquals(Command.TickAllNotes, p("tick my notes"))
         assertEquals(Command.TickNote("#2"), p("I want to finish my second note"))

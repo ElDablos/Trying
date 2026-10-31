@@ -826,6 +826,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.UniWhen -> uniWhen(cmd.day)
         is Command.Hours -> hours(cmd.period, cmd.pay)
         Command.PayLog -> payLog()
+        is Command.ClockIn -> clockIn(cmd.time)
+        is Command.ClockOut -> clockOut(cmd.time)
         Command.Payday -> payday()
         is Command.SetPay -> setPay(cmd.what, cmd.value, cmd.code)
         is Command.SetRate -> {
@@ -1462,6 +1464,100 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         return Reply("Noted${sir()}. Basic ${money(s.basicRate)} an hour plus about ${money(s.troncRate)} TRONC, tax code ${s.taxCode}, pension ${"%.0f".format(Locale.ROOT, s.pensionPct)}%.",
             card = Card("£", "YOUR PAY", money(s.hourly) + "/H", "basic ${money(s.basicRate)} · TRONC ${money(s.troncRate)} · ${s.taxCode} · NEST ${"%.0f".format(Locale.ROOT, s.pensionPct)}%", tone = Tone.GOLD),
             actions = listOf(Action("NEXT PAYDAY", "what's my next payday")))
+    }
+
+    /** A time said without am or pm ("I finished at 6:15"): the latest one that's already been, today or last night. */
+    private fun recent(t: LocalTime, now: LocalDateTime): LocalDateTime {
+        val today = now.toLocalDate()
+        val options = listOfNotNull(today.atTime(t), if (t.hour < 12) today.atTime(t.plusHours(12)) else null, today.minusDays(1).atTime(t))
+        return options.filter { !it.isAfter(now) }.maxOrNull() ?: today.atTime(t)
+    }
+
+    private fun minutesSaid(m: Long): String = when {
+        m < 60 -> "$m minute${if (m == 1L) "" else "s"}"
+        m % 60 == 0L -> "${m / 60} hour${if (m == 60L) "" else "s"}"
+        else -> "${m / 60}h ${m % 60}m"
+    }
+
+    /**
+     * "I've clocked in" (now, to the minute) or "I started work at 7:10": today's shift starts then. A planned
+     * shift keeps its finish until you clock out; with none planned he starts one. Saved and synced as usual.
+     */
+    private fun clockIn(time: LocalTime?): Reply {
+        val now = LocalDateTime.now().withSecond(0).withNano(0)
+        val at = time?.let { recent(it, now) } ?: now
+        val date = at.toLocalDate()
+        val planned = Shifts.all(context)[date]
+        val was = Shifts.clockedIn(context)
+        val end = planned?.end ?: at.toLocalTime().plusHours(8)
+        val shift = Shifts.Shift(at.toLocalTime(), end, planned?.name ?: shiftName(at.toLocalTime(), end))
+        Shifts.set(context, date, shift)
+        Shifts.setClockedIn(context, at)
+        Shifts.sync(context)
+        push("Clock-in undone") {
+            Shifts.set(context, date, planned)
+            Shifts.setClockedIn(context, was)
+            Shifts.sync(context)
+            "Put your shift back as it was."
+        }
+        val diff = planned?.let { java.time.Duration.between(it.start, at.toLocalTime()).toMinutes() }
+        val vsPlan = when {
+            diff == null -> "No shift was planned today, so I've started one. Tell me when you finish."
+            diff > 0 -> "That's ${minutesSaid(diff)} after your ${planned.start.format(tf)} start. Planned finish ${end.format(tf)}."
+            diff < 0 -> "${minutesSaid(-diff)} early. Planned finish ${end.format(tf)}."
+            else -> "Right on time. Planned finish ${end.format(tf)}."
+        }
+        return Reply("Clocked in at ${at.toLocalTime().format(tf)}${sir()}. $vsPlan",
+            card = Card("⧗", "CLOCKED IN", at.toLocalTime().format(tf), if (planned != null) "planned ${planned.times()}" else "no shift was planned", tone = Tone.HOT),
+            actions = listOf(undoAction, Action("CLOCK OUT", "I've finished work")))
+    }
+
+    /**
+     * "I've finished work" (now) or "I clocked out at 6:15": the shift ends then, from when you clocked in
+     * (or its planned start), so the hours and pay are what you really worked.
+     */
+    private fun clockOut(time: LocalTime?): Reply {
+        val now = LocalDateTime.now().withSecond(0).withNano(0)
+        val at = time?.let { recent(it, now) } ?: now
+        val inAt = Shifts.clockedIn(context)?.takeIf { it.isBefore(at) && java.time.Duration.between(it, at).toHours() < 20 }
+        val all = Shifts.all(context)
+        // Which day's shift: the one you clocked in for, today's, or last night's running past midnight.
+        val date = inAt?.toLocalDate()
+            ?: at.toLocalDate().takeIf { all[it] != null }
+            ?: at.toLocalDate().minusDays(1).takeIf { all[it]?.overnight == true }
+            ?: return Reply("I didn't have you at work today${sir()}. Tell me when you started, like \"I started work at 7\", and I'll record the whole shift.",
+                actions = listOf(Action("I STARTED AT…", "I started work at ")))
+        val planned = all[date]
+        val start = inAt?.toLocalTime() ?: planned!!.start
+        val shift = Shifts.Shift(start, at.toLocalTime(), planned?.name ?: shiftName(start, at.toLocalTime()))
+        val was = Shifts.clockedIn(context)
+        Shifts.set(context, date, shift)
+        Shifts.setClockedIn(context, null)
+        Shifts.sync(context)
+        push("Clock-out undone") {
+            Shifts.set(context, date, planned)
+            Shifts.setClockedIn(context, was)
+            Shifts.sync(context)
+            "Put your shift back as it was."
+        }
+        val diff = planned?.let { shift.minutes - it.minutes }
+        val vsPlan = when {
+            diff == null || diff == 0L -> ""
+            diff > 0 -> " (${minutesSaid(diff)} more than planned)"
+            else -> " (${minutesSaid(-diff)} less than planned)"
+        }
+        val setup = Pay.setup(context)
+        val gross = shift.minutes / 60.0 * setup.hourly
+        val (_, b) = Pay.periodOf(date, setup)
+        val startNote = if (inAt == null) " I've kept your start at ${start.format(tf)}; if it was different, say \"I started work at …\"." else ""
+        return Reply("Clocked out at ${at.toLocalTime().format(tf)}${sir()}. ${if (date == now.toLocalDate()) "Today" else whenText(date, null).replaceFirstChar { it.uppercase() }}: ${start.format(tf)} till ${at.toLocalTime().format(tf)}, " +
+            "${minutesSaid(shift.minutes)}$vsPlan. That's ${money(gross)} before tax, in your ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))} pay.$startNote",
+            card = Card("⧗", "CLOCKED OUT", shift.times(), "${minutesSaid(shift.minutes)} · ${money(gross)} before tax", listOfNotNull(
+                planned?.let { Row("PLANNED", it.times()) },
+                Row("WORKED", minutesSaid(shift.minutes), ok = true),
+                Row("PAYDAY", Pay.payday(b).format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))),
+            ), Tone.GREEN),
+            actions = listOf(undoAction, Action("NEXT PAYDAY", "what's my next payday")))
     }
 
     /** The fortnight you're in, as a payslip: when it's paid and what comes home. */
@@ -3860,7 +3956,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "What's my screen time?", "Tick off buy milk", "Set my alarms for work tomorrow", "Turn off my work alarms",
             "What's my rota this week?", "What's my rota next week?", "What have I earned this month?", "How many hours this month?",
             "Have I got uni tomorrow?", "I've got uni every Wednesday 5 till 9", "How's the tube?", "Any delays tomorrow?", "Lock my phone",
-            "Next colour", "Set the heating to 24", "Turn the heating off", "Wake log", "Hands log", "When's payday?", "My pay log",
+            "Next colour", "Set the heating to 24", "Turn the heating off", "Wake log", "Hands log", "When's payday?", "My pay log", "I've clocked in", "I've finished work",
         )
 
         /** Soundex: names that sound alike share a code ("cloud" and "Claude" are both C430). */

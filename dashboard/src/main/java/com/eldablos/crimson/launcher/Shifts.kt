@@ -108,6 +108,15 @@ object Shifts {
     /** The Monday of [date]'s week. */
     fun monday(date: LocalDate): LocalDate = date.minusDays((date.dayOfWeek.value - 1).toLong())
 
+    // --- Clocking in and out ---
+
+    /** When you clocked in, while you're at work ("I've clocked in"); null once you've clocked out. */
+    fun clockedIn(context: Context): java.time.LocalDateTime? =
+        prefs(context).getString("clock_in", null)?.let { runCatching { java.time.LocalDateTime.parse(it) }.getOrNull() }
+
+    fun setClockedIn(context: Context, at: java.time.LocalDateTime?) =
+        prefs(context).edit().apply { if (at == null) remove("clock_in") else putString("clock_in", at.withSecond(0).withNano(0).toString()) }.apply()
+
     // --- The calendar ---
 
     fun canWrite(context: Context) = context.checkSelfPermission(Manifest.permission.WRITE_CALENDAR) == PackageManager.PERMISSION_GRANTED &&

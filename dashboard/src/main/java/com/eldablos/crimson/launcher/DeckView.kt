@@ -520,13 +520,15 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     /** Reads the shifts, then brings the calendar up to date with them in the background. */
     private fun loadShifts() {
         shifts = Shifts.all(context)
-        shiftEvents = Shifts.eventIds(context).values.toSet()
+        shiftEvents = Shifts.eventIds(context).values.toSet() + Uni.eventIds(context).values
         shiftPending = Shifts.pending(context)
         val app = context.applicationContext
         Thread {
             Shifts.sync(app)
+            Uni.sync(app)
             val pending = Shifts.pending(app)
-            val ids = Shifts.eventIds(app).values.toSet()
+            // Uni's own events too: the briefing says uni itself, not as a calendar entry.
+            val ids = Shifts.eventIds(app).values.toSet() + Uni.eventIds(app).values
             val cal = Shifts.calendarId(app)?.let { id -> Shifts.calendars(app).firstOrNull { it.id == id }?.name }
             main.post {
                 shiftPending = pending
@@ -544,6 +546,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         Toast.makeText(context, "Adding your shifts to the calendar…", Toast.LENGTH_SHORT).show()
         Thread {
             val n = Shifts.sync(app, force = true)
+            Uni.sync(app, force = true)
             val cal = Shifts.calendarId(app)?.let { id -> Shifts.calendars(app).firstOrNull { it.id == id }?.name } ?: "your calendar"
             main.post {
                 Toast.makeText(context, if (n <= 0) "Nothing to add: no shifts from last week on" else "$n shift${if (n == 1) "" else "s"} saved to $cal", Toast.LENGTH_LONG).show()

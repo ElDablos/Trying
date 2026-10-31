@@ -78,6 +78,12 @@ class RefreshJob : JobService() {
             } catch (e: Exception) {
                 Log.w(TAG, "Phone habits failed", e)
             }
+            // Weekly uni kept a term ahead in the calendar.
+            if (background) try {
+                com.eldablos.crimson.launcher.Uni.sync(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "Uni calendar failed", e)
+            }
             if (background) try {
                 com.eldablos.crimson.launcher.JarvisProactive.notify(context)
             } catch (e: Exception) {

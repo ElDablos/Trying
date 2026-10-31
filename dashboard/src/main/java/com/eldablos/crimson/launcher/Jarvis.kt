@@ -2499,11 +2499,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val uniBefore = uni.associate { it.date to Uni.hadDay(context, it.date) }
         days.forEach { d -> Shifts.set(context, d.date, if (d.start != null && d.end != null) Shifts.Shift(d.start, d.end, shiftName(d.start, d.end)) else null) }
         uni.forEach { u -> Uni.set(context, u.date, Uni.Session(u.start!!, u.end!!), everyWeek = false) }
+        if (uni.isNotEmpty()) Uni.syncSoon(context)
         val synced = Shifts.sync(context) >= 0
         push("Rota put back") {
             before.forEach { (d, s) -> Shifts.set(context, d, s) }
             uniBefore.forEach { (d, h) -> Uni.restore(context, d, h.first, h.second) }
             Shifts.sync(context)
+            Uni.syncSoon(context)
             "Put your shifts back as they were."
         }
         fun dayName(d: LocalDate) = d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
@@ -2548,9 +2550,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val before = dates.associateWith { Uni.hadDay(context, it) }
         val weeklyBefore = Uni.weekly(context)
         dates.forEach { Uni.set(context, it, session, weekly) }
+        Uni.syncSoon(context)
         push("Uni put back") {
             before.forEach { (d, h) -> Uni.restore(context, d, h.first, h.second) }
             if (weekly) dates.forEach { d -> Uni.set(context, d, weeklyBefore[d.dayOfWeek], everyWeek = true) }
+            Uni.syncSoon(context)
             "Uni's back as it was."
         }
         fun dayName(d: LocalDate) = d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
@@ -2559,7 +2563,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val next = dates.map { d -> shifts[d]?.let { "${dayName(d)} you're working ${it.start.format(tf)} till ${it.end.format(tf)}, then uni." } }.filterNotNull()
         val whenSaid = if (weekly) "every ${dates.joinToString(" and ") { dayName(it) }}" else dates.joinToString(" and ") { whenText(it, null) }
         return Reply(
-            "Uni $whenSaid, ${start.format(tf)} till ${end.format(tf)}${sir()}. " +
+            "Uni $whenSaid, ${start.format(tf)} till ${end.format(tf)}${sir()}${if (Shifts.canWrite(context)) ", in the calendar next to your shifts" else ""}. " +
                 (if (clash.isNotEmpty()) "Careful: that overlaps your shift ${clash.joinToString(" and ") { (d, s) -> "${dayName(d)} (${s.times()})" }}." else next.joinToString(" ")),
             card = Card("✎", if (weekly) "UNI · EVERY WEEK" else "UNI", session.times(), whenSaid.uppercase(),
                 dates.map { d -> Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, listOfNotNull(shifts[d]?.let { "SHIFT ${it.times()}" }, "UNI ${session.times()}").joinToString(" · "), ok = clash.none { it.first == d }) },
@@ -2572,13 +2576,16 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun removeUni(date: LocalDate?, weekly: Boolean): Reply {
         if (date == null) {
             Uni.clear(context)
+            Uni.syncSoon(context)
             return Reply("Uni's off your week for good${sir()}. Congratulations, if that's what it is.")
         }
         val had = Uni.on(context, date) ?: return Reply("You haven't got uni ${whenText(date, null)} anyway${sir()}.")
         val before = Uni.hadDay(context, date)
         Uni.set(context, date, null, weekly)
+        Uni.syncSoon(context)
         push("Uni put back") {
             if (weekly) Uni.set(context, date, had, everyWeek = true) else Uni.restore(context, date, before.first, before.second)
+            Uni.syncSoon(context)
             "Uni's back on."
         }
         return Reply(if (weekly) "Done. No more uni on ${date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())}s." else "Done. No uni ${whenText(date, null)}${sir()}.",

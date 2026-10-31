@@ -198,6 +198,19 @@ back to One UI Home the same way at any time.
     off. The first time, he asks which of your alarms are the work ones and names them. From 8pm,
     the first time you're on the home screen, he does it for tomorrow by himself and tells you (off in
     his settings: Work alarms each evening). "Turn off my work alarms" works too.
+  - **Your rota in one go**: "add shifts next week on Tuesday, Wednesday and Sunday 7 till 3" (the other
+    days that week become days off), "Thursday and Friday 7 till 7", "Saturday the same", "Wednesday off";
+    "what's my rota this week / next week".
+  - **Uni next to your shifts**: "I got uni from 5pm to 9pm on Wednesday" (with a tap to make it every
+    week), "uni every Wednesday 5 till 9", "no uni this Wednesday", "have I got uni tomorrow". It goes in
+    the same calendar as your shifts, shows on the shift planner in blue and in the briefing, and he warns
+    you if it overlaps a shift.
+  - **Hours and pay**: "how many hours this month", "what have I earned this week" (once you've said
+    "I get paid £12.50 an hour").
+  - **The evening before**: from 7pm before a working or uni day, one heads-up with the shift, when you're
+    up and out, whether the work alarms are set, uni, the tube on your line and rain on the way.
+  - **He checks his work**: after switching a Tapo light he looks again, and tries once more or tells you
+    if it didn't take. "Wake log" shows why he woke when he heard his name.
   - **Rules he keeps**: "the 7pm alarm always stays on", "never turn off the hallway light". Anything that
     would switch one off asks you first.
   - **Teach him how you do things**: "I need to wake up at 5 to start work at 7, I set 6 alarms 5 minutes

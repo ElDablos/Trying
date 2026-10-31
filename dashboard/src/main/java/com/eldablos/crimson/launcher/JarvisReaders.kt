@@ -64,7 +64,7 @@ object JarvisReaders {
     }
 
     /** A time wheel in the Clock's alarm editor: the wheel, and what it shows ("05", "30", "AM"). */
-    class Wheel(val node: AccessibilityNodeInfo, val value: String) {
+    class Wheel(val node: AccessibilityNodeInfo, val value: String, val area: android.graphics.Rect, val step: Float) {
         val number: Int? get() = value.toIntOrNull()
     }
 
@@ -90,11 +90,30 @@ object JarvisReaders {
         }
         // The innermost ones: the scroll view round the whole editor holds the wheels, but isn't one.
         val inner = wheels.filter { w -> wheels.none { o -> o !== w && o != w && contains(w, o) } }
-        return inner.mapNotNull { w ->
+        val found = inner.mapNotNull { w ->
             val box = JarvisHands.nodes(w).drop(1).firstOrNull { isBox(it) }
             val v = (box?.text ?: w.text ?: w.contentDescription)?.toString()?.trim()?.substringBefore(' ')?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            Wheel(w, v)
-        }.distinctBy { bounds(it.node).let { b -> b.left to b.top } }.sortedBy { bounds(it.node).left }
+            val b = bounds(w)
+            Wheel(w, v, b, b.height() / 3f)
+        }.distinctBy { it.area.left to it.area.top }.sortedBy { it.area.left }
+        if (found.count { it.number != null } >= 2) return found
+        // Wheels that don't say what they are (Samsung Clock's "05 / 06 / 07" and "59 / 00 / 01"): the big
+        // two-digit numbers in columns, above Save; each column's middle one is its value.
+        val save = clockSave(root)?.let { bounds(it).top } ?: Int.MAX_VALUE
+        val digits = all.filter { n -> Regex("^\\d{2}$").matches(n.text?.toString()?.trim().orEmpty()) && bounds(n).let { it.bottom < save && it.height() > 0 } }
+        val columns = ArrayList<MutableList<AccessibilityNodeInfo>>()
+        for (n in digits.sortedBy { bounds(it).top }) {
+            val x = bounds(n).centerX()
+            val col = columns.firstOrNull { c -> kotlin.math.abs(bounds(c[0]).centerX() - x) < bounds(c[0]).width() } ?: ArrayList<AccessibilityNodeInfo>().also { columns += it }
+            if (col.none { bounds(it).top == bounds(n).top }) col += n
+        }
+        return columns.filter { it.size >= 2 }.sortedBy { bounds(it[0]).left }.map { col ->
+            val mid = if (col.size >= 3) col[col.size / 2] else col.maxByOrNull { bounds(it).height() }!!
+            val tops = col.map { bounds(it).centerY() }
+            val step = tops.zipWithNext { a, b -> (b - a).toFloat() }.filter { it > 0 }.minOrNull() ?: bounds(mid).height().toFloat()
+            val area = android.graphics.Rect(bounds(col.first())).apply { union(bounds(col.last())) }
+            Wheel(mid, mid.text.toString().trim(), area, step)
+        }
     }
 
     private fun contains(outer: AccessibilityNodeInfo, inner: AccessibilityNodeInfo): Boolean {
@@ -103,10 +122,12 @@ object JarvisReaders {
         return a.contains(b) && a != b
     }
 
-    /** The alarm name box in the editor ("Alarm name"), for naming one "Work". */
-    fun clockNameBox(root: AccessibilityNodeInfo): AccessibilityNodeInfo? = JarvisHands.nodes(root).firstOrNull { n ->
-        n.className?.toString()?.contains("EditText") == true && n.isEditable &&
-            listOfNotNull(n.hintText, n.contentDescription, n.viewIdResourceName, n.text).joinToString(" ").contains(Regex("name|label", RegexOption.IGNORE_CASE))
+    /** The alarm name box in the editor ("Alarm name", or a name already in it like "Work · 08:00"), for naming one "Work". */
+    fun clockNameBox(root: AccessibilityNodeInfo): AccessibilityNodeInfo? = JarvisHands.nodes(root).filter { n ->
+        n.className?.toString()?.contains("EditText") == true && n.isEditable && !Regex("^\\d{1,2}$").matches(n.text?.toString()?.trim().orEmpty())
+    }.let { boxes ->
+        boxes.firstOrNull { n -> listOfNotNull(n.hintText, n.contentDescription, n.viewIdResourceName).joinToString(" ").contains(Regex("name|label", RegexOption.IGNORE_CASE)) }
+            ?: boxes.firstOrNull()
     }
 
     /** The last list read, for the card that goes with what he says. */

@@ -1382,18 +1382,22 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     /** One wheel on by [steps] (back when negative): the wheel's own scroll, or a finger drag where it hasn't one. */
-    private fun roll(w: JarvisReaders.Wheel, steps: Int) {
-        if (steps == 0) return
+    /** True when it took a drag, which needs longer to settle before he looks again. */
+    private fun roll(w: JarvisReaders.Wheel, steps: Int): Boolean {
+        if (steps == 0) return false
         val action = if (steps > 0) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
         if (w.node.performAction(action)) {
             repeat(abs(steps) - 1) { w.node.performAction(action) }
-            return
+            return false
         }
-        // A drag of one row per step: up for later, down for earlier.
-        val b = android.graphics.Rect().also { w.node.getBoundsInScreen(it) }
-        val row = b.height() / 3f
-        val dy = (if (steps > 0) -1 else 1) * row * abs(steps).coerceAtMost(6)
-        JarvisHands.swipe(b.exactCenterX(), b.exactCenterY(), b.exactCenterX(), b.exactCenterY() + dy, 400L + 90L * abs(steps).coerceAtMost(6))
+        // A slow drag of one row per step (Samsung Clock's wheels): up for later, down for earlier. Six at most
+        // at a time; he looks again and goes on from where it landed.
+        val n = abs(steps).coerceAtMost(6)
+        val dy = (if (steps > 0) -1 else 1) * w.step * n
+        val x = w.area.exactCenterX()
+        val y = w.area.exactCenterY() - dy / 2
+        JarvisHands.swipe(x, y, x, y + dy, 500L + 120L * n)
+        return true
     }
 
     /** The shortest way round a wheel of [size] from [from] to [to]. */
@@ -1424,7 +1428,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var moved = 0
         var before = emptyList<LocalTime>()
         val failed = "I couldn't get to the Clock's alarms, sir."
-        JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), failed, timeout = 150_000) { root, tries ->
+        JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), failed, timeout = 180_000) { root, tries ->
             if (cool > 0) {
                 cool--
                 return@custom null
@@ -1453,12 +1457,14 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 val hour = nums[0].number!!
                 val minute = nums[1].number!!
                 // Minutes first: going round past the hour can nudge the hour, which is then put right.
+                var dragged = false
                 when {
-                    minute != to.minute -> roll(nums[1], turns(minute, to.minute, 60))
-                    half == null && hour != to.hour -> roll(nums[0], turns(hour, to.hour, 24))
-                    half != null && hour % 12 != to.hour % 12 -> roll(nums[0], turns(hour % 12, to.hour % 12, 12))
-                    half != null && half.value.lowercase().startsWith("p") != (to.hour >= 12) -> roll(half, if (to.hour >= 12) 1 else -1)
-                    adopt != null && !named -> {
+                    minute != to.minute -> dragged = roll(nums[1], turns(minute, to.minute, 60))
+                    half == null && hour != to.hour -> dragged = roll(nums[0], turns(hour, to.hour, 24))
+                    half != null && hour % 12 != to.hour % 12 -> dragged = roll(nums[0], turns(hour % 12, to.hour % 12, 12))
+                    half != null && half.value.lowercase().startsWith("p") != (to.hour >= 12) -> dragged = roll(half, if (to.hour >= 12) 1 else -1)
+                    // Named just "Work" (not "Work · 08:00", which goes out of date as it moves).
+                    !named && JarvisReaders.clockNameBox(root)?.text?.toString()?.trim() != WORK -> {
                         named = true
                         JarvisReaders.clockNameBox(root)?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
                             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, WORK)
@@ -1475,7 +1481,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                         return@custom null
                     }
                 }
-                cool = 1
+                cool = if (dragged) 3 else 1
                 return@custom null
             }
             val rows = JarvisReaders.alarms(root)

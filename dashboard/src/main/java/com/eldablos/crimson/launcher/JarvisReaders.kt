@@ -493,7 +493,7 @@ object JarvisReaders {
             val out = ArrayList<Light>()
             val seen = HashSet<AccessibilityNodeInfo>()
             for (n in JarvisHands.nodes(root)) {
-                if (!n.isClickable || n in seen) continue
+                if (!n.isClickable || n in seen || !n.isVisibleToUser || bounds(n).left < 0) continue
                 val inside = JarvisHands.nodes(n).drop(1)
                 val buttons = inside.filter { it.isClickable }
                 val texts = JarvisHands.texts(n)
@@ -529,7 +529,10 @@ object JarvisReaders {
      */
     private fun tapoCards(root: AccessibilityNodeInfo): List<Light> {
         val all = JarvisHands.nodes(root)
-        val switches = all.filter { idOf(it) == "device_switch" }.ifEmpty { all.filter { idOf(it) == "power_button_view" } }
+        // Only cards really on screen: Tapo keeps other tabs' copies of the same card off to the side, and a
+        // press on one of those works the light while what's on screen doesn't change.
+        fun onScreen(n: AccessibilityNodeInfo) = n.isVisibleToUser && bounds(n).let { it.left >= 0 && it.top >= 0 && it.right > it.left && it.bottom > it.top }
+        val switches = all.filter { idOf(it) == "device_switch" && onScreen(it) }.ifEmpty { all.filter { idOf(it) == "power_button_view" && onScreen(it) } }
         val out = ArrayList<Light>()
         for (sw in switches) {
             var holder: AccessibilityNodeInfo? = sw.parent

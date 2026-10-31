@@ -307,7 +307,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             JarvisBrain.ready(context)) {
             pending = null
             val asked = lastAsked ?: return styled(Reply("Use it for what${sir()}? Tell me what you'd like, and my brain will take it.", listen = true))
-            return styled(creative(asked, force = true) ?: freeAnswer(asked)).also { lastReply = it }
+            // Something to write, his brain writes it; anything else, his brain works out what you meant and he does it.
+            return styled(creative(asked) ?: translate(asked, Command.Unknown(asked))).also { lastReply = it }
         }
         if (pending == Pending.NoteText) {
             pending = null
@@ -2309,6 +2310,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     /** A command that makes sense here: a habit it names really is one of yours. */
     private fun sensible(c: Command): Boolean = when (c) {
+        is Command.Lights -> (c.name?.split(' ')?.size ?: 0) <= 3
         is Command.Habit -> findHabit(c.name) != null
         is Command.Untick -> findHabit(c.name) != null
         else -> true
@@ -2445,7 +2447,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.Calc, is Command.Spent, is Command.MakeDoc, is Command.OpenDoc, is Command.ClockIn, is Command.ClockOut, is Command.AddShifts, is Command.Timer,
         is Command.AddNote, is Command.WhatsApp, is Command.Text, is Command.Remember -> true
         // Your light and heating, when his own rules already know it: straight to his hands, never re-read.
-        is Command.Lights, is Command.Brightness, is Command.LightColour, Command.LightsStatus, is Command.Climate, is Command.SetTemp, is Command.HeaterNow -> true
+        // (A light "called" a whole sentence, "you switched it on and then off", isn't one: that goes to his brain.)
+        is Command.Lights -> (cmd.name?.split(' ')?.size ?: 0) <= 3
+        is Command.Brightness, is Command.LightColour, Command.LightsStatus, is Command.Climate, is Command.SetTemp, is Command.HeaterNow -> true
         is Command.Unknown -> false
         else -> text.trim().split(Regex("\\s+")).size <= 3 && !unsure(text, cmd)
     }
@@ -4597,25 +4601,28 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         var pressedAt = 0
         var presses = 0
         var who = "The light"
+        var lastSeenCard: String? = null
         return JarvisHands.custom(TAPO, null, "I couldn't find the light in Tapo, sir. Show me once: say \"learn the light\".", timeout = 45_000) { root, tries ->
             // Checking it took: the light's own page says "Power, On"; the home card says on/off where Tapo shows it.
             want?.let { w ->
                 val now = if (JarvisReaders.tapoLightPage(root)) JarvisReaders.tapoPagePower(root).first
                     else JarvisReaders.light(JarvisReaders.lights(root), name)?.on
                 if (now == w) return@custom if (w) "Done, sir. $who is on." else "Done. $who is off."
-                if (tries - pressedAt < 4) return@custom null
-                // Didn't take (or Tapo can't say): one more press where it can be checked, else say so honestly.
-                if (now == null) return@custom if (w) "I've pressed it, sir; Tapo isn't saying whether $who is on." else "I've pressed it; Tapo isn't saying whether $who is off."
-                if (presses >= 2) return@custom "$who didn't respond, sir. It may be offline; Tapo still shows it ${if (w) "off" else "on"}."
-                val button = if (JarvisReaders.tapoLightPage(root)) JarvisReaders.tapoPagePower(root).second
-                    else JarvisReaders.light(JarvisReaders.lights(root), name)?.power
-                button?.let { JarvisHands.press(it); presses++; pressedAt = tries }
-                return@custom null
+                // Tapo can take a while to show the change. The button is a toggle, so he never presses it twice
+                // (that would only switch it back): he waits, then says honestly what he knows.
+                if (tries - pressedAt < 14) return@custom null
+                return@custom if (now == null) "I've pressed it, sir; Tapo isn't saying whether $who is ${if (w) "on" else "off"}."
+                    else "I've pressed $who's switch, sir, but Tapo still shows it ${if (w) "off" else "on"}. It may just be slow to update; if it's really ${if (w) "off" else "on"}, it may be offline."
             }
             if (JarvisReaders.tapoLightPage(root)) {
                 val (state, button) = JarvisReaders.tapoPagePower(root)
                 who = JarvisReaders.tapoPageName(root) ?: "The light"
                 if (button != null && state != null) {
+                    val seenPage = "page|$state"
+                    if (tries < 3 || seenPage != lastSeenCard) {
+                        lastSeenCard = seenPage
+                        if (tries < 20) return@custom null
+                    }
                     if (on != null && state == on) return@custom "$who is already ${if (on) "on" else "off"}, sir."
                     JarvisHands.press(button)
                     want = !state
@@ -4641,6 +4648,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                     "Done, sir. Tapo had moved things about, so I found the switch myself; I'll remember it.", "I couldn't see any lights in Tapo, sir.")
             }
             who = l.name
+            // Tapo's home screen fills in slowly after opening: he waits until the card has said the same thing
+            // twice (and a couple of seconds have passed), so he never acts on a half-loaded screen.
+            val seen = "${l.name}|${l.on}"
+            if (tries < 4 || seen != lastSeenCard) {
+                lastSeenCard = seen
+                if (tries < 20) return@custom null
+            }
             if (on != null && l.on == on) return@custom "${l.name} is already ${if (on) "on" else "off"}, sir."
             val p = l.power ?: return@custom selfRepair(TAPO, "switch ${l.name} ${if (on == false) "off" else "on"}", root,
                 "Done, sir. I had to find ${l.name}'s switch myself; I'll remember where it is.", "I couldn't find ${l.name}'s power button, sir.")

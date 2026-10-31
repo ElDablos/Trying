@@ -360,6 +360,14 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             lastAt = System.currentTimeMillis()
             return styled(converse(text)).also { lastReply = it }
         }
+        // Building on the last pay sum: "and with tomorrow's shift", "so altogether".
+        if (!inRoutine && pending == null) payFollowUp(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
+        // A short follow-up that leans on what was just said ("what about Friday?", "and with that?", "so how much
+        // then"): his brain reads it with the conversation, rather than his rules taking it on its own.
+        if (!inRoutine && meant == null && pending == null && JarvisBrain.ready(context) && JarvisMemory.smart(context) &&
+            System.currentTimeMillis() - lastAt < 5 * 60_000L &&
+            Regex("^(with|including|plus|so|then|what about|how about|and with|and what about|and how about|and if|and including|and then what|so how much|so what)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text.trim()) &&
+            text.trim().split(Regex("\\s+")).size <= 10) return styled(translate(text, parsed))
         // Adding on to what came before: "and eggs", "and one at 7:30", "at 3pm", "and Friday?".
         if (!inRoutine && pending == null) followOn(text, parsed)?.let { (c, r) ->
             if (r != null) {
@@ -2612,6 +2620,18 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "lastmonth" -> today.minusMonths(1).let { m -> Triple(m.withDayOfMonth(1), m.withDayOfMonth(m.lengthOfMonth()), "last month") }
             else -> Triple(monday, monday.plusDays(6), "this week")
         }
+        return payRange(from, to, label)
+    }
+
+    /** The last pay sum he gave (its dates and name), so "and with tomorrow's shift" or "so altogether" builds on it. */
+    private var lastPay: Triple<LocalDate, LocalDate, String>? = null
+    private var lastPayAt = 0L
+
+    /** Hours and pay from [from] to [to], shift by shift, with the payslip lines; [label] is how it's said ("this month"). */
+    private fun payRange(from: LocalDate, to: LocalDate, label: String): Reply {
+        val today = LocalDate.now()
+        lastPay = Triple(from, to, label)
+        lastPayAt = System.currentTimeMillis()
         val list = Shifts.worked(context).filterKeys { !it.isBefore(from) && !it.isAfter(to) }.toSortedMap()
         if (list.isEmpty()) return Reply("No shifts $label${sir()}.", actions = listOf(Action("ADD SHIFTS", "add shifts ")))
         val total = list.values.sumOf { it.minutes } / 60.0
@@ -2629,7 +2649,43 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 list.map { (d, s) -> Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, s.times() + " · " + money(s.minutes / 60.0 * setup.hourly), ok = if (s.finish(d, zone) <= System.currentTimeMillis()) true else null) } +
                     slipRows(slip),
                 Tone.GOLD),
-            actions = listOf(Action("WEEKLY LOG", "my pay log")))
+            actions = listOf(Action("WEEKLY LOG", "my pay log"), Action("NEXT PAYSLIP", "what's my next payday")))
+    }
+
+    /**
+     * Building on the last pay sum: "and with tomorrow's shift", "plus Sunday", "including my next shift", "so
+     * altogether", "what about next week". The range stretches to take the day in, and it's all added up as one.
+     * Null when it isn't a follow-up to a pay sum.
+     */
+    private fun payFollowUp(text: String): Reply? {
+        val (from, to, label) = lastPay ?: return null
+        if (System.currentTimeMillis() - lastPayAt > 10 * 60_000L) return null
+        val t = text.lowercase().trim().trimEnd('.', '?', '!')
+        val modifier = Regex("^(and|plus|with|including|include|add|so|what about|how about|then|together|altogether|all together|in total|total|overall|combined|if i add|if you add|count|counting)\\b").containsMatchIn(t) ||
+            Regex("\\b(altogether|all together|in total|combined|overall|with it|on top)\\b").containsMatchIn(t)
+        if (!modifier || t.split(Regex("\\s+")).size > 10) return null
+        val today = LocalDate.now()
+        val days = listOf("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+        val extra: LocalDate? = when {
+            Regex("\\btomorrow").containsMatchIn(t) -> today.plusDays(1)
+            Regex("\\btoday").containsMatchIn(t) -> today
+            Regex("\\bnext shift|\\bmy next|\\bupcoming").containsMatchIn(t) -> Shifts.next(Shifts.all(context), System.currentTimeMillis(), zone)?.first
+            Regex("\\bnext week").containsMatchIn(t) -> Shifts.monday(today).plusDays(13)
+            Regex("\\b(this week|the week)").containsMatchIn(t) -> Shifts.monday(today).plusDays(6)
+            else -> days.indexOfFirst { Regex("\\b$it").containsMatchIn(t) }.takeIf { it >= 0 }?.let { today.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.of(it + 1))) }
+        }
+        val together = Regex("\\b(altogether|all together|in total|total|together|combined|overall|so)\\b").containsMatchIn(t)
+        if (extra == null && !together) return null
+        val end = maxOf(to, extra ?: to)
+        val start = minOf(from, extra ?: from)
+        if (start == from && end == to) return payRange(from, to, label)
+        val df = DateTimeFormatter.ofPattern("d MMM")
+        val name = when {
+            extra == today.plusDays(1) -> "$label and tomorrow"
+            extra != null && extra.isAfter(to) -> "$label to ${extra.format(df)}"
+            else -> "${start.format(df)} to ${end.format(df)}"
+        }
+        return payRange(start, end, name)
     }
 
     /** The payslip lines: basic, TRONC, tax, NI, pension, take-home. */
@@ -2813,6 +2869,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun payday(): Reply {
         val setup = Pay.setup(context)
         val (a, b) = Pay.periodOf(LocalDate.now(), setup)
+        lastPay = Triple(a, b, "this pay period")
+        lastPayAt = System.currentTimeMillis()
         val slip = Pay.slipFor(context, a, b, setup)
         val day = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault())
         fun h(v: Double) = if (v % 1.0 == 0.0) "%.0f".format(Locale.ROOT, v) else "%.1f".format(Locale.ROOT, v)

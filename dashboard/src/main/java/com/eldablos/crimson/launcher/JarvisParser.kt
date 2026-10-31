@@ -267,7 +267,14 @@ object JarvisParser {
         if (cmds.any { it is Command.Unknown || it is Command.Yes || it is Command.No || it is Command.FollowUp || it is Command.Greet || it is Command.Thanks }) return null
         // Something that takes words (a note, a message) swallows the rest.
         if (cmds.dropLast(1).any { it is Command.AddNote || it is Command.WhatsApp || it is Command.Text || it is Command.Remember || it is Command.NoteAsk }) return null
-        return parts
+        // A day said once is meant for all of it: "the weather tomorrow and am I working" asks about tomorrow's work too.
+        val dayWord = Regex("\\b(tomorrow|today|tonight|this weekend|next week|(?:on )?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\\b", RegexOption.IGNORE_CASE)
+        val said = parts.firstNotNullOfOrNull { dayWord.find(it)?.value }
+        return if (said == null) parts else parts.map { p ->
+            val c = parse(p, today)
+            val asksAboutADay = c is Command.Shift || c is Command.Weather || c is Command.Agenda || c is Command.Travel || c is Command.WeatherWeek
+            if (asksAboutADay && !dayWord.containsMatchIn(p)) "$p $said" else p
+        }
     }
 
     /** What [said] asks for, with [today] for working out dates. */

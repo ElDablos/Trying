@@ -57,6 +57,8 @@ class BatchTest {
         assertEquals(Command.Hours("month", true), p("whats my take home this month"))
         assertEquals(Command.MorningBrief, p("whats my day like"))
         assertTrue(p("countdown to my holiday on 3 march") is Command.AddCountdown)
+        assertEquals(listOf("whats the weather tomorrow", "am i working tomorrow"), JarvisParser.split("whats the weather tomorrow and am i working"))
+        assertEquals(listOf("turn on the light", "set an alarm for 7"), JarvisParser.split("turn on the light and set an alarm for 7"))
     }
 
     @Test

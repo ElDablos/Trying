@@ -274,6 +274,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         onComms()
         showNodes()
         refreshJarvisAlerts()
+        eveningWorkAlarms()
         // "Hey Jarvis": the mic can only be taken up from the foreground, so it starts (or restarts) here.
         if (JarvisEar.wakeEnabled(this) && JarvisEar.modelReady(this)) JarvisEar.start(this)
         handler.removeCallbacks(tick)
@@ -542,6 +543,20 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             back -> if (!open) jarvis.show(listen = false, greet = false)
             !open -> jarvis.show(listen = false)
         }
+    }
+
+    /**
+     * From 8pm, the first time you're on the home screen: your work alarms moved to tomorrow's shift (or
+     * off for a day off), once an evening, and only when something needs changing.
+     */
+    private fun eveningWorkAlarms() {
+        val now = java.time.LocalDateTime.now()
+        if (now.hour < 20 || !JarvisMemory.autoWorkAlarms(this) || JarvisHands.busy || jarvis.visibility == View.VISIBLE) return
+        val p = getSharedPreferences("jarvis", MODE_PRIVATE)
+        val today = now.toLocalDate().toString()
+        if (p.getString("work_checked", null) == today) return
+        p.edit().putString("work_checked", today).apply()
+        handler.postDelayed({ if (resumed && !JarvisHands.busy) jarvis.workAlarmsTonight() }, 1500)
     }
 
     /** The number on the home screen's Jarvis button. */

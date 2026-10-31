@@ -68,6 +68,8 @@ object JarvisParser {
         object ShiftAlarm : Command()
         /** "Set my alarms for work tomorrow": the day's shift, when you're up for it, your run of alarms. Null day: the next shift. */
         data class WorkAlarms(val day: Int?) : Command()
+        /** "Turn off my work alarms", "switch my work alarms back on". */
+        data class WorkAlarmsSwitch(val on: Boolean) : Command()
 
         // The conversation itself.
         object Yes : Command()
@@ -516,6 +518,10 @@ object JarvisParser {
         }
         Regex("\\b(\\d+) ?(seconds?|secs?|minutes?|mins?|hours?|hrs?) timer\\b").find(t)?.let { m ->
             return Command.Timer(m.groupValues[1].toInt() * unitSeconds(m.groupValues[2]))
+        }
+        if (has("work alarm", "work alarms", "alarms for work", "alarm for work", "shift alarms") && has("off", "on") &&
+            has("turn", "switch", "put", "turn off", "switch off", "turn on", "switch on")) {
+            return Command.WorkAlarmsSwitch(!Regex("\\b(off)\\b").containsMatchIn(t))
         }
         // Alarms for work: "set my alarms for work tomorrow", "wake me up for my shift", "alarms for Friday's shift".
         if (has("alarm", "alarms", "wake me", "wake me up") && has("work", "shift", "my shift", "the shift") &&

@@ -192,6 +192,12 @@ back to One UI Home the same way at any time.
   - **Alarms in the Clock** (with Hands): a tidy list read in groups ("Every day: 7:05, 7:10 and 7:15");
     "turn off the 7am alarms" (just 7:00–7:59), "delete all the 7am alarms" (he asks, then long-presses,
     ticks and deletes), runs of alarms for a shift ("6 alarms 5 minutes apart").
+  - **Work alarms that move with your shifts**: "set my alarms for work tomorrow" looks up the shift and
+    moves the same alarms (the ones named Work in the Clock) to the right time: opening each one,
+    turning the time wheels and saving it, so you never pile up new ones. On a day off he switches them
+    off. The first time, he asks which of your alarms are the work ones and names them. From 8pm,
+    the first time you're on the home screen, he does it for tomorrow by himself and tells you (off in
+    his settings: Work alarms each evening). "Turn off my work alarms" works too.
   - **Rules he keeps**: "the 7pm alarm always stays on", "never turn off the hallway light". Anything that
     would switch one off asks you first.
   - **Teach him how you do things**: "I need to wake up at 5 to start work at 7, I set 6 alarms 5 minutes

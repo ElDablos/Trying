@@ -37,8 +37,8 @@ phone itself.
 - **"Hey Jarvis" from any app**, or with the phone locked: a wake word heard on the phone, then a strip
   over whatever you're in that listens and answers. The conversation is the same one you see in his
   panel.
-- **Your day**: briefings, shifts, alarms (read tidily, switched or deleted by the hour, runs of alarms
-  before an early shift), notes (by number, several at once), habits ("I've placed my orders"),
+- **Your day**: briefings, shifts, alarms (read tidily, switched or deleted by the hour, and your work
+  alarms moved to each shift's time every evening, or switched off on a day off), notes (by number, several at once), habits ("I've placed my orders"),
   countdowns, calendar, weather, email, messages, and the tube for your commute.
 - **Several things at once**: "close the app and lock my phone", "add a note to … and another note to …".
 - **What he doesn't know**: he offers to Google it in Chrome or ask Claude.

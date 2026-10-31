@@ -63,6 +63,52 @@ object JarvisReaders {
         ((n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()).equals("Delete", true)
     }
 
+    /** A time wheel in the Clock's alarm editor: the wheel, and what it shows ("05", "30", "AM"). */
+    class Wheel(val node: AccessibilityNodeInfo, val value: String) {
+        val number: Int? get() = value.toIntOrNull()
+    }
+
+    /** The alarm editor (after tapping an alarm): its Save button, or null when it isn't showing. */
+    fun clockSave(root: AccessibilityNodeInfo): AccessibilityNodeInfo? = JarvisHands.nodes(root).lastOrNull { n ->
+        ((n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()).equals("Save", true)
+    }
+
+    fun clockCancel(root: AccessibilityNodeInfo): AccessibilityNodeInfo? = JarvisHands.nodes(root).firstOrNull { n ->
+        ((n.text ?: n.contentDescription)?.toString()?.trim().orEmpty()).equals("Cancel", true)
+    }
+
+    /**
+     * The editor's time wheels, left to right: hour, minute, and AM/PM on a 12-hour phone. Each wheel's own
+     * value is its text box (the numbers above and below are only for show).
+     */
+    fun clockWheels(root: AccessibilityNodeInfo): List<Wheel> {
+        val all = JarvisHands.nodes(root)
+        fun isBox(n: AccessibilityNodeInfo) = n.className?.toString()?.contains("EditText") == true
+        val wheels = all.filter { n ->
+            n.className?.toString()?.contains("NumberPicker") == true ||
+                (n.isScrollable && JarvisHands.nodes(n).any { isBox(it) && Regex("^\\d{1,2}$|^(am|pm)$", RegexOption.IGNORE_CASE).matches(it.text?.toString()?.trim().orEmpty()) })
+        }
+        // The innermost ones: the scroll view round the whole editor holds the wheels, but isn't one.
+        val inner = wheels.filter { w -> wheels.none { o -> o !== w && o != w && contains(w, o) } }
+        return inner.mapNotNull { w ->
+            val box = JarvisHands.nodes(w).drop(1).firstOrNull { isBox(it) }
+            val v = (box?.text ?: w.text ?: w.contentDescription)?.toString()?.trim()?.substringBefore(' ')?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            Wheel(w, v)
+        }.distinctBy { bounds(it.node).let { b -> b.left to b.top } }.sortedBy { bounds(it.node).left }
+    }
+
+    private fun contains(outer: AccessibilityNodeInfo, inner: AccessibilityNodeInfo): Boolean {
+        val a = bounds(outer)
+        val b = bounds(inner)
+        return a.contains(b) && a != b
+    }
+
+    /** The alarm name box in the editor ("Alarm name"), for naming one "Work". */
+    fun clockNameBox(root: AccessibilityNodeInfo): AccessibilityNodeInfo? = JarvisHands.nodes(root).firstOrNull { n ->
+        n.className?.toString()?.contains("EditText") == true && n.isEditable &&
+            listOfNotNull(n.hintText, n.contentDescription, n.viewIdResourceName, n.text).joinToString(" ").contains(Regex("name|label", RegexOption.IGNORE_CASE))
+    }
+
     /** The last list read, for the card that goes with what he says. */
     @Volatile var lastAlarms: List<AlarmRow> = emptyList()
     @Volatile var lastAlarmsAt = 0L

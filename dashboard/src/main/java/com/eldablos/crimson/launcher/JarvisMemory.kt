@@ -212,6 +212,20 @@ object JarvisMemory {
     fun alarmGap(context: Context) = prefs(context).getInt("set:alarm_gap", 5)
     fun setAlarmSeries(context: Context, count: Int, gap: Int) = prefs(context).edit().putInt("set:alarm_count", count).putInt("set:alarm_gap", gap).apply()
 
+    /**
+     * Your work alarms (the ones named "Work" in the Clock): where he last left them, "05:00" (the first of
+     * the run) or "off", and the day he last set them for. So the evening check only troubles the Clock
+     * when something needs to change.
+     */
+    fun workAlarms(context: Context): String? = prefs(context).getString("work:at", null)
+    fun workAlarmsFor(context: Context): String? = prefs(context).getString("work:for", null)
+    fun setWorkAlarms(context: Context, at: String, forDay: java.time.LocalDate) =
+        prefs(context).edit().putString("work:at", at).putString("work:for", forDay.toString()).apply()
+
+    /** Each evening he moves your work alarms to tomorrow's shift (or switches them off on a day off), then tells you. */
+    fun autoWorkAlarms(context: Context) = prefs(context).getBoolean("set:auto_work", true)
+    fun setAutoWorkAlarms(context: Context, on: Boolean) = prefs(context).edit().putBoolean("set:auto_work", on).apply()
+
     /** How long your journey to work takes, door to door: when to warn you about the tube. */
     fun commuteMinutes(context: Context) = prefs(context).getInt("set:commute", 45)
     fun setCommuteMinutes(context: Context, minutes: Int) = prefs(context).edit().putInt("set:commute", minutes).apply()

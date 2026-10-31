@@ -288,6 +288,13 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         respond(jarvis.note(text), "")
     }
 
+    /** The evening check: your work alarms moved to tomorrow's shift, said out loud. Nothing to do, nothing shown. */
+    fun workAlarmsTonight() {
+        val reply = jarvis.workAlarms(1, auto = true) ?: return
+        if (visibility != VISIBLE) show(listen = false, greet = false)
+        respond(reply, "")
+    }
+
     /** Closes; [now] skips the fade, for when something opens straight after. */
     fun hide(now: Boolean = false) {
         stopListening()
@@ -858,6 +865,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         toggle(body, "Keep listening", "After answering, he listens for your next command. Silence or \"that's all\" ends it", JarvisMemory.keepListening(context)) { JarvisMemory.setKeepListening(context, it) }
         heading(body, "SPEAKING UP", "He tells you before you ask: no alarm before a shift, rain on the way in, birthdays, bedtime.")
         toggle(body, "Heads-ups", "On the home screen's Jarvis button and as notifications", JarvisMemory.proactive(context)) { JarvisMemory.setProactive(context, it) }
+        toggle(body, "Work alarms each evening", "From 8pm he moves your work alarms to tomorrow's shift, or switches them off on a day off, and tells you", JarvisMemory.autoWorkAlarms(context)) { JarvisMemory.setAutoWorkAlarms(context, it) }
         val winds = listOf(-1, 21 * 60, 21 * 60 + 30, 22 * 60, 22 * 60 + 30, 23 * 60)
         body.addView(TextView(context).apply { text = "Wind-down"; setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(11f) * u); setTextColor(Hud.SOFT); setPadding(0, dp(6f), 0, dp(6f)) })
         choice(body, winds.map { if (it < 0) "OFF" else "%02d:%02d".format(it / 60, it % 60) }, winds.indexOf(JarvisMemory.windDown(context)).coerceAtLeast(0)) { JarvisMemory.setWindDown(context, winds[it]) }

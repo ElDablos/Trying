@@ -123,6 +123,10 @@ class JarvisTest {
         assertEquals(Command.WorkAlarms(1), p("Jarvis set my alarms for work tomorrow"))
         assertEquals(Command.WorkAlarms(1), p("wake me up for my shift tomorrow"))
         assertEquals(Command.WorkAlarms(null), p("set my work alarms"))
+        assertEquals(Command.WorkAlarms(1), p("set my alarm for work tomorrow"))
+        assertEquals(Command.WorkAlarmsSwitch(false), p("turn off my work alarms"))
+        assertEquals(Command.WorkAlarmsSwitch(false), p("switch my work alarms off"))
+        assertEquals(Command.WorkAlarmsSwitch(true), p("turn my work alarms back on"))
         assertEquals(Command.NewRoutine, p("Create a routine"))
     }
 

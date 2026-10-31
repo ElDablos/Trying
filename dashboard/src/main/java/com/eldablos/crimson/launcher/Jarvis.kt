@@ -16,6 +16,7 @@ import android.os.BatteryManager
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.provider.ContactsContract
+import android.view.accessibility.AccessibilityNodeInfo
 import com.eldablos.crimson.Forecast
 import com.eldablos.crimson.NowPlaying
 import com.eldablos.crimson.Weather
@@ -510,7 +511,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 val e = amendable as? Amendable.Event ?: return Reply("Change what${sir()}?", listen = true)
                 change(e.title + " event", value)
             }
-            is Command.Alarm, Command.ShiftAlarm, is Command.WorkAlarms, is Command.MoveAlarm -> time?.let { amend(Command.Amend(null, it)) } ?: Reply("What time should it be${sir()}?", listen = true)
+            is Command.Alarm, Command.ShiftAlarm, is Command.WorkAlarms, is Command.WorkAlarmsSwitch, is Command.MoveAlarm -> time?.let { amend(Command.Amend(null, it)) } ?: Reply("What time should it be${sir()}?", listen = true)
             is Command.Remember -> remember(l.key, value)
             is Command.Recall -> JarvisMemory.recall(context, l.key)?.let { remember(it.key, value) } ?: Reply("Change what${sir()}?", listen = true)
             is Command.AddHabit, is Command.Habit, is Command.RenameHabit, is Command.Untick -> lastHabit?.let { renameHabit(it, value.replaceFirstChar { c -> c.uppercase() }) }
@@ -790,7 +791,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.Shift -> shift(cmd.day)
         is Command.ShiftWeek -> shiftWeek(cmd.next)
         Command.ShiftAlarm -> shiftAlarm()
-        is Command.WorkAlarms -> workAlarms(cmd.day)
+        is Command.WorkAlarms -> workAlarms(cmd.day) ?: Reply("Nothing to change, sir.")
+        is Command.WorkAlarmsSwitch -> if (!handsOnClock()) needHands("switching your work alarms") else {
+            push("Work alarms ${if (cmd.on) "off" else "on"} again") { workSwitch(!cmd.on, LocalDate.now()); "Switching them back." }
+            Reply(ack(), afterSpeech = true, then = { workSwitch(cmd.on, LocalDate.now().plusDays(1)) },
+                card = Card("⏰", "WORK ALARMS", if (cmd.on) "ON" else "OFF", "in the Clock", tone = Tone.GOLD))
+        }
         is Command.Agenda -> agenda(cmd.day)
         is Command.AddEvent -> addEvent(cmd)
         is Command.AddNote -> addNote(cmd.text)
@@ -946,8 +952,12 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         ))
     }
 
+    /** What to make of the next report from his hands: a question about what he found there, with its buttons. */
+    @Volatile private var afterHands: ((String) -> Reply)? = null
+
     /** What he says when he's come back from working another app. */
     fun note(text: String): Reply {
+        afterHands?.let { a -> afterHands = null; return styled(a(text)) }
         // Back from the Clock with its list: the alarms as a card, one line each, instead of the words again.
         val alarms = JarvisReaders.lastAlarms.takeIf { System.currentTimeMillis() - JarvisReaders.lastAlarmsAt < 20_000 && text.startsWith("You've") }
         val card = if (alarms != null) Card("⏰", "ALARMS", "${alarms.count { it.on == true }} ON", "of ${alarms.size} in the Clock",
@@ -1303,34 +1313,345 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     /**
      * Your alarms for a working day: its shift from the deck, up as long before it as you are (2 hours
-     * for a 7 start), and your run of alarms (6, five minutes apart), labelled with the shift.
+     * for a 7 start), and your run of alarms (6, five minutes apart). The same alarms every time: the
+     * ones named "Work" in the Clock are moved to the new times (or switched off on a day off), never
+     * added to. [auto] is the evening check: it says nothing when there's nothing to do.
      */
-    private fun workAlarms(day: Int?): Reply {
+    fun workAlarms(day: Int?, auto: Boolean = false): Reply? {
         val shifts = Shifts.all(context)
         val today = LocalDate.now()
         val date = day?.let { today.plusDays(it.toLong()) }
             ?: Shifts.next(shifts, System.currentTimeMillis(), zone)?.first
-            ?: return Reply("You've no shifts on the deck, sir. Tell me when you're working, like \"I'm working tomorrow 7 till 3\".", listen = true)
+            ?: return if (auto) null else Reply("You've no shifts on the deck, sir. Tell me when you're working, like \"I'm working tomorrow 7 till 3\".", listen = true)
         val dayName = when (date) { today -> "today"; today.plusDays(1) -> "tomorrow"; else -> "on " + date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault()) }
-        val s = shifts[date] ?: return Reply("You're not working $dayName${sir()}, so no work alarms needed. Want one anyway?",
-            actions = listOf(Action("SET ONE", "set an alarm for "), Action("MY SHIFTS", "what's my week")))
+        val s = shifts[date]
+        if (s == null) {
+            // A day off: the work alarms go off (they stay in the Clock for the next shift).
+            val soon = !date.isAfter(today.plusDays(1))
+            if (auto && JarvisMemory.workAlarms(context) == "off") return null
+            if (!soon || !handsOnClock()) return if (auto) null else Reply("You're not working $dayName${sir()}, so no work alarms needed." + if (soon) " Switch them off in the Clock, or give me my hands and I'll do it." else "",
+                actions = listOf(Action("MY SHIFTS", "what's my week")))
+            push("Work alarms back on") { workSwitch(true, date); "Switching your work alarms back on." }
+            return Reply("You're off $dayName${sir()}, so I'm switching your work alarms off.", afterSpeech = true, then = { workSwitch(false, date) },
+                card = Card("☾", "DAY OFF · ${dayName.removePrefix("on ").uppercase()}", "OFF", "your work alarms, until your next shift", tone = Tone.GOLD))
+        }
         val lead = JarvisMemory.alarmLead(context)
         val wake = s.start.minusMinutes(lead.toLong())
-        val count = JarvisMemory.alarmCount(context)
+        val count = JarvisMemory.alarmCount(context).coerceIn(1, 12)
         val gap = JarvisMemory.alarmGap(context)
+        val times = (0 until count).map { wake.plusMinutes((it * gap).toLong()) }
         val wakeAt = date.atTime(wake).let { if (wake.isAfter(s.start)) it.minusDays(1) else it }
         val now = LocalDateTime.now()
-        if (wakeAt.isBefore(now)) return Reply("It's past your wake-up time for that shift${sir()} (${wake.format(tf)}). Best get moving.")
-        // The Clock sets a one-off alarm for its next time, so only today's or tomorrow's can be set now.
+        if (wakeAt.isBefore(now)) return if (auto) null else Reply("It's past your wake-up time for that shift${sir()} (${wake.format(tf)}). Best get moving.")
+        // The Clock rings an alarm at its next time, so only today's or tomorrow's can be set now.
         if (wakeAt.toLocalDate().isAfter(today.plusDays(1)) || (wakeAt.toLocalDate() == today.plusDays(1) && wake.isAfter(now.toLocalTime()))) {
-            return Reply("You're on ${s.start.format(tf)} to ${s.end.format(tf)} $dayName. I can set those the evening before, sir; I'll remind you.",
-                card = Card("⧗", "SHIFT · ${dayName.removePrefix("on ").uppercase()}", s.times(), "alarms the evening before", tone = Tone.GOLD))
+            return if (auto) null else Reply("You're on ${s.start.format(tf)} to ${s.end.format(tf)} $dayName. I'll move your work alarms the evening before, sir.",
+                card = Card("⧗", "SHIFT · ${dayName.removePrefix("on ").uppercase()}", s.times(), "work alarms the evening before", tone = Tone.GOLD))
         }
-        val label = "Work · ${s.start.format(tf)}"
-        val r = if (count > 1) alarmSeries(wake, count, gap, label) else alarm(wake, if (wakeAt.toLocalDate() == today) 0 else 1, label = label)
+        if (auto && JarvisMemory.workAlarms(context) == wake.toString() && JarvisMemory.workAlarmsFor(context) == date.toString()) return null
         val leave = s.start.minusMinutes(JarvisMemory.commuteMinutes(context).toLong())
-        return r.copy(say = "You're on ${s.start.format(tf)} to ${s.end.format(tf)} $dayName, so you're up at ${wake.format(tf)}. " + r.say +
-            " Out the door by ${leave.format(tf)}${sir()}.")
+        val intro = "You're on ${s.start.format(tf)} to ${s.end.format(tf)} $dayName, so you're up at ${wake.format(tf)}."
+        val outro = " Out the door by ${leave.format(tf)}${sir()}."
+        // Without hands he can't move them, only add: a fresh run named Work.
+        if (!handsOnClock()) {
+            JarvisMemory.setWorkAlarms(context, wake.toString(), date)
+            val r = if (count > 1) alarmSeries(wake, count, gap, WORK) else alarm(wake, if (wakeAt.toLocalDate() == today) 0 else 1, label = WORK)
+            return r.copy(say = "$intro ${r.say}$outro")
+        }
+        return Reply("$intro Moving your work alarms now.", afterSpeech = true, then = { clockWork(times, date, outro) },
+            card = Card("⏰", "WORK ALARMS · ${dayName.removePrefix("on ").uppercase()}", if (count > 1) "${times.first().format(tf)}–${times.last().format(tf)}" else times.first().format(tf),
+                "${if (count > 1) "$count, every $gap min · " else ""}shift ${s.times()}", tone = Tone.GOLD))
+    }
+
+    private fun isWork(r: JarvisReaders.AlarmRow) = r.label?.trim()?.lowercase()?.startsWith("work") == true
+
+    /**
+     * Your work alarms before any are named: the longest run of morning alarms [gap] minutes apart (your
+     * 6:00 to 6:25), two or more. Empty when there's no such run.
+     */
+    private fun workGuess(rows: List<JarvisReaders.AlarmRow>, gap: Int): List<LocalTime> {
+        val morning = rows.map { it.time }.filter { it.hour in 3..11 }.distinct().sorted()
+        var best = emptyList<LocalTime>()
+        var run = ArrayList<LocalTime>()
+        for (t in morning) {
+            if (run.isNotEmpty() && java.time.Duration.between(run.last(), t).toMinutes() != gap.toLong()) run = ArrayList()
+            run += t
+            if (run.size > best.size) best = run.toList()
+        }
+        return if (best.size >= 2) best else emptyList()
+    }
+
+    /** One wheel on by [steps] (back when negative): the wheel's own scroll, or a finger drag where it hasn't one. */
+    private fun roll(w: JarvisReaders.Wheel, steps: Int) {
+        if (steps == 0) return
+        val action = if (steps > 0) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        if (w.node.performAction(action)) {
+            repeat(abs(steps) - 1) { w.node.performAction(action) }
+            return
+        }
+        // A drag of one row per step: up for later, down for earlier.
+        val b = android.graphics.Rect().also { w.node.getBoundsInScreen(it) }
+        val row = b.height() / 3f
+        val dy = (if (steps > 0) -1 else 1) * row * abs(steps).coerceAtMost(6)
+        JarvisHands.swipe(b.exactCenterX(), b.exactCenterY(), b.exactCenterX(), b.exactCenterY() + dy, 400L + 90L * abs(steps).coerceAtMost(6))
+    }
+
+    /** The shortest way round a wheel of [size] from [from] to [to]. */
+    private fun turns(from: Int, to: Int, size: Int): Int {
+        val d = (to - from).mod(size)
+        return if (d > size / 2) d - size else d
+    }
+
+    /**
+     * Moves your work alarms (named "Work") in the Clock to [times], one by one: open it, roll the wheels,
+     * save. Any not needed are switched off; any missing are added, named Work. The first time, with none
+     * named yet, he asks whether your run of morning alarms is them ([adopt] once you've said yes, which
+     * also names them). If the wheels won't turn, he offers to replace them instead.
+     */
+    private fun clockWork(times: List<LocalTime>, date: LocalDate, outro: String, adopt: List<LocalTime>? = null) {
+        val gap = JarvisMemory.alarmGap(context)
+        var plan: MutableList<Pair<LocalTime, LocalTime>>? = null
+        var toOn = emptyList<LocalTime>()
+        var toOff = emptyList<LocalTime>()
+        var missing = emptyList<LocalTime>()
+        var editing: Pair<LocalTime, LocalTime>? = null
+        var opened = 0
+        var cool = 0
+        var stuck = 0
+        var last = ""
+        var named = false
+        var scrolls = 0
+        var moved = 0
+        var before = emptyList<LocalTime>()
+        val failed = "I couldn't get to the Clock's alarms, sir."
+        JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), failed, timeout = 150_000) { root, tries ->
+            if (cool > 0) {
+                cool--
+                return@custom null
+            }
+            // In an alarm: roll its wheels to the new time, name it, save.
+            if (JarvisReaders.clockSave(root) != null) {
+                val job = editing
+                if (job == null) {
+                    // Not one of ours: out without changing it.
+                    JarvisReaders.clockCancel(root)?.let { JarvisHands.press(it) } ?: JarvisHands.back()
+                    cool = 2
+                    return@custom null
+                }
+                val to = job.second
+                val wheels = JarvisReaders.clockWheels(root)
+                val nums = wheels.filter { it.number != null }
+                val half = wheels.firstOrNull { it.value.lowercase() in setOf("am", "pm", "a.m.", "p.m.") }
+                if (nums.size < 2) {
+                    if (++stuck > 8) return@custom wheelsStuck(root, times, date, outro, moved)
+                    return@custom null
+                }
+                val seen = wheels.joinToString { it.value }
+                if (seen == last) stuck++ else stuck = 0
+                last = seen
+                if (stuck > 4) return@custom wheelsStuck(root, times, date, outro, moved)
+                val hour = nums[0].number!!
+                val minute = nums[1].number!!
+                // Minutes first: going round past the hour can nudge the hour, which is then put right.
+                when {
+                    minute != to.minute -> roll(nums[1], turns(minute, to.minute, 60))
+                    half == null && hour != to.hour -> roll(nums[0], turns(hour, to.hour, 24))
+                    half != null && hour % 12 != to.hour % 12 -> roll(nums[0], turns(hour % 12, to.hour % 12, 12))
+                    half != null && half.value.lowercase().startsWith("p") != (to.hour >= 12) -> roll(half, if (to.hour >= 12) 1 else -1)
+                    adopt != null && !named -> {
+                        named = true
+                        JarvisReaders.clockNameBox(root)?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+                            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, WORK)
+                        })
+                    }
+                    else -> {
+                        JarvisHands.press(JarvisReaders.clockSave(root)!!)
+                        moved++
+                        plan?.remove(job)
+                        editing = null
+                        stuck = 0
+                        last = ""
+                        cool = 2
+                        return@custom null
+                    }
+                }
+                cool = 1
+                return@custom null
+            }
+            val rows = JarvisReaders.alarms(root)
+            if (rows.isEmpty() && tries < 6) return@custom null
+            // The editor's still opening.
+            if (editing != null) {
+                if (++opened < 6) return@custom null
+                editing = null
+            }
+            if (plan == null) {
+                val work = rows.filter { if (adopt != null) it.time in adopt else isWork(it) }.sortedBy { it.time }
+                if (work.isEmpty()) {
+                    val guess = if (adopt == null) workGuess(rows, gap) else emptyList()
+                    if (guess.isNotEmpty()) {
+                        afterHands = { said -> askAdopt(said, guess, times, date, outro) }
+                        return@custom "None of your alarms are named Work yet${sir()}. Are your ${guess.first().format(tf)} to ${guess.last().format(tf)} alarms your work ones? I'll move those and name them Work."
+                    }
+                    // Nothing to move: a fresh run, named Work.
+                    setFresh(times)
+                    JarvisMemory.setWorkAlarms(context, times.first().toString(), date)
+                    return@custom "Done${sir()}. I didn't find any work alarms, so I've set ${if (times.size == 1) "one for ${times[0].format(tf)}" else "${times.size}, ${times.first().format(tf)} to ${times.last().format(tf)}"}, named Work. Next time I'll move these.$outro"
+                }
+                before = work.map { it.time }
+                val n = minOf(work.size, times.size)
+                val pairs = (0 until n).map { work[it].time to times[it] }
+                // Earlier: first one first, so none lands on one still to move; later: last one first.
+                val earlier = pairs.firstOrNull()?.let { it.second.isBefore(it.first) } ?: true
+                plan = pairs.filter { (from, to) -> from != to || adopt != null }.let { if (earlier) it else it.reversed() }.toMutableList()
+                toOn = pairs.filter { (from, to) -> from == to && adopt == null && work.first { r -> r.time == from }.on != true }.map { it.first }
+                toOff = work.drop(n).filter { it.on == true }.map { it.time }
+                missing = times.drop(n)
+                push("Work alarms back to ${before.first().format(tf)}") {
+                    clockWork(before, date, "")
+                    "Moving your work alarms back to ${before.first().format(tf)}."
+                }
+            }
+            val next = plan!!.firstOrNull()
+            if (next != null) {
+                val row = rows.firstOrNull { it.time == next.first && (adopt != null || isWork(it)) }
+                if (row == null) {
+                    // Further down the list (or up): look before giving up on it.
+                    val list = JarvisHands.nodes(root).firstOrNull { it.isScrollable }
+                    val action = if (scrolls < 3) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                    if (scrolls < 8 && list != null && list.performAction(action)) {
+                        scrolls++
+                        cool = 1
+                        return@custom null
+                    }
+                    plan!!.remove(next)
+                    missing = missing + next.second
+                    scrolls = 0
+                    return@custom null
+                }
+                scrolls = 0
+                JarvisHands.press(row.row ?: row.switch ?: return@custom "I couldn't open your ${next.first.format(tf)} alarm, sir.")
+                editing = next
+                opened = 0
+                named = false
+                cool = 2
+                return@custom null
+            }
+            // Moved: the rest switched on or off on the list, and any missing added.
+            rows.filter { (it.time in toOn && it.on != true) || (it.time in toOff && it.on == true) }.forEach { r -> r.switch?.let { JarvisHands.press(it) } }
+            if (missing.isNotEmpty()) setFresh(missing)
+            JarvisMemory.setWorkAlarms(context, times.first().toString(), date)
+            val range = if (times.size == 1) times[0].format(tf) else "${times.first().format(tf)} to ${times.last().format(tf)}"
+            when {
+                moved == 0 && missing.isEmpty() -> "Done${sir()}. Your work alarms were already $range" + (if (toOn.isNotEmpty()) "; I've switched them on." else ".") + outro
+                else -> "Done${sir()}. Your work alarms are now $range" + (if (missing.isNotEmpty()) " (I added ${missing.size} named Work)" else "") +
+                    (if (toOff.isNotEmpty()) "; ${toOff.size} more switched off" else "") + "." + outro
+            }
+        }
+    }
+
+    /** Fresh alarms named Work, set straight into the Clock. */
+    private fun setFresh(times: List<LocalTime>) {
+        val h = android.os.Handler(android.os.Looper.getMainLooper())
+        times.forEachIndexed { i, t ->
+            h.postDelayed({
+                start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, t.hour).putExtra(AlarmClock.EXTRA_MINUTES, t.minute)
+                    .putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, WORK))
+            }, i * 700L)
+        }
+    }
+
+    /** The wheels wouldn't turn for him: out of the alarm, and the offer to replace them instead. */
+    private fun wheelsStuck(root: AccessibilityNodeInfo, times: List<LocalTime>, date: LocalDate, outro: String, moved: Int): String {
+        JarvisReaders.clockCancel(root)?.let { JarvisHands.press(it) } ?: JarvisHands.back()
+        afterHands = { said ->
+            pending = Pending.Confirm({ replaceWork(times, date, outro) }, "Very well. They're as they were${if (moved > 0) ", bar the $moved I'd moved" else ""}.")
+            Reply(said, listen = true, card = Card("⏰", "WORK ALARMS", "STUCK", "the Clock's time wheels wouldn't turn for me", tone = Tone.HOT),
+                actions = listOf(Action("REPLACE THEM", "yes", primary = true), Action("LEAVE THEM", "no")))
+        }
+        return "The Clock's time wheels wouldn't turn for me${sir()}${if (moved > 0) " after $moved" else ""}. Shall I replace your work alarms instead? Same number, new times, named Work."
+    }
+
+    /** Your work alarms swapped for new ones: the old ones deleted, then the new run set. */
+    private fun replaceWork(times: List<LocalTime>, date: LocalDate, outro: String): Reply {
+        var stage = 0
+        var cool = 0
+        JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), "I couldn't replace them in the Clock, sir.", timeout = 60_000) { root, tries ->
+            if (cool > 0) {
+                cool--
+                return@custom null
+            }
+            val rows = JarvisReaders.alarms(root)
+            if (rows.isEmpty() && tries < 6) return@custom null
+            when (stage) {
+                0 -> {
+                    if (JarvisReaders.clockSelecting(root)) { stage = 1; return@custom null }
+                    val first = rows.firstOrNull { isWork(it) }
+                    if (first == null) { stage = 2; return@custom null }
+                    val target = first.row ?: first.switch ?: return@custom "I couldn't get hold of your work alarms, sir."
+                    target.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)
+                    stage = 1
+                    cool = 2
+                    null
+                }
+                1 -> {
+                    if (!JarvisReaders.clockSelecting(root)) return@custom if (tries < 20) null else "The Clock didn't let me select them, sir."
+                    rows.firstOrNull { (it.on == true) != isWork(it) }?.let { r ->
+                        JarvisHands.press(r.switch ?: r.row ?: return@let)
+                        cool = 1
+                        return@custom null
+                    }
+                    JarvisReaders.clockDelete(root)?.let { JarvisHands.press(it) } ?: return@custom "I couldn't find the Delete button, sir."
+                    stage = 2
+                    cool = 2
+                    null
+                }
+                else -> {
+                    if (JarvisReaders.clockSelecting(root) && tries < 50) {
+                        JarvisReaders.clockDelete(root)?.let { JarvisHands.press(it); cool = 2 }
+                        return@custom null
+                    }
+                    setFresh(times)
+                    JarvisMemory.setWorkAlarms(context, times.first().toString(), date)
+                    "Done${sir()}. Your work alarms are now ${times.first().format(tf)} to ${times.last().format(tf)}.$outro"
+                }
+            }
+        }
+        return Reply(say("Replacing them, sir.", "Out with the old.", "Replacing."), card = Card("⏰", "WORK ALARMS", "REPLACING", "in the Clock", tone = Tone.GOLD))
+    }
+
+    /** "Are these your work alarms?" after reading the Clock: yes moves and names them; no sets a fresh run named Work. */
+    private fun askAdopt(said: String, guess: List<LocalTime>, times: List<LocalTime>, date: LocalDate, outro: String): Reply {
+        pending = Pending.Confirm(
+            { Reply("Very good. Moving them and naming them Work.", afterSpeech = true, then = { clockWork(times, date, outro, adopt = guess) }) },
+            "",
+            {
+                setFresh(times)
+                JarvisMemory.setWorkAlarms(context, times.first().toString(), date)
+                Reply("Then I've set a fresh run, ${times.first().format(tf)} to ${times.last().format(tf)}, named Work. Those are the ones I'll move from now on.$outro")
+            },
+        )
+        return Reply(said, listen = true, card = Card("⏰", "YOUR WORK ALARMS?", "${guess.first().format(tf)}–${guess.last().format(tf)}", "${guess.size} alarms · I'll name them Work", tone = Tone.GOLD),
+            actions = listOf(Action("YES, THOSE", "yes", primary = true), Action("NO, NEW ONES", "no")))
+    }
+
+    /** Your work alarms switched off (a day off) or back on, on the Clock's list. */
+    private fun workSwitch(on: Boolean, date: LocalDate) = JarvisHands.custom(JarvisReaders.CLOCK, showAlarms(), "I couldn't reach the Clock's alarms, sir.") { root, tries ->
+        val rows = JarvisReaders.alarms(root)
+        if (rows.isEmpty() && tries < 6) return@custom null
+        val work = rows.filter { isWork(it) }
+        if (work.isEmpty()) {
+            if (!on) JarvisMemory.setWorkAlarms(context, "off", date)
+            return@custom "I couldn't see any alarms named Work, sir. Say \"set my alarms for work\" before your next shift and I'll sort them out."
+        }
+        val change = work.filter { it.on != on }
+        change.forEach { r -> r.switch?.let { JarvisHands.press(it) } }
+        if (!on) JarvisMemory.setWorkAlarms(context, "off", date)
+        when {
+            change.isEmpty() -> "Your work alarms are already ${if (on) "on" else "off"}${sir()}."
+            on -> "Done. Your work alarms are back on."
+            else -> "Done${sir()}. Your ${change.size} work alarm${if (change.size == 1) " is" else "s are"} off. I'll move ${if (change.size == 1) "it" else "them"} for your next shift."
+        }
     }
 
     /** [count] alarms, [gap] minutes apart, from [first]: set one after another in the clock. */
@@ -3089,7 +3410,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             return when (JarvisParser.parse(said)) {
                 is Command.OpenApp, is Command.Call, is Command.Lights, is Command.Switch, is Command.Press, is Command.Teach,
                 is Command.Brightness, is Command.LightColour, is Command.Climate, is Command.SetTemp, is Command.Alarm, is Command.Timer,
-                Command.ShiftAlarm, is Command.WorkAlarms, is Command.AlarmSwitch, is Command.MoveAlarm, Command.Camera, is Command.Setting, Command.LightsStatus,
+                Command.ShiftAlarm, is Command.WorkAlarms, is Command.WorkAlarmsSwitch, is Command.AlarmSwitch, is Command.MoveAlarm, Command.Camera, is Command.Setting, Command.LightsStatus,
                 Command.Briefing, is Command.BriefingControl, Command.Settings, Command.Routines, Command.NewRoutine -> true
                 else -> false
             }
@@ -3114,6 +3435,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         const val DONE = "[x] "
         const val WHATSAPP = "com.whatsapp"
         const val TAPO = "com.tplink.iot"
+
+        /** The name on your work alarms in the Clock: the ones he moves for each shift. */
+        const val WORK = "Work"
 
         private val JOKES = listOf(
             "I would tell you a UDP joke, sir, but you might not get it.",

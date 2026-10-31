@@ -113,8 +113,17 @@ object JarvisParser {
         data class RemoveCountdown(val name: String) : Command()
         data class AddShift(val date: LocalDate, val start: LocalTime, val end: LocalTime) : Command()
         data class RemoveShift(val date: LocalDate) : Command()
-        /** A week (or more) of shifts in one go; a day with no times is a day off. */
-        data class AddShifts(val days: List<RotaDay>) : Command()
+        /**
+         * A week (or more) of shifts in one go; a day with no times is a day off. [uni] are uni sessions said
+         * with them. With [week] (its Monday: "next week"), it's that whole week: days not said are off.
+         */
+        data class AddShifts(val days: List<RotaDay>, val uni: List<RotaDay> = emptyList(), val week: LocalDate? = null) : Command()
+        /** Uni on these days ("uni Wednesday 5 till 9"), or every week on them ("every Wednesday"). */
+        data class AddUni(val dates: List<LocalDate>, val start: LocalTime, val end: LocalTime, val weekly: Boolean) : Command()
+        /** No uni that day ("no uni this Wednesday"), every week on it, or at all ([date] null). */
+        data class RemoveUni(val date: LocalDate?, val weekly: Boolean) : Command()
+        /** "Have I got uni tomorrow?", "when's uni?" */
+        data class UniWhen(val day: Int?) : Command()
         /** "Which lights are on?": he looks in Tapo. */
         object LightsStatus : Command()
         object ScreenTime : Command()
@@ -199,7 +208,7 @@ object JarvisParser {
         val whole = parse(said, today)
         val oneCommand = whole is Command.TickNotes || whole is Command.DeleteNotes || whole is Command.Learn || whole is Command.AddHabit || whole is Command.AddNote || whole is Command.AddNotes ||
             whole is Command.AddEvent || whole is Command.Remember || whole is Command.KeepRule || whole is Command.HeaterNow || whole is Command.WhatsApp ||
-            whole is Command.Text || whole is Command.EditNote || whole is Command.Change || whole is Command.AlarmSeries || whole is Command.AddShift || whole is Command.AddShifts ||
+            whole is Command.Text || whole is Command.EditNote || whole is Command.Change || whole is Command.AlarmSeries || whole is Command.AddShift || whole is Command.AddShifts || whole is Command.AddUni ||
             whole is Command.AddCountdown || whole is Command.Travel
         if (oneCommand) return null
         val cmds = parts.map { parse(it, today) }
@@ -244,6 +253,7 @@ object JarvisParser {
         if (Regex("^(restart|reboot|reset|refresh) ?(yourself|jarvis|your systems|all systems|everything|all of jarvis|your hands)?$").matches(t)) return Command.Reboot
         // A rota said in one go: "add these shifts for next week: Monday 7 till 3, Tuesday 8 till 4, Wednesday off…".
         rota(t, today)?.let { return it }
+        uni(t, today)?.let { return it }
         // Rules about things that must stay as they are: "the 7pm alarm always stays on", "never turn off the hallway light".
         JarvisRules.read(t)?.let { r ->
             return when (r) {
@@ -846,37 +856,59 @@ object JarvisParser {
         else -> java.time.DayOfWeek.SUNDAY
     }
 
+    private val UNI = Regex("\\b(uni|university|college|lectures?|class|classes|seminars?|tutorials?|course)\\b")
+
+    private fun weekOf(t: String, today: LocalDate): LocalDate? {
+        val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
+        return when {
+            Regex("\\b(next week|the week after|following week)\\b").containsMatchIn(t) -> monday.plusWeeks(1)
+            Regex("\\bthis week\\b").containsMatchIn(t) -> monday
+            else -> null
+        }
+    }
+
+    /** [d] in [week] if given, else the next one coming (today included). */
+    private fun dateFor(d: java.time.DayOfWeek, week: LocalDate?, today: LocalDate): LocalDate =
+        week?.plusDays((d.value - 1).toLong()) ?: today.plusDays(((d.value - today.dayOfWeek.value + 7) % 7).toLong())
+
+    private fun times(r: MatchResult) = shiftTimes(r.groupValues[1].replace('.', ':'), r.groupValues[2].replace('.', ':'))
+
     /**
      * Several days' shifts in one sentence: "Monday 7 till 3, Tuesday 8 to 4, Wednesday off, Thursday and Friday
      * 7 till 7, Saturday the same". Days without times take the next times said ("Thursday and Friday 7 till 7");
-     * "same" repeats the last; "off" is a day off. "Next week" puts them in next week; otherwise each is the
-     * next one coming (today included). Two days or more, about work; else null.
+     * "same" repeats the last; "off" is a day off; "uni 5 till 9" on a day is uni, next to its shift. "Next week"
+     * makes it that whole week (the days not said are off); otherwise each day is the next one coming.
      */
     fun rota(t: String, today: LocalDate): Command.AddShifts? {
         val days = WEEKDAY.findAll(t).toList()
-        if (days.size < 2 || RANGE.findAll(t).none()) return null
+        val week = weekOf(t, today)
+        val only = Regex("\\b(only|just|rest|that's it|that's all|nothing else|other days)\\b").containsMatchIn(t)
+        if (days.isEmpty() || (days.size < 2 && !(week != null && only)) || RANGE.findAll(t).none()) return null
         if (!Regex("\\b(shifts?|rota|working|work|i'm on|i am on|i'm in|these|my week)\\b").containsMatchIn(t)) return null
         if (Regex("^(what|when|which|how|am i|do i|is|are)\\b").containsMatchIn(t)) return null
-        val nextWeek = Regex("\\b(next week|the week after|following week)\\b").containsMatchIn(t)
-        val thisWeek = !nextWeek && Regex("\\b(this week)\\b").containsMatchIn(t)
-        fun dateOf(d: java.time.DayOfWeek): LocalDate {
-            val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
-            return when {
-                nextWeek -> monday.plusWeeks(1).plusDays((d.value - 1).toLong())
-                thisWeek -> monday.plusDays((d.value - 1).toLong())
-                else -> today.plusDays(((d.value - today.dayOfWeek.value + 7) % 7).toLong())
-            }
-        }
         val out = LinkedHashMap<LocalDate, RotaDay>()
+        val uni = LinkedHashMap<LocalDate, RotaDay>()
         val waiting = ArrayList<LocalDate>()
         var last: Pair<LocalTime, LocalTime>? = null
         days.forEachIndexed { i, m ->
-            val date = dateOf(weekday(m.groupValues[1]))
+            val date = dateFor(weekday(m.groupValues[1]), week, today)
             val seg = t.substring(m.range.last + 1, if (i + 1 < days.size) days[i + 1].range.first else t.length)
-            val range = RANGE.find(seg)
+            val ranges = RANGE.findAll(seg).toList()
+            // Uni in this day's words: the times after "uni" (or its only times) are uni, the rest the shift.
+            val uniAt = UNI.find(seg)?.range?.first
+            val uniRange = uniAt?.let { at -> ranges.firstOrNull { it.range.first > at } ?: ranges.lastOrNull() }
+            val range = ranges.firstOrNull { it != uniRange }
+            uniRange?.let { r ->
+                val (a, b) = times(r)
+                if (a != null && b != null) (if (range == null) waiting + date else listOf(date)).forEach { uni[it] = RotaDay(it, a, b) }
+                if (range == null) {
+                    waiting.clear()
+                    return@forEachIndexed
+                }
+            }
             when {
                 range != null -> {
-                    val (a, b) = shiftTimes(range.groupValues[1].replace('.', ':'), range.groupValues[2].replace('.', ':'))
+                    val (a, b) = times(range)
                     if (a != null && b != null) {
                         last = a to b
                         (waiting + date).forEach { out[it] = RotaDay(it, a, b) }
@@ -894,8 +926,29 @@ object JarvisParser {
                 else -> waiting += date
             }
         }
-        if (out.count { it.value.start != null } < 1 || out.size < 2) return null
-        return Command.AddShifts(out.values.sortedBy { it.date })
+        if (out.none { it.value.start != null } && uni.isEmpty()) return null
+        if (week == null && out.size + uni.size < 2) return null
+        return Command.AddShifts(out.values.sortedBy { it.date }, uni.values.sortedBy { it.date }, week)
+    }
+
+    /** Uni on its own: "I've got uni from 5pm to 9pm on Wednesday", "uni every Monday 9 till 12", "no uni this Wednesday". */
+    fun uni(t: String, today: LocalDate): Command? {
+        if (!UNI.containsMatchIn(t)) return null
+        val week = weekOf(t, today)
+        val dayMatches = WEEKDAY.findAll(t).toList()
+        val dates = dayMatches.map { dateFor(weekday(it.groupValues[1]), week, today) }.ifEmpty { listOfNotNull(whenIn(t, today).first ?: dateIn(t, today)) }
+        val weekly = Regex("\\b(every|each|weekly|all term|every week)\\b").containsMatchIn(t) || dayMatches.any { it.value.endsWith("days") }
+        if (Regex("\\b(finished|done with|no more|quit|dropped out of|stopped)\\b").containsMatchIn(t) && dates.isEmpty()) return Command.RemoveUni(null, true)
+        if (Regex("^(no|i've got no|i have no|i haven't got|i don't have|i do not have|there's no|cancel|remove|delete|take off)\\b|\\b(no uni|not got uni|off uni|uni (is )?cancelled)\\b").containsMatchIn(t)) {
+            return dates.firstOrNull()?.let { Command.RemoveUni(it, weekly) }
+        }
+        if (Regex("^(what|when|which|have i|do i|am i|is there|is|any)\\b").containsMatchIn(t)) {
+            return Command.UniWhen(dates.firstOrNull()?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() })
+        }
+        val r = RANGE.find(t) ?: return null
+        val (a, b) = times(r)
+        if (a == null || b == null || dates.isEmpty()) return null
+        return Command.AddUni(dates.distinct(), a, b, weekly)
     }
 
     fun shiftTimes(a: String, b: String): Pair<LocalTime?, LocalTime?> {

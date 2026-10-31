@@ -535,13 +535,34 @@ class JarvisTest {
         fun t(h: Int) = LocalTime.of(h, 0)
         val R = JarvisParser::RotaDay
         assertEquals(
-            Command.AddShifts(listOf(R(d(2), t(7), t(15)), R(d(3), t(8), t(16)), R(d(4), null, null), R(d(5), t(7), t(19)), R(d(6), t(7), t(19)), R(d(7), t(7), t(19)))),
+            Command.AddShifts(listOf(R(d(2), t(7), t(15)), R(d(3), t(8), t(16)), R(d(4), null, null), R(d(5), t(7), t(19)), R(d(6), t(7), t(19)), R(d(7), t(7), t(19))), week = d(2)),
             p("Add these shifts for next week: Monday 7 till 3, Tuesday 8 till 4, Wednesday off, Thursday and Friday 7 till 7, Saturday the same"),
         )
         assertEquals(
-            Command.AddShifts(listOf(R(d(2), t(7), t(15)), R(d(3), t(7), t(15)))),
+            Command.AddShifts(listOf(R(d(2), t(7), t(15)), R(d(3), t(7), t(15))), week = d(2)),
             p("I'm working next week monday 7 to 3 tuesday 7 to 3"),
         )
+        // Three shifts, the rest off.
+        assertEquals(
+            Command.AddShifts(listOf(R(d(3), t(7), t(15)), R(d(4), t(7), t(15)), R(d(8), t(7), t(15))), week = d(2)),
+            p("add shifts next week on tuesday wednesday and sunday 7 till 3"),
+        )
+        assertEquals(
+            Command.AddShifts(listOf(R(d(3), t(7), t(15))), week = d(2)),
+            p("next week I'm only working tuesday 7 till 3"),
+        )
+        // Uni with them.
+        assertEquals(
+            Command.AddShifts(listOf(R(d(3), t(7), t(15)), R(d(4), t(7), t(13))), uni = listOf(R(d(4), t(17), t(21))), week = d(2)),
+            p("my shifts next week are tuesday 7 till 3, wednesday 7 till 1 and uni 5 till 9"),
+        )
+        // Uni on its own.
+        assertEquals(Command.AddUni(listOf(d(4)), t(17), t(21), false), p("I got uni from 5pm to 9pm on Wednesday"))
+        assertEquals(Command.AddUni(listOf(d(4)), t(17), t(21), true), p("I've got uni every Wednesday 5 till 9"))
+        assertEquals(Command.AddUni(listOf(d(2), d(4)), t(9), t(12), true), p("university on mondays and wednesdays 9 till 12"))
+        assertEquals(Command.RemoveUni(d(4), false), p("no uni this Wednesday"))
+        assertEquals(Command.UniWhen(1), p("have I got uni tomorrow"))
+        assertEquals(Command.UniWhen(null), p("when is uni"))
         assertEquals(Command.ShiftWeek(next = false), p("what's my rota for the week"))
         assertEquals(Command.ShiftWeek(next = true), p("what's my rota next week"))
         assertEquals(Command.ShiftWeek(next = true), p("what are my shifts next week"))

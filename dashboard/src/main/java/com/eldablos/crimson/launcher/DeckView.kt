@@ -1365,6 +1365,10 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             } else if (shifts[focusDay] == null && shifts.isNotEmpty()) {
                 out += "x:work" to "No work ${if (evening) "tomorrow" else "today"}, so make the most of it."
             }
+            // Uni, next to work.
+            Uni.on(context, focusDay)?.let { u ->
+                out += "x:uni" to "You've uni ${if (evening) "tomorrow" else "today"} too, ${u.start.format(tf)} till ${u.end.format(tf)}."
+            }
 
             // The rest of the plan.
             val plan = agenda.filter { it.id !in shiftEvents && at(it.begin).toLocalDate() == focusDay && (it.allDay || it.end > nowMs) }

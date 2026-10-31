@@ -820,7 +820,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.RemoveCountdown -> removeCountdown(cmd.name)
         is Command.AddShift -> setShift(cmd.date, Shifts.Shift(cmd.start, cmd.end, shiftName(cmd.start, cmd.end)))
         is Command.RemoveShift -> setShift(cmd.date, null)
-        is Command.AddShifts -> setShifts(cmd.days)
+        is Command.AddShifts -> setShifts(cmd.days, cmd.uni, cmd.week)
+        is Command.AddUni -> addUni(cmd.dates, cmd.start, cmd.end, cmd.weekly)
+        is Command.RemoveUni -> removeUni(cmd.date, cmd.weekly)
+        is Command.UniWhen -> uniWhen(cmd.day)
         Command.LightsStatus -> lightsStatus()
         Command.ScreenTime -> screenTime()
         is Command.EditNote -> editNote(cmd.old, cmd.new)
@@ -1254,11 +1257,14 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (day != null) {
             val date = LocalDate.now().plusDays(day.toLong())
             val label = dayWord(day)
+            val uni = Uni.on(context, date)
+            val uniSaid = uni?.let { " Then uni, ${it.start.format(tf)} till ${it.end.format(tf)}." }.orEmpty()
             val s = shifts[date] ?: return Reply(
-                say("You're not working $label, sir. A day off.", "Nothing $label. Try to look busy anyway.", "Off $label."),
-                card = Card("⧗", "SHIFT · ${label.removePrefix("on ").uppercase()}", "OFF", date.format(dayName), tone = Tone.GREEN),
+                if (uni != null) "You're not working $label, sir, but you've uni ${uni.start.format(tf)} till ${uni.end.format(tf)}."
+                else say("You're not working $label, sir. A day off.", "Nothing $label. Try to look busy anyway.", "Off $label."),
+                card = Card("⧗", "SHIFT · ${label.removePrefix("on ").uppercase()}", "OFF", date.format(dayName) + (uni?.let { " · uni ${it.times()}" } ?: ""), tone = Tone.GREEN),
             )
-            return Reply("${label.removePrefix("on ").replaceFirstChar { it.uppercase() }} you're working ${s.start.format(tf)} till ${s.end.format(tf)}, ${duration(s.minutes * 60_000L)}.",
+            return Reply("${label.removePrefix("on ").replaceFirstChar { it.uppercase() }} you're working ${s.start.format(tf)} till ${s.end.format(tf)}, ${duration(s.minutes * 60_000L)}.$uniSaid",
                 card = shiftCard(date, s), actions = alarmOffer(date, s))
         }
         val (d, s) = Shifts.next(shifts, now, zone) ?: return Reply("I don't have any shifts coming up, sir. Add them in the briefing's shift planner.")
@@ -1288,15 +1294,21 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun shiftWeek(next: Boolean): Reply {
         val shifts = Shifts.all(context)
         val monday = Shifts.monday(LocalDate.now()).plusWeeks(if (next) 1 else 0)
-        val week = (0 until 7).mapNotNull { k -> shifts[monday.plusDays(k.toLong())]?.let { monday.plusDays(k.toLong()) to it } }
-        if (week.isEmpty()) return Reply("No shifts ${if (next) "next" else "this"} week yet, $name.")
+        val dates = (0 until 7).map { monday.plusDays(it.toLong()) }
+        val week = dates.mapNotNull { d -> shifts[d]?.let { d to it } }
+        val uni = dates.mapNotNull { d -> Uni.on(context, d)?.let { d to it } }
+        if (week.isEmpty() && uni.isEmpty()) return Reply("No shifts ${if (next) "next" else "this"} week yet, $name.")
         val hours = week.sumOf { it.second.minutes } / 60.0
-        val days = week.joinToString(", ") { (d, s) -> d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault()) + " " + s.start.format(tf) }
+        fun dayName(d: LocalDate) = d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        val days = week.joinToString(", ") { (d, s) -> dayName(d) + " " + s.start.format(tf) + " till " + s.end.format(tf) }
+        val uniSaid = if (uni.isEmpty()) "" else " Uni ${uni.joinToString(", ") { (d, u) -> dayName(d) + " " + u.start.format(tf) + " till " + u.end.format(tf) }}."
         return Reply(
-            "${if (next) "Next" else "This"} week you've got ${week.size} shift${if (week.size == 1) "" else "s"}, ${"%.0f".format(Locale.ROOT, hours)} hours: $days.",
-            card = Card("⧗", if (next) "NEXT WEEK" else "THIS WEEK", "${"%.0f".format(Locale.ROOT, hours)}h", "${week.size} shifts", week.map { (d, s) ->
-                Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, s.times(), ok = if (d.isBefore(LocalDate.now())) true else null)
-            }, Tone.HOT),
+            (if (week.isEmpty()) "No shifts ${if (next) "next" else "this"} week." else "${if (next) "Next" else "This"} week you've got ${week.size} shift${if (week.size == 1) "" else "s"}, ${"%.0f".format(Locale.ROOT, hours)} hours: $days.") + uniSaid,
+            card = Card("⧗", if (next) "NEXT WEEK" else "THIS WEEK", "${"%.0f".format(Locale.ROOT, hours)}h", "${week.size} shifts${if (uni.isNotEmpty()) " · ${uni.size} uni" else ""}",
+                dates.filter { d -> shifts[d] != null || Uni.on(context, d) != null }.map { d ->
+                    Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth,
+                        listOfNotNull(shifts[d]?.times(), Uni.on(context, d)?.let { "UNI ${it.times()}" }).joinToString(" · "), ok = if (d.isBefore(LocalDate.now())) true else null)
+                }, Tone.HOT),
         )
     }
 
@@ -2474,14 +2486,23 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         )
     }
 
-    /** A rota in one go: every day saved (days off cleared), one Undo for the lot, read back day by day. */
-    private fun setShifts(days: List<JarvisParser.RotaDay>): Reply {
+    /**
+     * A rota in one go: every day saved (days off cleared), uni said with it, and for a named week the days
+     * not said made days off. One Undo for the lot, read back day by day.
+     */
+    private fun setShifts(said: List<JarvisParser.RotaDay>, uni: List<JarvisParser.RotaDay>, week: LocalDate?): Reply {
         val all = Shifts.all(context)
+        // A whole week: every day you didn't give is off (only the ones that had a shift change).
+        val rest = week?.let { m -> (0L until 7L).map { m.plusDays(it) }.filter { d -> said.none { it.date == d } && all[d] != null }.map { JarvisParser.RotaDay(it, null, null) } }.orEmpty()
+        val days = (said + rest).sortedBy { it.date }
         val before = days.associate { it.date to all[it.date] }
+        val uniBefore = uni.associate { it.date to Uni.hadDay(context, it.date) }
         days.forEach { d -> Shifts.set(context, d.date, if (d.start != null && d.end != null) Shifts.Shift(d.start, d.end, shiftName(d.start, d.end)) else null) }
+        uni.forEach { u -> Uni.set(context, u.date, Uni.Session(u.start!!, u.end!!), everyWeek = false) }
         val synced = Shifts.sync(context) >= 0
         push("Rota put back") {
             before.forEach { (d, s) -> Shifts.set(context, d, s) }
+            uniBefore.forEach { (d, h) -> Uni.restore(context, d, h.first, h.second) }
             Shifts.sync(context)
             "Put your shifts back as they were."
         }
@@ -2489,24 +2510,93 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val working = days.filter { it.start != null }
         val off = days.filter { it.start == null }
         val minutes = working.sumOf { d -> java.time.Duration.between(d.start, d.end).toMinutes().let { if (it <= 0) it + 24 * 60 else it } }
-        val said = working.joinToString(", ") { d -> "${dayName(d.date)} ${d.start!!.format(tf)} till ${d.end!!.format(tf)}" } +
-            if (off.isNotEmpty()) ". Off ${off.joinToString(" and ") { dayName(it.date) }}" else ""
-        val first = days.first().date
-        val span = if (Shifts.monday(first) == Shifts.monday(days.last().date)) {
-            when (Shifts.monday(first)) {
-                Shifts.monday(LocalDate.now()) -> "this week"
-                Shifts.monday(LocalDate.now()).plusWeeks(1) -> "next week"
-                else -> "the week of ${first.dayOfMonth} ${first.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())}"
-            }
-        } else "the coming days"
+        val first = (days + uni).minOf { it.date }
+        val span = when {
+            week == Shifts.monday(LocalDate.now()) -> "this week"
+            week != null && week == Shifts.monday(LocalDate.now()).plusWeeks(1) -> "next week"
+            week != null -> "the week of ${week.dayOfMonth} ${week.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())}"
+            Shifts.monday(first) == Shifts.monday((days + uni).maxOf { it.date }) && Shifts.monday(first) == Shifts.monday(LocalDate.now()).plusWeeks(1) -> "next week"
+            else -> "the coming days"
+        }
+        val sayDays = working.joinToString(", ") { d -> "${dayName(d.date)} ${d.start!!.format(tf)} till ${d.end!!.format(tf)}" }
+        val sayUni = if (uni.isEmpty()) "" else " Uni ${uni.joinToString(", ") { "${dayName(it.date)} ${it.start!!.format(tf)} till ${it.end!!.format(tf)}" }}."
+        val sayOff = when {
+            week != null && off.isNotEmpty() -> " The rest you're off${if (rest.isNotEmpty()) "; I've cleared ${rest.joinToString(" and ") { dayName(it.date) }}" else ""}."
+            week != null -> " The rest you're off."
+            off.isNotEmpty() -> " Off ${off.joinToString(" and ") { dayName(it.date) }}."
+            else -> ""
+        }
+        val hours = "%.0f".format(Locale.ROOT, minutes / 60.0)
+        val rows = (week?.let { m -> (0L until 7L).map { m.plusDays(it) } } ?: (days.map { it.date } + uni.map { it.date }).distinct().sorted()).map { d ->
+            val sh = days.firstOrNull { it.date == d }?.takeIf { it.start != null }
+            val u = uni.firstOrNull { it.date == d }
+            Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth,
+                listOfNotNull(sh?.let { "${it.start!!.format(tf)}–${it.end!!.format(tf)}" }, u?.let { "UNI ${it.start!!.format(tf)}–${it.end!!.format(tf)}" }).joinToString(" · ").ifEmpty { "OFF" },
+                ok = if (sh != null) true else null)
+        }
         return Reply(
-            "Got it${sir()}: ${working.size} shift${if (working.size == 1) "" else "s"} $span, ${"%.0f".format(Locale.ROOT, minutes / 60.0)} hours. $said." +
-                if (synced) " They're on the Even Us calendar too." else "",
-            card = Card("⧗", "ROTA SAVED · ${span.uppercase()}", "${"%.0f".format(Locale.ROOT, minutes / 60.0)}h", "${working.size} shifts${if (off.isNotEmpty()) " · ${off.size} off" else ""}",
-                days.map { d -> Row(d.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.date.dayOfMonth, if (d.start != null) "${d.start.format(tf)}–${d.end!!.format(tf)}" else "OFF", ok = if (d.start != null) true else null) },
-                Tone.HOT),
+            (if (working.isEmpty()) "Got it${sir()}." else "Got it${sir()}: ${working.size} shift${if (working.size == 1) "" else "s"} $span, $hours hours. $sayDays.") + sayUni + sayOff +
+                if (synced && working.isNotEmpty()) " They're on the Even Us calendar too." else "",
+            card = Card("⧗", "ROTA SAVED · ${span.uppercase()}", "${hours}h", "${working.size} shifts${if (uni.isNotEmpty()) " · ${uni.size} uni" else ""}", rows, Tone.HOT),
             actions = listOf(undoAction, Action("MY WEEK", if (span == "next week") "what's my rota next week" else "what's my rota this week")),
         )
+    }
+
+    /** Uni on a day, or every week on it; next to the shift that day, with a word if they overlap. */
+    private fun addUni(dates: List<LocalDate>, start: LocalTime, end: LocalTime, weekly: Boolean): Reply {
+        val session = Uni.Session(start, end)
+        val before = dates.associateWith { Uni.hadDay(context, it) }
+        val weeklyBefore = Uni.weekly(context)
+        dates.forEach { Uni.set(context, it, session, weekly) }
+        push("Uni put back") {
+            before.forEach { (d, h) -> Uni.restore(context, d, h.first, h.second) }
+            if (weekly) dates.forEach { d -> Uni.set(context, d, weeklyBefore[d.dayOfWeek], everyWeek = true) }
+            "Uni's back as it was."
+        }
+        fun dayName(d: LocalDate) = d.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())
+        val shifts = Shifts.all(context)
+        val clash = dates.mapNotNull { d -> shifts[d]?.takeIf { s -> !s.overnight && s.start.isBefore(end) && start.isBefore(s.end) }?.let { d to it } }
+        val next = dates.map { d -> shifts[d]?.let { "${dayName(d)} you're working ${it.start.format(tf)} till ${it.end.format(tf)}, then uni." } }.filterNotNull()
+        val whenSaid = if (weekly) "every ${dates.joinToString(" and ") { dayName(it) }}" else dates.joinToString(" and ") { whenText(it, null) }
+        return Reply(
+            "Uni $whenSaid, ${start.format(tf)} till ${end.format(tf)}${sir()}. " +
+                (if (clash.isNotEmpty()) "Careful: that overlaps your shift ${clash.joinToString(" and ") { (d, s) -> "${dayName(d)} (${s.times()})" }}." else next.joinToString(" ")),
+            card = Card("✎", if (weekly) "UNI · EVERY WEEK" else "UNI", session.times(), whenSaid.uppercase(),
+                dates.map { d -> Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, listOfNotNull(shifts[d]?.let { "SHIFT ${it.times()}" }, "UNI ${session.times()}").joinToString(" · "), ok = clash.none { it.first == d }) },
+                if (clash.isNotEmpty()) Tone.HOT else Tone.GOLD),
+            // Said for one day: one tap makes it every week.
+            actions = listOfNotNull(undoAction, if (!weekly) Action("EVERY WEEK", "uni every ${dates.joinToString(" and ") { dayName(it) }} ${start.format(tf)} till ${end.format(tf)}") else null),
+        )
+    }
+
+    private fun removeUni(date: LocalDate?, weekly: Boolean): Reply {
+        if (date == null) {
+            Uni.clear(context)
+            return Reply("Uni's off your week for good${sir()}. Congratulations, if that's what it is.")
+        }
+        val had = Uni.on(context, date) ?: return Reply("You haven't got uni ${whenText(date, null)} anyway${sir()}.")
+        val before = Uni.hadDay(context, date)
+        Uni.set(context, date, null, weekly)
+        push("Uni put back") {
+            if (weekly) Uni.set(context, date, had, everyWeek = true) else Uni.restore(context, date, before.first, before.second)
+            "Uni's back on."
+        }
+        return Reply(if (weekly) "Done. No more uni on ${date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault())}s." else "Done. No uni ${whenText(date, null)}${sir()}.",
+            actions = listOf(undoAction))
+    }
+
+    private fun uniWhen(day: Int?): Reply {
+        val today = LocalDate.now()
+        if (day != null) {
+            val d = today.plusDays(day.toLong())
+            val u = Uni.on(context, d) ?: return Reply("No uni ${whenText(d, null)}${sir()}.")
+            return Reply("Uni ${whenText(d, null)}, ${u.start.format(tf)} till ${u.end.format(tf)}." + (Shifts.all(context)[d]?.let { " You're working ${it.start.format(tf)} till ${it.end.format(tf)} that day too." } ?: ""),
+                card = Card("✎", "UNI", u.times(), whenText(d, null).uppercase(), tone = Tone.GOLD))
+        }
+        val next = (0L..13L).map { today.plusDays(it) }.firstNotNullOfOrNull { d -> Uni.on(context, d)?.let { d to it } }
+            ?: return Reply("You've no uni in the next two weeks${sir()}. Tell me when you have, like \"I've got uni every Wednesday 5 till 9\".")
+        return Reply("Next uni is ${whenText(next.first, null)}, ${next.second.start.format(tf)} till ${next.second.end.format(tf)}.",
+            card = Card("✎", "NEXT UNI", next.second.times(), whenText(next.first, null).uppercase(), tone = Tone.GOLD))
     }
 
     private fun lightsStatus(): Reply {

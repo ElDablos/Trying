@@ -1324,6 +1324,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         return Card("⧗", "SHIFT · ${whenText(date, null).uppercase()}", s.times(), "${duration(s.minutes * 60_000L)} · ${s.name.ifBlank { "Shift" }}", listOfNotNull(
             if (start > now) Row("STARTS IN", duration(start - now)) else null,
             if (start > now) Row("ALARM", alarm?.let { at(it).format(tf) } ?: "none set", ok = alarm != null) else null,
+            JarvisMemory.hourlyRate(context)?.let { r -> (s.minutes / 60.0 * r).let { g -> Row("PAY", "${money(g)} → ${money(Pay.netShare(context, date, g, r))}") } },
         ), Tone.HOT)
     }
 

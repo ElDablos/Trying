@@ -588,42 +588,47 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     // --- The morning ---
 
-    /** The day ahead: work or uni, the weather, money so far this pay period, study and habits. */
+    /**
+     * The day ahead, short: said in two or three sentences (work or a day off, the weather, the one thing worth
+     * knowing), with the rest on the card (uni, pay so far, study, habits, dates coming up).
+     */
     fun morningBrief(): Reply {
         val today = LocalDate.now()
-        val parts = ArrayList<String>()
         val rows = ArrayList<Row>()
         val shift = Shifts.all(context)[today]
         val uni = Uni.on(context, today)
-        when {
-            shift != null -> { parts += "You're working ${shift.start.format(tf)} till ${shift.end.format(tf)}."; rows += Row("WORK", shift.times()) }
-            else -> { parts += "No work today."; rows += Row("WORK", "day off") }
-        }
-        uni?.let { parts += "Uni ${it.start.format(tf)} to ${it.end.format(tf)}."; rows += Row("UNI", it.times()) }
-        Forecast.cached(context)?.days?.firstOrNull { it.date == today }?.let { d ->
-            parts += "${d.high} degrees${if (d.rain >= 50) ", and rain's likely: take a coat" else if (d.rain >= 25) ", a chance of rain" else ", dry"}."
-            rows += Row("WEATHER", "${d.low}–${d.high}° · rain ${d.rain}%")
-        }
+        rows += Row("WORK", shift?.times() ?: "day off")
+        uni?.let { rows += Row("UNI", it.times()) }
+        val day = Forecast.cached(context)?.days?.firstOrNull { it.date == today }
+        day?.let { rows += Row("WEATHER", "${it.low}–${it.high}° · rain ${it.rain}%") }
         runCatching {
             val setup = Pay.setup(context)
             val (a, b) = Pay.periodOf(today, setup)
             val sofar = Pay.slipFor(context, a, today.minusDays(1).coerceAtLeast(a), setup)
-            if (sofar.hours > 0) {
-                parts += "You're about ${gbp(sofar.net)} into this pay period, paid ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))}."
-                rows += Row("PAY SO FAR", "${gbp(sofar.net)} · ${"%.1f".format(Locale.ROOT, sofar.hours)}h")
-            }
+            if (sofar.hours > 0) rows += Row("PAY SO FAR", "${gbp(sofar.net)} · paid ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEE d MMM"))}")
         }
-        Study.all(context).filter { it.date == today && !it.done }.takeIf { it.isNotEmpty() }?.let { s ->
-            parts += "Study: ${s.joinToString(" and ") { it.subject + (it.time?.let { t -> " at ${t.format(tf)}" } ?: "") }}."
-            rows += Row("STUDY", s.joinToString(", ") { it.subject })
+        val study = Study.all(context).filter { it.date == today && !it.done }
+        if (study.isNotEmpty()) rows += Row("STUDY", study.joinToString(", ") { it.subject + (it.time?.let { t -> " ${t.format(tf)}" } ?: "") })
+        DeckStore.habits(context).filter { today !in it.done }.takeIf { it.isNotEmpty() }?.let { h -> rows += Row("HABITS", h.joinToString(", ") { it.name }.take(40)) }
+        val dated = datedFacts(today).firstOrNull()
+        dated?.let { (what, days) -> rows += Row("COMING UP", "$what · ${if (days == 0L) "today" else "in $days day${if (days == 1L) "" else "s"}"}") }
+        // Said: the day in a line, the weather in a few words, and only the most useful extra.
+        val work = when {
+            shift != null && uni != null -> "Work ${shift.start.format(tf)} to ${shift.end.format(tf)}, then uni."
+            shift != null -> "Work ${shift.start.format(tf)} to ${shift.end.format(tf)}."
+            uni != null -> "Uni from ${uni.start.format(tf)}, no work."
+            else -> "A day off."
         }
-        DeckStore.habits(context).filter { today !in it.done }.takeIf { it.isNotEmpty() }?.let { h ->
-            rows += Row("HABITS TO DO", h.joinToString(", ") { it.name }.take(40))
+        val weather = day?.let { "${it.high} degrees${if (it.rain >= 50) ", rain likely" else ""}." }.orEmpty()
+        val extra = when {
+            dated != null && dated.second <= 1L -> "${dated.first.replaceFirstChar { it.uppercase() }} is ${if (dated.second == 0L) "today" else "tomorrow"}."
+            study.isNotEmpty() -> "Study: ${study.first().subject}${study.first().time?.let { " at ${it.format(tf)}" } ?: ""}."
+            else -> ""
         }
-        datedFacts(today).firstOrNull()?.let { (what, days) -> parts += if (days == 0L) "And $what is today." else "And $what is in $days day${if (days == 1L) "" else "s"}." }
         context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).edit().putString("brief_day", today.toString()).apply()
-        return Reply("${greeting()} ${parts.joinToString(" ")}", card = Card("☀", "MORNING BRIEF", today.format(DateTimeFormatter.ofPattern("EEE d MMM")).uppercase(), rows = rows, tone = Tone.GOLD),
-            full = true, actions = listOf(Action("MY WEEK", "what's my rota this week"), Action("WEATHER", "what's the weather")))
+        return Reply(listOf(greeting(), work, weather, extra).filter { it.isNotBlank() }.joinToString(" "),
+            card = Card("☀", "MORNING BRIEF", today.format(DateTimeFormatter.ofPattern("EEE d MMM")).uppercase(), rows = rows, tone = Tone.GOLD),
+            actions = listOf(Action("MY WEEK", "what's my rota this week"), Action("WEATHER", "what's the weather")))
     }
 
     /** The first time you open him on a morning: the brief instead of a plain hello. */
@@ -1874,7 +1879,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (briefDue()) {
             val b = morningBrief()
             // Anything pressing (no alarm before your shift, rain on the way in) still said.
-            val top = JarvisProactive.insights(context).also { JarvisProactive.markSeen(context, it) }.firstOrNull()
+            val top = JarvisProactive.insights(context).also { JarvisProactive.markSeen(context, it) }.firstOrNull { it.id.startsWith("alarm:") || it.id.startsWith("rain:") || it.id.startsWith("tube:") }
             return styled(if (top == null) b else b.copy(say = "${b.say} ${top.say}", actions = listOfNotNull(top.action?.let { Action(top.actionLabel ?: "DO IT", it, primary = true) }) + b.actions))
         }
         val insights = JarvisProactive.insights(context)

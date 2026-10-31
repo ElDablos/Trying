@@ -1341,14 +1341,14 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val d = nowT.dayOfMonth
             val suffix = if (d in 11..13) "th" else when (d % 10) { 1 -> "st"; 2 -> "nd"; 3 -> "rd"; else -> "th" }
             val mood = when {
-                list.any { it.rank == 0 } -> "I'm afraid something needs your attention, sir, so let's start there."
-                evening -> listOf("Shall we get you ready for tomorrow?", "Allow me to walk you through tomorrow.", "Here's how tomorrow's shaping up, sir.")[pick % 3]
-                nowT.hour < 12 -> listOf("All systems are running smoothly. Here's your day.", "Here's what's ahead of you today, sir.", "Shall we go through your day?")[pick % 3]
-                else -> listOf("Let me catch you up, sir.", "All systems nominal. Here's the rest of your day.", "Here's where things stand.")[pick % 3]
+                list.any { it.rank == 0 } -> "Something needs you first, sir."
+                evening -> listOf("Here's tomorrow.", "Tomorrow, in brief.", "Let's get you ready for tomorrow.")[pick % 3]
+                nowT.hour < 12 -> listOf("Here's your day.", "Your day, in brief.", "Here's what's ahead.")[pick % 3]
+                else -> listOf("Here's the rest of your day.", "Let me catch you up.", "Here's where things stand.")[pick % 3]
             }
-            // The name runs straight on from the greeting, the way a person says it.
-            out += "x:hello" to "$greet $name, it's ${nowT.format(tf)} on ${weekday(today)} the $d$suffix. $mood"
-            out += "x:head" to headline(list)
+            // Short and to the point: the hello, then only what's worth saying (quiet sections are skipped).
+            out += "x:hello" to "$greet $name. $mood"
+            list.firstOrNull { it.headline != null }?.headline?.let { out += "x:head" to it }
 
             // Work: on shift now, or the next shift and what comes after it.
             val cur = Shifts.current(shifts, nowMs, zone)
@@ -1380,11 +1380,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val items = plan.map { e -> if (e.allDay) "${e.title}, which is all day" else "${e.title} at ${at(e.begin).format(tf)}" }
                 val joined = if (items.size == 1) items[0] else items.dropLast(1).joinToString(", ") + ", and then " + items.last()
                 out += "x:plan" to (if (evening) "In your calendar for tomorrow, there's " else "Still in your calendar today, there's ") + joined + "."
-            } else if (cur == null && nextShift?.first != focusDay) {
-                out += "x:plan" to if (evening) "Your calendar's empty tomorrow." else "Nothing else in your calendar today."
             }
 
-            // The weather, as it'll be when you're out in it, and what to wear.
+            // The weather in a sentence, and a tip only when it matters (rain, cold, wind).
             forecast?.let { f ->
                 val outAt = when {
                     nextShift != null && nextShift.first == focusDay -> nextShift.first.atTime(nextShift.second.start).minusMinutes(30)
@@ -1393,39 +1391,29 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 }
                 val hour = outAt?.let { o -> f.hours.minByOrNull { kotlin.math.abs(Duration.between(it.time, o).toMinutes()) } }
                 val day = f.days.firstOrNull { it.date == focusDay }
-                val sb = StringBuilder()
-                if (!evening) {
-                    sb.append("Outside it's ${f.temp} degrees and ${Weather.describe(f.code, f.isDay).label.lowercase()}")
-                    if (abs(f.feels - f.temp) >= 2) sb.append(", though it feels more like ${f.feels}")
-                    sb.append(". ")
-                }
-                if (hour != null && outAt != null) sb.append("When you head out at ${outAt.toLocalTime().format(tf)}, expect ${hour.temp} degrees" +
-                    (if (hour.rain >= 40) " and a ${hour.rain} percent chance of rain" else ", and it should be dry") + ". ")
-                day?.let { dd ->
-                    sb.append(if (evening) "Tomorrow tops out at ${dd.high}, dropping to ${dd.low} overnight. " else "Today's high is ${dd.high}, with a low of ${dd.low}. ")
-                }
                 val next12 = f.hours.filter { !it.time.isBefore(nowT.withMinute(0).withSecond(0).withNano(0)) }.take(if (evening) 20 else 12)
                 val wet = next12.firstOrNull { it.rain >= 50 }
                 val windy = (day?.windMax ?: 0) >= 40
                 val cold = (hour?.temp ?: f.temp) <= 5
-                val advice = when {
-                    wet != null -> "Rain's likely from around ${wet.time.format(tf)}, so take a coat or an umbrella."
-                    cold && windy -> "It'll be cold and windy, so wrap up warm."
-                    cold -> "It'll be chilly, so grab a warm layer."
-                    windy -> "It's going to be windy, up to ${day?.windMax} kilometres an hour."
-                    else -> "No rain on the way, which makes a nice change."
+                val sky = if (evening) "Tomorrow: ${day?.high ?: f.temp} degrees at best" else "${f.temp} degrees now, ${Weather.describe(f.code, f.isDay).label.lowercase()}" +
+                    (day?.let { ", up to ${it.high}" } ?: "")
+                val tip = when {
+                    wet != null -> "Rain from about ${wet.time.format(tf)}: take a coat."
+                    cold && windy -> "Cold and windy: wrap up."
+                    cold -> "It's chilly: take a layer."
+                    windy -> "Windy, up to ${day?.windMax} kilometres an hour."
+                    else -> "Dry."
                 }
-                sb.append(advice)
-                out += "x:sky" to sb.toString()
+                out += "x:sky" to "$sky. $tip"
             }
 
             // Getting to work: the usual line (and the back-ups), the rest of the network and the roads.
             travel?.takeIf { it.day == focusDay }?.let { r ->
                 val a = Travel.advise(r, Travel.commute(context, r.day))
                 val working = nextShift?.first == focusDay || cur != null
-                out += "x:travel" to (if (working || a.planAhead || a.commute.firstOrNull()?.fine == false) a.say
-                    else a.commute.firstOrNull()?.let { "On the tube, the ${Travel.lineName(it)} is running a good service" + (if (evening) " tomorrow" else "") + "." }.orEmpty() +
-                        (if (a.trouble.isNotEmpty()) " Elsewhere, ${a.trouble.size} line${if (a.trouble.size == 1) " has" else "s have"} problems." else " The rest of the network looks fine."))
+                // Only when it matters: trouble on your line, or a journey to plan.
+                if (a.planAhead || a.commute.firstOrNull()?.fine == false) out += "x:travel" to a.say
+                else if (working) a.commute.firstOrNull()?.let { out += "x:travel" to "The ${Travel.lineName(it)} is running fine." }
             }
 
             // Sleep, in the evening.
@@ -1455,8 +1443,6 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 out += "x:msgs" to "You've got $unread unread message${if (unread == 1) "" else "s"}" +
                     (if (who.size > 1) ", from ${who.dropLast(1).joinToString(", ")} and ${who.last()}" else if (who.size == 1) " from ${who[0]}" else "") +
                     ". The latest is from $from, saying: $said"
-            } else {
-                out += "x:msgs" to "No messages waiting for you. All quiet."
             }
 
             // Email: each inbox's count today and yesterday; the company one email by email.
@@ -1468,7 +1454,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 if (acct.detailed) {
                     line.append(acct.spoken.replaceFirstChar { it.uppercase() } + ": ${n(t.count)} today")
                     line.append(if (y.count > 0) ", and ${y.count} yesterday. " else ". ")
-                    val recent = t.items.takeLast(6).reversed()
+                    val recent = t.items.takeLast(3).reversed()
                     if (recent.isNotEmpty()) {
                         line.append(if (recent.size == 1) "It's " else "Most recent first: ")
                         line.append(recent.joinToString(". Then ") { m ->
@@ -1478,8 +1464,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         line.append(".")
                         if (t.items.size > recent.size) line.append(" Plus ${t.items.size - recent.size} more earlier on.")
                     }
-                    if (t.count == 0 && y.count == 0) line.setLength(0).also { line.append("Nothing new in ${acct.spoken} today or yesterday.") }
-                    out += "x:mail:${acct.address}" to line.toString()
+                    if (t.count > 0 || y.count > 0) out += "x:mail:${acct.address}" to line.toString()
                 } else if (t.count > 0 || y.count > 0) {
                     line.append("In ${acct.spoken}, you've had ${n(t.count)} today")
                     line.append(if (y.count > 0) ", and ${y.count} yesterday." else ".")
@@ -1495,13 +1480,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val ticked = noteNow.lines().count { it.startsWith(DONE) }
             if (open.isNotEmpty()) {
                 val words = listOf("First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth")
-                val items = open.take(8).mapIndexed { i, n -> "${words[i]}, ${n.trimEnd('.')}" }
+                val items = open.take(3).mapIndexed { i, n -> "${words[i]}, ${n.trimEnd('.')}" }
                 out += "x:notes" to (if (open.size == 1) "On your notes, there's one thing: ${open[0].trimEnd('.')}." else "On your notes, you've got ${open.size} things. ${items.joinToString(". ")}.") +
                     (if (open.size > items.size) " Plus ${open.size - items.size} more." else "")
-            } else if (ticked > 0) {
-                out += "x:notes" to "Your notes are all ticked off. Well done, sir."
-            } else {
-                out += "x:notes" to "Nothing on your notes."
             }
 
             // Habits: their own part, every time; what's done today and what's left.
@@ -1510,17 +1491,13 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val doneH = habitsNow.filter { today in it.done }.map { it.name }
                 val leftH = habitsNow.filter { today !in it.done }.map { it.name }
                 fun and(l: List<String>) = if (l.size == 1) l[0] else l.dropLast(1).joinToString(", ") + " and " + l.last()
-                out += "x:habits" to when {
-                    leftH.isEmpty() -> "Your habits: all ${habitsNow.size} done today. Nice work."
-                    doneH.isEmpty() -> "Your habits for today: ${and(leftH)}, none ticked off yet."
-                    else -> "Your habits: you've done ${and(doneH)}; still to do, ${and(leftH)}."
-                }
+                if (leftH.isNotEmpty()) out += "x:habits" to "Habits still to do: ${and(leftH)}${if (doneH.isNotEmpty()) " (${doneH.size} done)" else ""}."
             }
 
             // Countdowns: every one still to come, the nearest first.
-            val coming = countdowns.filter { !it.date.isBefore(today) }.sortedBy { it.date }
+            val coming = countdowns.filter { !it.date.isBefore(today) && !it.date.isAfter(today.plusDays(14)) }.sortedBy { it.date }
             if (coming.isNotEmpty()) {
-                val said = coming.take(6).mapIndexed { i, c ->
+                val said = coming.take(3).mapIndexed { i, c ->
                     val days = java.time.temporal.ChronoUnit.DAYS.between(today, c.date)
                     when {
                         days == 0L -> "${c.name} is today"
@@ -1551,22 +1528,18 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val value = held.sumOf { holdings.getValue(it.id).amount * it.price }
                 val move = held.sumOf { holdings.getValue(it.id).amount * it.change }
                 out += "x:money" to "Your crypto's worth ${Markets.money(value)}, ${if (move >= 0) "up" else "down"} ${Markets.money(abs(move))} on the day."
-            } else coins.maxByOrNull { abs(it.changePct) }?.let { c ->
-                out += "x:money" to "In the markets, ${c.name}'s ${if (c.changePct >= 0) "up" else "down"} %.1f percent, at ${Markets.money(c.price)}.".format(Locale.ROOT, abs(c.changePct))
             }
 
             // The news.
             if (news.isNotEmpty()) {
-                out += "x:newsintro" to listOf("Now, the news.", "Here's what's happening in the world.", "And in the news today.")[pick % 3]
-                news.take(4).forEachIndexed { i, s ->
-                    val lead = when (i) { 0 -> ""; 1 -> "Also, "; 2 -> if (s.world) "Around the world, " else "Meanwhile, "; else -> "And finally, " }
-                    val summary = s.summary.takeIf { it.isNotBlank() && !it.equals(s.title, true) }?.let { " $it" }.orEmpty()
-                    out += "news:$i" to lead + s.title.trimEnd('.') + "." + summary
+                out += "x:newsintro" to "In the news:"
+                news.take(3).forEachIndexed { i, s ->
+                    out += "news:$i" to (if (i == 2) "And " else "") + s.title.trimEnd('.') + "."
                 }
             }
 
-            out += "x:end" to if (evening) listOf("That's everything for tonight, $name. Sleep well, sir.", "That's all from me. Get some rest, $name.", "All done for today, $name. I'll be here if you need me.")[pick % 3]
-            else listOf("That's everything, $name. I'll be here if you need me.", "That's your briefing, sir. Go get them.", "All caught up, $name. Have a great day.")[pick % 3]
+            out += "x:end" to if (evening) listOf("That's all. Sleep well, $name.", "That's everything for tonight.", "All set for tomorrow, sir.")[pick % 3]
+            else listOf("That's everything, $name.", "That's your briefing, sir.", "All caught up. Have a good one.")[pick % 3]
             return out
         }
 

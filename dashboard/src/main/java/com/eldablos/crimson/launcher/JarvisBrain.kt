@@ -366,6 +366,7 @@ object JarvisBrain {
                 learnt.joinToString("\n") { (said, meant) -> "- \"$said\" means: $meant" }) +
             "\n\nReply with ONE command in the same style as the examples, with the request's names, times, places and numbers filled in. " +
             "Only use names (habits, notes, people, places) that are in the request or in the examples marked as the user's own; never invent one or borrow it from another example. " +
+            "The request may be typed with spelling mistakes or misheard by speech recognition (\"wprk\" is work, \"habbits\" is habits, \"knotes\" is notes): work out what was meant. " +
             "If the request isn't asking for one of these kinds of commands (a general question, chat, something it can't do), reply exactly NONE. " +
             "Reply with the command only: no quotes, no explanation."
         ask(context, Job.INTERPRET, system, "Request: $said") { out ->

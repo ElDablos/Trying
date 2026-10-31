@@ -2366,6 +2366,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Command.Reboot, Command.SystemsCheck, Command.Backup, Command.Restore, Command.StudyDone, Command.MorningBrief, Command.Briefing, Command.Habits,
         is Command.Calc, is Command.Spent, is Command.MakeDoc, is Command.OpenDoc, is Command.ClockIn, is Command.ClockOut, is Command.AddShifts, is Command.Timer,
         is Command.AddNote, is Command.WhatsApp, is Command.Text, is Command.Remember -> true
+        // Your light and heating, when his own rules already know it: straight to his hands, never re-read.
+        is Command.Lights, is Command.Brightness, is Command.LightColour, Command.LightsStatus, is Command.Climate, is Command.SetTemp, is Command.HeaterNow -> true
         is Command.Unknown -> false
         else -> text.trim().split(Regex("\\s+")).size <= 3 && !unsure(text, cmd)
     }

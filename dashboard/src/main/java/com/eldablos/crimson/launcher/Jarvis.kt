@@ -2644,10 +2644,16 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             if (current && done > 0 && done < total) " (${h(done)} done, ${h(total - done)} to go)." else "."
         val paySaid = " That's ${money(slip.gross)} before tax and about ${money(slip.net)} take-home, after tax, NI and your pension" +
             if (current && done > 0 && done < total) ". ${money(done * setup.hourly)} of it earned so far." else "."
-        return Reply("You've $hoursSaid$paySaid",
+        // You're paid fortnightly: what's on its way in the pay period you're in, alongside whatever else was asked.
+        val (pa, pb) = Pay.periodOf(today, setup)
+        val period = Pay.slipFor(context, pa, pb, setup)
+        val periodSaid = if (from == pa && to == pb) "" else
+            " Your next payslip, for ${pa.format(DateTimeFormatter.ofPattern("d MMM"))} to ${pb.format(DateTimeFormatter.ofPattern("d MMM"))}, comes to about ${money(period.net)} on ${Pay.payday(pb).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))}."
+        return Reply("You've $hoursSaid$paySaid$periodSaid",
             card = Card("£", label.uppercase(), money(slip.net), "TAKE-HOME · ${money(slip.gross)} BEFORE TAX · ${h(total)}H",
                 list.map { (d, s) -> Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, s.times() + " · " + money(s.minutes / 60.0 * setup.hourly), ok = if (s.finish(d, zone) <= System.currentTimeMillis()) true else null) } +
-                    slipRows(slip),
+                    slipRows(slip) + (if (periodSaid.isEmpty()) emptyList() else listOf(Row("NEXT PAYSLIP · ${pa.format(DateTimeFormatter.ofPattern("d MMM")).uppercase()}–${pb.format(DateTimeFormatter.ofPattern("d MMM")).uppercase()}",
+                        "${money(period.net)} · ${Pay.payday(pb).format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))}"))),
                 Tone.GOLD),
             actions = listOf(Action("WEEKLY LOG", "my pay log"), Action("NEXT PAYSLIP", "what's my next payday")))
     }

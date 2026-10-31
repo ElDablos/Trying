@@ -858,6 +858,8 @@ object JarvisParser {
                 has("next week") -> "nextweek"
                 else -> "week"
             }
+            // Pay without a week or month named ("what's my pay", "how much have I made"): the fortnight you're paid for.
+            if (pay && !has("week", "month", "weekly", "monthly", "fortnight", "today", "yesterday", "this year")) return Command.Payday
             if (pay || period == "month" || period == "lastmonth" || period == "lastweek") return Command.Hours(period, pay)
         }
         // The whole week: "what's my rota for the week", "my shifts next week", "what am I working this week".

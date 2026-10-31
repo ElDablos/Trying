@@ -55,6 +55,10 @@ class BatchTest {
         assertEquals(Command.Climate(false, "heat"), p("heating of"))
         assertEquals(Command.SetTemp(25.0), p("put the heater on 25"))
         assertEquals(Command.Hours("month", true), p("whats my take home this month"))
+        // Paid fortnightly: pay with no week or month named is the pay period.
+        assertEquals(Command.Payday, p("whats my pay"))
+        assertEquals(Command.Payday, p("how much have i made"))
+        assertEquals(Command.Hours("week", true), p("how much have i earned this week"))
         assertEquals(Command.MorningBrief, p("whats my day like"))
         assertTrue(p("countdown to my holiday on 3 march") is Command.AddCountdown)
         assertEquals(listOf("whats the weather tomorrow", "am i working tomorrow"), JarvisParser.split("whats the weather tomorrow and am i working"))

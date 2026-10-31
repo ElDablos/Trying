@@ -56,6 +56,8 @@ Clock-in/out times are kept separately; the calendar only ever shows the planned
   can't hold tomorrow when tomorrow is the 1st; payday answer also counts). Short follow-ups that lean on the
   conversation ("what about…", "so how much then", "with that") go to the brain with context instead of rules.
   Chained commands carry a day said once ("the weather tomorrow and am I working" → tomorrow's work too).
+  Paid fortnightly, so pay asked without a week/month ("what's my pay", "how much have I made") is the pay
+  period (19 Oct–1 Nov now; resets Mon 2 Nov), and week/month answers add a NEXT PAYSLIP line.
 - **1.65** — Phrase sweep (90 everyday phrases run through the parser, misses fixed): text-speak and typos
   ("tmrw", "tmr", "wat", "nxt", "lite", "switch of the light", "heating of", "ive"); "put the heater on 25" sets
   25°; "whats my take home this month" is pay; "whats my day like" is the morning brief; "countdown to my

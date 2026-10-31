@@ -138,6 +138,33 @@ class RealPhrasesTest {
     }
 
     @Test
+    fun maths() {
+        fun calc(said: String): Double? = (p(said) as? Command.Calc)?.let { Calc.eval(it.expr) }
+        assertEquals(84.0, calc("what's 12 times 7")!!, 1e-9)
+        assertEquals(12.0, calc("15% of 80")!!, 1e-9)
+        assertEquals(12.0, calc("square root of 144")!!, 1e-9)
+        assertEquals(12.0, calc("add 5 and 7")!!, 1e-9)
+        assertEquals(7.0, calc("subtract 3 from 10")!!, 1e-9)
+        assertEquals(25.0, calc("100 divided by 4")!!, 1e-9)
+        assertEquals(1024.0, calc("2 to the power of 10")!!, 1e-9)
+        assertEquals(14.0, calc("(3 + 4) x 2")!!, 1e-9)
+        assertEquals(42.0, calc("what is twenty five plus seventeen")!!, 1e-9)
+        assertEquals(1394.0, calc("1,234 + 160")!!, 1e-9)
+        assertEquals(17.0, calc("5 + 3 * 4")!!, 1e-9)
+        assertEquals(312.0, calc("three hundred and twelve minus 0")!!, 1e-9)
+        assertEquals(2.5, calc("5 / 2")!!, 1e-9)
+        assertEquals(null, Calc.eval("5/0"))
+        assertEquals("84", Calc.show(84.0))
+        assertEquals("33.333333", Calc.show(100.0 / 3))
+        assertEquals("1,000,000", Calc.show(1e6))
+        // Not sums.
+        assertTrue(p("set a timer for 10 minutes") !is Command.Calc)
+        assertTrue(p("set the brightness to 50%") !is Command.Calc)
+        assertTrue(p("add 5 minutes to the timer") !is Command.Calc)
+        assertTrue(p("what time is it") !is Command.Calc)
+    }
+
+    @Test
     fun notesAndHabits() {
         assertEquals(Command.TickAllNotes, p("tick my notes"))
         assertEquals(Command.TickNote("#2"), p("I want to finish my second note"))

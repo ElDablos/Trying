@@ -124,6 +124,8 @@ object JarvisParser {
         data class ClockIn(val time: LocalTime?) : Command()
         /** "I've finished work", "I clocked out at 6:15": the shift's real end, now or at [time]. */
         data class ClockOut(val time: LocalTime?) : Command()
+        /** A sum: "what's 12 times 7" → "12*7" ([Calc]). */
+        data class Calc(val expr: String) : Command()
         /** Week by week: hours, before tax and take-home ("my pay log"). */
         object PayLog : Command()
         /** "When's payday?": the fortnight you're in, as a payslip. */
@@ -267,6 +269,8 @@ object JarvisParser {
         Regex("^(?:no,? (?:it's called|it's|its|i mean|i meant|i said)|it's called|it is called|its called|it's named|the app is called|i mean|i meant|i said)\\s+(the )?(.+?)( app)?$").find(t)?.let { return Command.Correct(it.groupValues[2].clean()) }
 
         if (Regex("^(restart|reboot|reset|refresh) ?(yourself|jarvis|your systems|all systems|everything|all of jarvis|your hands)?$").matches(t)) return Command.Reboot
+        // Maths: anything that's all sum ("what's 12 times 7", "15% of 80", "square root of 144").
+        com.eldablos.crimson.launcher.Calc.read(raw)?.let { return Command.Calc(it) }
         // Clocking in and out: the real start and end of today's shift.
         clock(t, today)?.let { return it }
         // A rota said in one go: "add these shifts for next week: Monday 7 till 3, Tuesday 8 till 4, Wednesday off…".

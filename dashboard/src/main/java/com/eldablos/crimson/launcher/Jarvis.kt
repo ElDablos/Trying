@@ -826,6 +826,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.UniWhen -> uniWhen(cmd.day)
         is Command.Hours -> hours(cmd.period, cmd.pay)
         Command.PayLog -> payLog()
+        is Command.Calc -> calc(cmd.expr)
         is Command.ClockIn -> clockIn(cmd.time)
         is Command.ClockOut -> clockOut(cmd.time)
         Command.Payday -> payday()
@@ -1465,6 +1466,19 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             card = Card("£", "YOUR PAY", money(s.hourly) + "/H", "basic ${money(s.basicRate)} · TRONC ${money(s.troncRate)} · ${s.taxCode} · NEST ${"%.0f".format(Locale.ROOT, s.pensionPct)}%", tone = Tone.GOLD),
             actions = listOf(Action("NEXT PAYDAY", "what's my next payday")))
     }
+
+    /** A sum worked out: "12 × 7 is 84." The last answer can be used again ("and times 2"). */
+    private fun calc(expr: String): Reply {
+        // "Times 2", "plus 10" on its own: carries on from the last answer.
+        val full = if (Regex("^[+*/^-]").containsMatchIn(expr) && lastAnswer != null) Calc.show(lastAnswer!!).replace(",", "") + expr else expr
+        val v = Calc.eval(full) ?: return Reply("That one doesn't work out${sir()}: ${if (full.contains("/0")) "you can't divide by nought" else "I couldn't follow the sum"}. Try it another way.", failed = true)
+        lastAnswer = v
+        val sum = Calc.pretty(full)
+        return Reply("$sum is ${Calc.show(v)}${sir()}.", card = Card("=", "CALCULATOR", Calc.show(v), sum, tone = Tone.BLUE),
+            chips = listOf("Times 2", "Plus 10", "Divided by 4"))
+    }
+
+    private var lastAnswer: Double? = null
 
     /** A time said without am or pm ("I finished at 6:15"): the latest one that's already been, today or last night. */
     private fun recent(t: LocalTime, now: LocalDateTime): LocalDateTime {

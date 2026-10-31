@@ -2397,12 +2397,20 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                         context.getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Jarvis", piece))
                     }),
                     Action("SEND", run = { shareText("From Jarvis", piece) }),
+                    Action("PDF", run = { host.later(styled(deliver(Documents.Doc(writtenTitle(text), piece.split(Regex("\\n\\s*\\n")).map { Documents.Block.Para(it.trim()) }), Documents.Kind.PDF))) }),
                     Action("SAVE AS NOTE", run = { addNote(piece.replace(Regex("\\s+"), " ").take(400)) }),
                     Action("ANOTHER ONE", run = { creative(text, force = true)?.let { host.later(styled(it)) } }),
                 ))))
         }
         val also = noted?.let { (who, date) -> " I've noted ${who.replaceFirstChar { it.uppercase() }}'s birthday, $date, and I'll remind you nearer the time." }.orEmpty()
         return Reply(say("Drafting it now, sir.", pick("Putting pen to paper.", "Ah, a creative brief. One moment."), "Writing.") + also, more = true)
+    }
+
+    /** A title for what he wrote, from what you asked: "Silly birthday note for Arnie". */
+    private fun writtenTitle(asked: String): String {
+        val m = Regex("\\b(?:write|compose|draft|come up with|make up|create|give me)(?: me)?(?: an?| the| some)? (.+)$", RegexOption.IGNORE_CASE).find(asked.trim())
+        val words = (m?.groupValues?.get(1) ?: asked).replace(Regex("[,.!?].*$"), "").split(Regex("\\s+")).take(7).joinToString(" ")
+        return words.replaceFirstChar { it.uppercase() }.ifBlank { "Written by Jarvis" }
     }
 
     /** "Arnie's birthday is 3rd January", "a friend named Arnie, his birthday is January 3rd": remembered (and reminded about). */

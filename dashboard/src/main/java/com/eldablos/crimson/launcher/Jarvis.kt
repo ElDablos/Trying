@@ -57,6 +57,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         fun ask(permissions: Array<String>)
         /** Whether the briefing is being read or paused part-way, so "stop" and "carry on" mean it. */
         fun briefingActive(): Boolean = false
+        /** An answer that's taken a moment (his brain, a look-up): shown and said when it's ready. */
+        fun later(reply: Reply) {}
     }
 
     enum class Tone { GOLD, HOT, GREEN, BLUE }
@@ -939,7 +941,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Command.Routines -> Reply("Your routines. Say any of their phrases and I'll run the lot.", sheet = Sheet.ROUTINES)
         Command.NewRoutine -> Reply("Let's build one. Give it a name, the phrases that start it, and what I should do, one line each.", sheet = Sheet.NEW_ROUTINE)
         // A question he can't answer from the phone: Google it (or ask Claude), rather than shrug.
-        is Command.Unknown -> if (looksLikeQuestion(cmd.text)) closeCall(cmd.text) ?: lookupOffer(cmd.text) else {
+        // His brain, when it's there: what you meant (learnt for next time), an answer, or a look-up.
+        is Command.Unknown -> if (JarvisBrain.ready(context)) think(cmd.text) else if (looksLikeQuestion(cmd.text)) closeCall(cmd.text) ?: lookupOffer(cmd.text) else {
             val close = closest(cmd.text)
             Reply(
                 if (close.isNotEmpty()) {
@@ -1248,11 +1251,85 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     /** A Google search in Chrome (or the browser), after he's said so. */
-    private fun webSearch(q: String): Reply {
+    /** Google in Chrome, for when you'd rather read it yourself. */
+    private fun openGoogle(q: String) {
         val url = "https://www.google.com/search?q=" + android.net.Uri.encode(q)
-        return Reply(say("Googling it, sir.", "To the internet.", "Searching."), afterSpeech = true, then = {
-            start(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).setPackage("com.android.chrome"), Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
-        }, card = Card("⌕", "GOOGLE", sub = q.take(80), tone = Tone.BLUE))
+        start(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).setPackage("com.android.chrome"), Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+    }
+
+    private fun webSearch(q: String): Reply = lookUp(q)
+
+    /**
+     * Looks it up here instead of sending you off: searches, reads the top pages, and (with his brain) puts
+     * what they say in two or three sentences, with the sources. Without the brain, the top results.
+     * Shown, not read out: he just says it's there.
+     */
+    private fun lookUp(q: String): Reply {
+        if (!online(context)) return Reply("I'm offline just now${sir()}, so I can't look that up.", failed = true)
+        val brain = JarvisBrain.ready(context)
+        Thread {
+            val (results, pages) = WebLookup.gather(q)
+            main.post {
+                if (results.isEmpty()) {
+                    host.later(Reply("I couldn't find anything on that${sir()}.", card = Card("⌕", "LOOK-UP", sub = q.take(80), tone = Tone.BLUE),
+                        actions = listOf(Action("OPEN IN GOOGLE", run = { openGoogle(q) }))))
+                    return@post
+                }
+                val sources = results.take(3).map { Row(WebLookup.site(it.url).uppercase(), it.title.take(60)) }
+                val links = results.take(3).map { r -> Action(WebLookup.site(r.url).take(18).uppercase(), run = { start(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(r.url))) }) }
+                if (!brain) {
+                    val top = results.first()
+                    host.later(Reply("Here's what I found${sir()}.", card = Card("⌕", "LOOK-UP", sub = (top.snippet.ifBlank { top.title }).take(240), rows = sources, tone = Tone.BLUE),
+                        actions = links + Action("GOOGLE", run = { openGoogle(q) }), silent = true))
+                    return@post
+                }
+                JarvisBrain.summarise(context, q, pages) { summary ->
+                    host.later(Reply(if (summary != null) "Here's what I found${sir()}." else "The pages didn't really say${sir()}; here are the top results.",
+                        card = Card("⌕", "LOOK-UP · ${q.uppercase().take(40)}", sub = summary ?: results.first().snippet.take(240), rows = sources, tone = Tone.BLUE),
+                        actions = links + Action("GOOGLE", run = { openGoogle(q) }), silent = true))
+                }
+            }
+        }.start()
+        return Reply(say("Looking it up, sir.", "Consulting the internet.", "Looking."), card = Card("⌕", "LOOKING IT UP", sub = q.take(80), tone = Tone.BLUE))
+    }
+
+    /** Things that change (news, prices, opening times, results): worth a look-up rather than his memory. */
+    private fun wantsWeb(t: String): Boolean = Regex("\\b(latest|news|today|tonight|tomorrow|this week|right now|currently|current|price|prices|cost|costs|open|opening|close|closing|release|released|out yet|score|won|winner|results?|who is the|update|202[5-9]|near me|how much is a|how much does)\\b", RegexOption.IGNORE_CASE).containsMatchIn(t)
+
+    /** What he knows about you, for his brain: your facts and routine, briefly. */
+    private fun aboutVee(): String = buildString {
+        JarvisMemory.facts(context).take(20).forEach { append("- ${it.key}: ${it.value}\n") }
+        append("- Works shifts at Grind (London Bridge), head barista; Thursdays in the office 9 to 5; takes the Jubilee line to work.\n")
+        Shifts.next(Shifts.all(context), System.currentTimeMillis(), zone)?.let { (d, s) -> append("- Next shift: ${whenText(d, null)} ${s.times()}\n") }
+        append("- Today is ${LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE d MMMM yyyy"))}, time ${LocalTime.now().format(tf)}.\n")
+    }
+
+    /**
+     * His brain at work on something his rules don't know. First: is it one of his own commands, said another
+     * way? Then he does it, and learns the phrasing so his rules know it next time. If not: a look-up when it's
+     * about something that changes, or an answer from the brain.
+     */
+    private fun think(said: String): Reply {
+        val examples = EXAMPLES + JarvisMemory.suggestions(context)
+        JarvisBrain.interpret(context, said, examples.distinct()) { meant ->
+            val c = meant?.let { JarvisParser.parse(it) }
+            if (meant != null && c != null && c !is Command.Unknown && c !is Command.WebSearch && c !is Command.AskClaude) {
+                JarvisMemory.learnMeaning(context, said, meant)
+                val r = answer(meant)
+                host.later(r.copy(say = r.say, card = r.card ?: Card("✦", "LEARNT", sub = "“$said” → $meant", tone = Tone.GREEN)))
+                return@interpret
+            }
+            if (wantsWeb(said)) {
+                host.later(lookUp(said))
+                return@interpret
+            }
+            JarvisBrain.answer(context, said, aboutVee()) { reply ->
+                host.later(if (reply != null) Reply(reply, card = Card("✦", "JARVIS · $MODEL", sub = said.take(80), tone = Tone.BLUE),
+                    actions = listOf(Action("LOOK IT UP", run = { host.later(lookUp(said)) }), Action("ASK CLAUDE", run = { askClaude(said).then?.invoke() })))
+                else lookupOffer(said))
+            }
+        }
+        return Reply(say(pick("One moment, sir.", "Let me think.", "Thinking."), "Cogitating.", "Thinking."), card = Card("✦", "THINKING", sub = if (JarvisBrain.loading) "waking the brain" else said.take(80), tone = Tone.BLUE))
     }
 
     /** The question handed to Claude. */
@@ -1479,6 +1556,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     private var lastAnswer: Double? = null
+
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
     /** A time said without am or pm ("I finished at 6:15"): the latest one that's already been, today or last night. */
     private fun recent(t: LocalTime, now: LocalDateTime): LocalDateTime {
@@ -3955,6 +4034,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         const val DONE = "[x] "
         const val WHATSAPP = "com.whatsapp"
         const val TAPO = "com.tplink.iot"
+        private const val MODEL = "GEMMA"
 
         /** The name on your work alarms in the Clock: the ones he moves for each shift. */
         const val WORK = "Work"

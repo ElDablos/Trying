@@ -587,6 +587,10 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     }
 
     private val jarvisHost = object : Jarvis.Host {
+        override fun later(reply: Jarvis.Reply) {
+            handler.post { jarvis.later(reply) }
+        }
+
         override fun briefing(control: JarvisParser.Control?, chapter: String?): Boolean {
             // Jarvis steps aside and the deck reads it, so you can see where it's up to.
             jarvis.hide(now = true)
@@ -637,6 +641,14 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         if (requestCode == VOICE_REQUEST && resultCode == RESULT_OK) {
             data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { deck.setQuestion(it) }
         }
+        // The brain's model file, picked from the phone's storage: copied into Jarvis's own.
+        if (requestCode == BRAIN_REQUEST && resultCode == RESULT_OK) data?.data?.let { jarvis.installBrain(it) }
+    }
+
+    /** Opens the file picker for Jarvis's brain (the .task file you downloaded). */
+    fun pickBrain() {
+        @Suppress("DEPRECATION")
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), BRAIN_REQUEST)
     }
 
     override fun openGames() {
@@ -938,6 +950,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     companion object {
         private const val BLUR = 14f
         private const val VOICE_REQUEST = 41
+        private const val BRAIN_REQUEST = 42
         private const val JARVIS_REQUEST = 42
         private val SAMSUNG_WEATHER = listOf("com.sec.android.daemonapp", "com.samsung.android.weather")
     }

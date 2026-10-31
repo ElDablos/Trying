@@ -230,8 +230,9 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(240).setInterpolator(DecelerateInterpolator(1.6f)).start()
         core.invalidate()
         personaTag.text = JarvisMemory.persona(context).label
-        // Wake the voice now, so his first words aren't late.
+        // Wake the voice now, so his first words aren't late; and his brain, if he has one.
         Speech.with(context) {}
+        JarvisBrain.warm(context)
         setChips(JarvisMemory.suggestions(context))
         askForNotifications()
         // A new session after half an hour away: a clean slate, with a marker.
@@ -291,6 +292,30 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
     /** The evening check: your work alarms moved to tomorrow's shift, said out loud. Nothing to do, nothing shown. */
     fun workAlarmsTonight() {
         val reply = jarvis.workAlarms(1, auto = true) ?: return
+        if (visibility != VISIBLE) show(listen = false, greet = false)
+        respond(reply, "")
+    }
+
+    private var brainStatus: TextView? = null
+
+    /** The model file you picked: copied in, with progress under the button; then he says it's ready. */
+    fun installBrain(uri: android.net.Uri) {
+        brainStatus?.text = "Copying… 0%"
+        JarvisBrain.install(context, uri, { pct -> brainStatus?.text = if (pct >= 0) "Copying… $pct%" else "Copying…" }) { ok, error ->
+            if (ok) {
+                brainStatus?.text = "Done."
+                if (sheetOpen) openSheet(Jarvis.Sheet.SETTINGS)
+                JarvisBrain.warm(context)
+                later(Jarvis.Reply("My brain's in, sir. Ask me anything; what I don't know, I'll work out or look up.",
+                    card = Jarvis.Card("✦", "JARVIS BRAIN", "READY", JarvisBrain.MODEL_NAME + " · on this phone", tone = Jarvis.Tone.GREEN)))
+            } else {
+                brainStatus?.text = "That didn't work: ${error ?: "couldn't copy it"}. Check it's the .task file and there's room."
+            }
+        }
+    }
+
+    /** An answer that took a moment (his brain, a look-up): shown when it's ready, opening him if he'd closed. */
+    fun later(reply: Jarvis.Reply) {
         if (visibility != VISIBLE) show(listen = false, greet = false)
         respond(reply, "")
     }
@@ -858,6 +883,27 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
         val leads = listOf(45, 60, 75, 90, 120)
         body.addView(TextView(context).apply { text = "Shift alarm, before the start"; setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(11f) * u); setTextColor(Hud.SOFT); setPadding(0, dp(10f), 0, dp(6f)) })
         choice(body, leads.map { "${it}m" }, leads.indexOf(JarvisMemory.alarmLead(context)).coerceAtLeast(0)) { JarvisMemory.setAlarmLead(context, leads[it]) }
+        heading(body, "JARVIS BRAIN", "Google's ${JarvisBrain.MODEL_NAME}, running on this phone: he works out what you mean when his own rules don't, learns the phrasing for next time, answers anything else, and sums up what he looks up on the web. Nothing you ask leaves the phone. A one-off download of about 4.4 GB.")
+        val installed = JarvisBrain.installed(context)
+        item(body, if (installed) "Installed · ${"%.1f".format(java.util.Locale.ROOT, JarvisBrain.modelFile(context).length() / 1e9)} GB" else "Not installed yet",
+            if (installed) "Ready. He'll use it for anything his own rules don't cover." else "1. GET IT: sign in on the page, accept Google's licence, download gemma-3n-E4B-it-int4.task. 2. LOAD FILE: pick it from Downloads.",
+            if (installed) "REMOVE" else "GET IT", onButton = {
+                if (installed) {
+                    JarvisBrain.remove(context)
+                    openSheet(Jarvis.Sheet.SETTINGS)
+                } else try {
+                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(JarvisBrain.DOWNLOAD_PAGE)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) { }
+            })
+        brainStatus = TextView(context).apply { setTextSize(TypedValue.COMPLEX_UNIT_PX, Hud.sp(10f) * u); setTextColor(Hud.GOLD); setPadding(0, dp(2f), 0, dp(4f)) }
+        if (!installed) {
+            item(body, "Load the brain file", "After it's downloaded: pick the .task file. Copying takes a minute or two.", "LOAD FILE", onButton = {
+                (context as? LauncherActivity)?.pickBrain()
+            })
+            body.addView(brainStatus)
+        } else {
+            toggle(body, "Use the brain", "Off: he sticks to what he knows and offers Google instead", JarvisBrain.enabled(context)) { JarvisBrain.setEnabled(context, it) }
+        }
         heading(body, "HEY JARVIS", "Say \"Hey Jarvis\" from any app and he answers over it. Listens on the phone only (Android shows its green mic dot while he does). A one-off 40 MB download.")
         val wakeOn = JarvisEar.wakeEnabled(context)
         lateinit var status: TextView

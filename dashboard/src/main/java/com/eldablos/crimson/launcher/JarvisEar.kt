@@ -420,6 +420,19 @@ class JarvisEar : Service() {
     }
 
     private val host = object : Jarvis.Host {
+        /** A late answer over another app: said on the strip if he's still there, else in the panel. */
+        override fun later(reply: Jarvis.Reply) {
+            main.post {
+                if (session) respond(reply) else {
+                    JarvisChat.add(this@JarvisEar, false, reply.say, JarvisChat.EAR)
+                    Speech.speak(this@JarvisEar, listOf("late" to Speech.speakable(Jarvis.spokenFor(reply))), object : Speech.Listener {
+                        override fun onPart(id: String) {}
+                        override fun onEnd(finished: Boolean) {}
+                    })
+                }
+            }
+        }
+
         /** The briefing, settings and permissions belong to the launcher: he hands over to it there. */
         override fun briefing(control: JarvisParser.Control?, chapter: String?): Boolean {
             toLauncher(lastText)

@@ -218,6 +218,16 @@ back to One UI Home the same way at any time.
     up and out, whether the work alarms are set, uni, the tube on your line and rain on the way.
   - **He checks his work**: after switching a Tapo light he looks again, and tries once more or tells you
     if it didn't take. "Wake log" shows why he woke when he heard his name.
+  - **His brain (optional, on the phone)**: Google's Gemma 3n E4B (free; a one-off 4.4 GB download, loaded
+    in his settings under Jarvis Brain), run on the phone with Google's MediaPipe. When his own rules don't
+    know a request, the brain works out which of his commands you meant; he does it and learns the
+    phrasing, so next time he knows it without the brain. Anything else it answers, knowing your routine.
+    Nothing you ask leaves the phone.
+  - **Look-ups**: "look up …", or a question about something that changes (news, opening times, prices):
+    he searches the web, reads the top pages and puts what they say in two or three sentences on a card,
+    with the sources (shown, not read out). Without the brain, the top results.
+  - **Maths**: "what's 12 times 7", "15% of 80", "square root of 144", "add 5 and 7", brackets and powers;
+    "times 2" carries on from the last answer.
   - **Rules he keeps**: "the 7pm alarm always stays on", "never turn off the hallway light". Anything that
     would switch one off asks you first.
   - **Teach him how you do things**: "I need to wake up at 5 to start work at 7, I set 6 alarms 5 minutes

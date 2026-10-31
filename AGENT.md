@@ -58,6 +58,9 @@ Clock-in/out times are kept separately; the calendar only ever shows the planned
   Chained commands carry a day said once ("the weather tomorrow and am I working" → tomorrow's work too).
   Paid fortnightly, so pay asked without a week/month ("what's my pay", "how much have I made") is the pay
   period (19 Oct–1 Nov now; resets Mon 2 Nov), and week/month answers add a NEXT PAYSLIP line.
+  "Hey Jarvis" stopped answering at 15% battery without saying so: now rests only at ≤8% (not charging), and
+  the ongoing notification says "Jarvis is resting — battery 14%…" / "listening" as it changes. The wake
+  word's adaptive strictness is capped at 0.86 so false starts can't make him deaf.
 - **1.65** — Phrase sweep (90 everyday phrases run through the parser, misses fixed): text-speak and typos
   ("tmrw", "tmr", "wat", "nxt", "lite", "switch of the light", "heating of", "ive"); "put the heater on 25" sets
   25°; "whats my take home this month" is pay; "whats my day like" is the morning brief; "countdown to my
@@ -88,6 +91,8 @@ Before a build, run a batch of everyday phrases through `JarvisParser.parse` (a 
 scratchpad) and fix anything that lands on the wrong command; put the fixed ones in `BatchTest`.
 
 ## Known issues / watch list
+- "Hey Jarvis" not answering: check battery (rests at ≤8% unless charging), "only while charging" setting,
+  the notification text, and "wake log" (shows heard/ignored and the confidence bar).
 - Tapo and Air+ change their screens with updates: if a hands job fails, get the Hands log first.
 - Samsung Clock wheel reading is new (1.63) — confirm alarms move correctly at 5:00–5:25.
 - The brain's answers are only as good as the small on-phone models; keep rules for anything exact

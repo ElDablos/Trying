@@ -89,15 +89,47 @@ class JarvisEar : Service() {
             }
             val wasLow = low
             low = !now && level in 0..LOW_BATTERY
+            batteryLevel = level
             if (now != charging || low != wasLow) {
                 charging = now
                 if (canWake()) startWake() else if (!session) stopWake()
+                // The notification says so: resting on a low battery, or listening again.
+                showState()
             }
         }
     }
 
     /** The battery's low and not charging: the wake word rests until it's charged (a tap still works). */
     private var low = false
+    private var batteryLevel = -1
+
+    /** The ongoing notification, saying what he's doing: listening, or resting and why. */
+    private fun notification(): Notification {
+        val stop = PendingIntent.getService(this, 1, Intent(this, JarvisEar::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(this, 2, Intent(this, LauncherActivity::class.java).putExtra(JarvisProactive.EXTRA_INSIGHT, "ear"), PendingIntent.FLAG_IMMUTABLE)
+        val (title, text) = when {
+            low -> "◇ Jarvis is resting" to "Battery at $batteryLevel%: \"Hey Jarvis\" is paused until you charge. Tap the orb to talk to him."
+            chargingOnly(this) && !charging -> "◇ Jarvis is resting" to "\"Hey Jarvis\" listens only while charging (you set that). Tap the orb to talk."
+            else -> "◆ Jarvis is listening" to "Say \"Hey Jarvis\" from any app. Nothing leaves the phone."
+        }
+        return Notification.Builder(this, CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setContentIntent(open)
+            .addAction(Notification.Action.Builder(null, "TURN OFF", stop).build())
+            .setOngoing(true)
+            .build()
+    }
+
+    private fun showState() {
+        try {
+            getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION, notification())
+        } catch (e: Exception) {
+            // Notifications not allowed: nothing to update.
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -109,16 +141,7 @@ class JarvisEar : Service() {
             description = "Shows while Jarvis listens for \"Hey Jarvis\""
             setShowBadge(false)
         })
-        val stop = PendingIntent.getService(this, 1, Intent(this, JarvisEar::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
-        val open = PendingIntent.getActivity(this, 2, Intent(this, LauncherActivity::class.java).putExtra(JarvisProactive.EXTRA_INSIGHT, "ear"), PendingIntent.FLAG_IMMUTABLE)
-        val n = Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle("◆ Jarvis is listening")
-            .setContentText("Say \"Hey Jarvis\" from any app. Nothing leaves the phone.")
-            .setContentIntent(open)
-            .addAction(Notification.Action.Builder(null, "TURN OFF", stop).build())
-            .setOngoing(true)
-            .build()
+        val n = notification()
         try {
             startForeground(NOTIFICATION, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         } catch (e: Exception) {
@@ -235,7 +258,8 @@ class JarvisEar : Service() {
     private fun nothingSaid() {
         if (!wokeByWord) return
         wokeByWord = false
-        setWakeBar(this, (wakeBar(this) + .03).coerceAtMost(.92))
+        // Never so strict he stops hearing you.
+        setWakeBar(this, (wakeBar(this) + .02).coerceAtMost(.86))
         logWake(this, "nothing said after", "bar now ${"%.2f".format(java.util.Locale.ROOT, wakeBar(this))}")
     }
 
@@ -727,7 +751,7 @@ class JarvisEar : Service() {
         private const val WAKE_CONFIDENCE = .8
 
         /** At or below this (and not charging), "Hey Jarvis" rests to save the battery. */
-        private const val LOW_BATTERY = 15
+        private const val LOW_BATTERY = 8
 
         /** The wake words, and sound-alikes for everything that isn't them to land on. */
         private val GRAMMAR = listOf(
@@ -738,7 +762,7 @@ class JarvisEar : Service() {
             "[unk]",
         ).joinToString(", ", "[", "]") { "\"$it\"" }
 
-        fun wakeBar(context: Context) = prefs(context).getFloat("wake_bar", WAKE_CONFIDENCE.toFloat()).toDouble().coerceAtLeast(WAKE_CONFIDENCE)
+        fun wakeBar(context: Context) = prefs(context).getFloat("wake_bar", WAKE_CONFIDENCE.toFloat()).toDouble().coerceIn(WAKE_CONFIDENCE, .86)
         private fun setWakeBar(context: Context, v: Double) = prefs(context).edit().putFloat("wake_bar", v.toFloat()).apply()
 
         /** The last few times he heard "jarvis": woken, or ignored and why. For "wake log". */

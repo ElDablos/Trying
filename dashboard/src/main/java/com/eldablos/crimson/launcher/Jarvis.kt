@@ -152,6 +152,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         class NoteEdit(val ref: String?) : Pending()
         /** He asked what the heater's set to now (Air+ doesn't show it to him), to set it to [degrees] or by [by]. */
         class AirNow(val degrees: Double?, val by: Double) : Pending()
+        /** A picture you attached, waiting for what to do with it. */
+        class Image(val path: String) : Pending()
         /** He couldn't answer [query] himself and offered Google (yes) or Claude. */
         class Lookup(val query: String) : Pending()
         /** He asked when a countdown's for. */
@@ -265,6 +267,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 return styled(setTemp(p.degrees, p.by)).also { lastReply = it }
             }
             if (JarvisParser.parse(text) == Command.No) return styled(Reply("Very well, I'll leave it."))
+        }
+        // What to do with the picture you attached: a rota to add, or a question about it.
+        (pending as? Pending.Image)?.let { p ->
+            pending = null
+            val t = text.lowercase()
+            val c = JarvisParser.parse(text)
+            if (c == Command.No) return styled(Reply(say("Very well.", "Fair enough.", "OK.")))
+            if (c !is Command.Unknown && c !is Command.Yes && !Regex("rota|shift|schedule|clock|what|read|describe|explain|tell|summar|translate|how|who|which|is |are ").containsMatchIn(t)) return@let
+            return styled(readImage(java.io.File(p.path), Regex("rota|shift|schedule|clock|hours").containsMatchIn(t), text))
         }
         (pending as? Pending.Lookup)?.let { p ->
             pending = null
@@ -3647,25 +3658,43 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Thread {
             val shot = latestScreenshot()
             main.post {
-                if (shot == null) {
-                    host.later(Reply("I couldn't find a screenshot${sir()}.", failed = true))
-                    return@post
-                }
-                if (!rota) {
-                    JarvisBrain.see(context, shot.path, "You are Jarvis, a British butler-style assistant. $ask. Answer in at most five short sentences, without markdown.") { out ->
-                        host.later(Reply(out ?: "I couldn't make that one out${sir()}.", card = Card("▣", "SCREENSHOT · ${JarvisBrain.lastUsed.uppercase().take(20)}", sub = ask.take(80), tone = Tone.BLUE), failed = out == null))
-                    }
-                    return@post
-                }
-                val year = LocalDate.now().year
-                JarvisBrain.see(context, shot.path, "This is a work rota (shift schedule) screenshot. List every day shown, one per line, exactly like this:\n" +
-                    "DATE=YYYY-MM-DD | ROTA=HH:MM-HH:MM | CLOCKED=HH:MM-HH:MM\nUse OFF for a day off (ROTA=OFF), leave CLOCKED empty if no clock-in times are shown, use 24-hour times, and assume the year is $year. " +
-                    "If a day has two shifts back to back, give one from the first start to the last end. Nothing else.") { out ->
-                    host.later(rotaFound(out))
-                }
+                if (shot == null) host.later(Reply("I couldn't find a screenshot${sir()}.", failed = true))
+                else host.later(readImage(shot, rota, ask))
             }
         }.start()
         return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), card = Card("▣", "READING YOUR SCREENSHOT", sub = if (rota) "a rota" else ask.take(80), tone = Tone.BLUE))
+    }
+
+    /** A picture you attached in the chat: he asks what to do with it, or does what you typed with it. */
+    fun attached(file: java.io.File?, typed: String): Reply {
+        if (file == null) return Reply("I couldn't open that picture${sir()}.", failed = true)
+        if (!JarvisBrain.canSee(context)) return Reply("I need my Gemma brain to read pictures${sir()}. Add it in my settings, under Jarvis Brains.", actions = listOf(Action("SETTINGS", "jarvis settings")), failed = true)
+        if (typed.isNotBlank()) return readImage(file, Regex("rota|shift|schedule|clock|hours", RegexOption.IGNORE_CASE).containsMatchIn(typed), typed)
+        pending = Pending.Image(file.path)
+        return Reply("Got it${sir()}. What shall I do with it?", listen = true,
+            card = Card("▣", "PICTURE ATTACHED", sub = "a rota to add, or ask me anything about it", tone = Tone.BLUE),
+            actions = listOf(Action("ADD THE ROTA", "read the rota in it", primary = true), Action("WHAT'S IN IT?", "what's in it"), Action("SUM IT UP", "summarise it")))
+    }
+
+    /** Reads [file] with his brain's eyes: a rota to add ([rota]), or [ask] answered about it. */
+    private fun readImage(file: java.io.File, rota: Boolean, ask: String): Reply {
+        if (!JarvisBrain.canSee(context)) return Reply("I need my Gemma brain to read pictures${sir()}. Add it in my settings, under Jarvis Brains.", failed = true)
+        val shot = file
+        main.post {
+            if (!rota) {
+                JarvisBrain.see(context, shot.path, "You are Jarvis, a British butler-style assistant. $ask. Answer in at most five short sentences, without markdown.") { out ->
+                    host.later(Reply(out ?: "I couldn't make that one out${sir()}.", card = Card("▣", "PICTURE · ${JarvisBrain.lastUsed.uppercase().take(20)}", sub = ask.take(80), tone = Tone.BLUE), failed = out == null))
+                }
+                return@post
+            }
+            val year = LocalDate.now().year
+            JarvisBrain.see(context, shot.path, "This is a work rota (shift schedule) screenshot. List every day shown, one per line, exactly like this:\n" +
+                "DATE=YYYY-MM-DD | ROTA=HH:MM-HH:MM | CLOCKED=HH:MM-HH:MM\nUse OFF for a day off (ROTA=OFF), leave CLOCKED empty if no clock-in times are shown, use 24-hour times, and assume the year is $year. " +
+                "If a day has two shifts back to back, give one from the first start to the last end. Nothing else.") { out ->
+                host.later(rotaFound(out))
+            }
+        }
+        return Reply(say("Let me have a look, sir.", "Squinting at it now.", "Looking."), card = Card("▣", "READING IT", sub = if (rota) "a rota" else ask.take(80), tone = Tone.BLUE))
     }
 
     /** The rota his brain read: shown day by day, added with one tap (rota to the planner, clocked times for pay only). */

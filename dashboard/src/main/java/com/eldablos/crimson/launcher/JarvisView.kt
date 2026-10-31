@@ -194,7 +194,9 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             background = Hex(if (solid) Hud.HOT else Hud.alpha(Hud.HOT, .08f), Hud.HOT, solid)
             setOnClickListener { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); act() }
         }
-        row.addView(round("◉", false) { micTap() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(8f) })
+        // Attach a screenshot or photo: the phone's picker, over Jarvis; then he asks what to do with it.
+        row.addView(round("⊕", false) { (context as? LauncherActivity)?.pickImage() }, LinearLayout.LayoutParams(dp(40f), dp(48f)).apply { leftMargin = dp(8f) })
+        row.addView(round("◉", false) { micTap() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(6f) })
         row.addView(round("➤", true) { send() }, LinearLayout.LayoutParams(dp(46f), dp(48f)).apply { leftMargin = dp(6f) })
         column.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(dp(14f), dp(10f), dp(14f), dp(26f)) })
 
@@ -316,6 +318,24 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 brainStatus?.text = "That didn't work: ${info ?: "couldn't copy it"}. Check it's a .litertlm file and there's room."
             }
         }
+    }
+
+    /** A picture you attached: shown in the chat as yours, then he asks what to do with it (or does what you'd typed). */
+    fun attachImage(uri: android.net.Uri) {
+        if (visibility != VISIBLE) show(listen = false, greet = false)
+        val typed = input.text?.toString()?.trim().orEmpty()
+        input.setText("")
+        Thread {
+            val file = runCatching {
+                val out = java.io.File(context.cacheDir, "jarvis-attached.jpg")
+                context.contentResolver.openInputStream(uri)!!.use { i -> out.outputStream().use { o -> i.copyTo(o) } }
+                out
+            }.getOrNull()
+            post {
+                bubble(if (typed.isNotEmpty()) "📎 $typed" else "📎 Picture attached", mine = true)
+                respond(jarvis.attached(file, typed), typed)
+            }
+        }.start()
     }
 
     /** An answer that took a moment (his brain, a look-up): shown when it's ready, opening him if he'd closed. */

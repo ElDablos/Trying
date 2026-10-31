@@ -643,6 +643,13 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         }
         // The brain's model file, picked from the phone's storage: copied into Jarvis's own.
         if (requestCode == BRAIN_REQUEST && resultCode == RESULT_OK) data?.data?.let { jarvis.installBrain(it) }
+        if (requestCode == IMAGE_REQUEST && resultCode == RESULT_OK) data?.data?.let { jarvis.attachImage(it) }
+    }
+
+    /** The phone's photo picker (no permission needed), for a screenshot or photo to show Jarvis. */
+    fun pickImage() {
+        @Suppress("DEPRECATION")
+        startActivityForResult(Intent(android.provider.MediaStore.ACTION_PICK_IMAGES).setType("image/*"), IMAGE_REQUEST)
     }
 
     /** Opens the file picker for Jarvis's brain (the .task file you downloaded). */
@@ -951,6 +958,7 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
         private const val BLUR = 14f
         private const val VOICE_REQUEST = 41
         private const val BRAIN_REQUEST = 42
+        private const val IMAGE_REQUEST = 43
         private const val JARVIS_REQUEST = 42
         private val SAMSUNG_WEATHER = listOf("com.sec.android.daemonapp", "com.samsung.android.weather")
     }

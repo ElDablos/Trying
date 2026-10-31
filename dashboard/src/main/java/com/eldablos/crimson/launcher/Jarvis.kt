@@ -1490,7 +1490,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val planned = Shifts.all(context)[date]
         val before = Shifts.actual(context)[date]
         val was = Shifts.clockedIn(context)
-        val end = before?.end?.takeIf { before.start != it } ?: planned?.end ?: at.toLocalTime().plusHours(8)
+        // Until you clock out: the rota's finish (or 8 hours on, with nothing planned).
+        val end = planned?.end ?: at.toLocalTime().plusHours(8)
         Shifts.setActual(context, date, Shifts.Shift(at.toLocalTime(), end, planned?.name ?: shiftName(at.toLocalTime(), end)))
         Shifts.setClockedIn(context, at)
         push("Clock-in undone") {

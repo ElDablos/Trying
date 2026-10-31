@@ -122,6 +122,16 @@ class RealPhrasesTest {
         assertEquals(Command.ClockOut(null), p("just finished my shift"))
         assertEquals(Command.ClockOut(LocalTime.of(6, 15)), p("I finished work at 6:15"))
         assertEquals(Command.ClockOut(LocalTime.of(18, 30)), p("I clocked out at 6:30pm"))
+        // As said on Saturday 31 Oct (here, "today" is Fri 30 Oct): one worked shift, dots as times.
+        assertEquals(Command.AddShifts(listOf(JarvisParser.RotaDay(today, LocalTime.of(8, 25), LocalTime.of(12, 45))), worked = true),
+            p("Today i clocked in at 8.25 and clocked out at 12.45"))
+        assertEquals(Command.AddShifts(listOf(JarvisParser.RotaDay(LocalDate.of(2026, 10, 24), LocalTime.of(8, 10), LocalTime.of(17, 6))), worked = true),
+            p("on Saturday I clocked in at 8.10 and out at 17.06"))
+        assertEquals(Command.AddShifts(listOf(JarvisParser.RotaDay(LocalDate.of(2026, 10, 29), LocalTime.of(9, 0), LocalTime.of(17, 0))), worked = true),
+            p("yesterday I clocked in at 9 and clocked out at 17:00"))
+        assertEquals(null, JarvisParser.split("Today i clocked in at 8.25 and clocked out at 12.45", today))
+        assertEquals(Command.ClockIn(LocalTime.of(8, 25)), p("I clocked in at 8.25"))
+        assertTrue(p("tell me the market") is Command.Crypto)
         // Questions about the shift aren't clocking.
         assertEquals(Command.Shift(1), p("what time do I finish tomorrow"))
         assertEquals(Command.Shift(1), p("when do I start work tomorrow"))

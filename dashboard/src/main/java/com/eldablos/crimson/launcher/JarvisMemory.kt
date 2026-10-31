@@ -216,6 +216,16 @@ object JarvisMemory {
                 Shifts.setActual(context, day, clocked[day]?.let { (a, b) -> Shifts.Shift(t(a), t(b), "SHIFT") })
             }
         }
+        // Saturday 31 Oct was misheard as 08:00-12:00 ("8.25" and "12.45" read as 8 and 12): put it right.
+        if (!p.getBoolean("seeded:7", false)) {
+            p.edit().putBoolean("seeded:7", true).apply()
+            val day = java.time.LocalDate.of(2026, 10, 31)
+            val w = Shifts.actual(context)[day]
+            if (w == null || (w.start == java.time.LocalTime.of(8, 0) && w.end == java.time.LocalTime.of(12, 0))) {
+                Shifts.setActual(context, day, Shifts.Shift(java.time.LocalTime.of(8, 25), java.time.LocalTime.of(12, 45), "SHIFT"))
+                if (Shifts.clockedIn(context)?.toLocalDate() == day) Shifts.setClockedIn(context, null)
+            }
+        }
         // Vee's pay: £18 an hour.
         if (!p.getBoolean("seeded:4", false)) {
             p.edit().putBoolean("seeded:4", true).apply()

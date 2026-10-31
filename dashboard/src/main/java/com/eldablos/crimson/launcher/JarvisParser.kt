@@ -224,7 +224,7 @@ object JarvisParser {
         val whole = parse(said, today)
         val oneCommand = whole is Command.TickNotes || whole is Command.DeleteNotes || whole is Command.Learn || whole is Command.AddHabit || whole is Command.AddNote || whole is Command.AddNotes ||
             whole is Command.AddEvent || whole is Command.Remember || whole is Command.KeepRule || whole is Command.HeaterNow || whole is Command.WhatsApp ||
-            whole is Command.Text || whole is Command.EditNote || whole is Command.Change || whole is Command.AlarmSeries || whole is Command.AddShift || whole is Command.AddShifts || whole is Command.AddUni ||
+            whole is Command.Text || whole is Command.EditNote || whole is Command.Change || whole is Command.AlarmSeries || whole is Command.AddShift || whole is Command.AddShifts || whole is Command.ClockIn || whole is Command.ClockOut || whole is Command.AddUni ||
             whole is Command.AddCountdown || whole is Command.Travel
         if (oneCommand) return null
         val cmds = parts.map { parse(it, today) }
@@ -268,7 +268,7 @@ object JarvisParser {
 
         if (Regex("^(restart|reboot|reset|refresh) ?(yourself|jarvis|your systems|all systems|everything|all of jarvis|your hands)?$").matches(t)) return Command.Reboot
         // Clocking in and out: the real start and end of today's shift.
-        clock(t)?.let { return it }
+        clock(t, today)?.let { return it }
         // A rota said in one go: "add these shifts for next week: Monday 7 till 3, Tuesday 8 till 4, Wednesday off…".
         rota(t, today)?.let { return it }
         uni(t, today)?.let { return it }
@@ -741,7 +741,7 @@ object JarvisParser {
         if (has("messages", "notifications", "texts", "anyone message", "who messaged", "anyone text", "text me", "texted me", "messaged me", "message me", "missed")) return Command.Messages
         if (has("battery", "charge", "charging")) return Command.Battery
         if (has("news", "headlines")) return Command.News
-        if (has("bitcoin", "btc", "ethereum", "eth", "solana", "crypto", "portfolio", "coin")) {
+        if (has("bitcoin", "btc", "ethereum", "eth", "solana", "crypto", "portfolio", "coin", "market", "markets", "stocks", "my holdings", "watchlist")) {
             return Command.Crypto(listOf("bitcoin", "ethereum", "solana").firstOrNull { has(it) } ?: when { has("btc") -> "bitcoin"; has("eth") -> "ethereum"; else -> null })
         }
         // The deck's habits: "add a habit gym and tick it off today", "remove the reading habit", "my habits".
@@ -916,18 +916,27 @@ object JarvisParser {
      * work", "I finished at 6:15", "just left work": now, or the time said. Not questions ("what time do I
      * finish?").
      */
-    fun clock(t: String): Command? {
+    fun clock(t: String, today: LocalDate = LocalDate.now()): Command? {
         if (Regex("^(what|when|how|do|does|am i|will|should|is|are)\\b").containsMatchIn(t) || t.endsWith("?")) return null
-        // How you usually do things, or plans ("to start work at 7", "takes me 40 minutes to get to work"): lessons, not clocking.
-        if (Regex("\\b(to start|to finish|need to|have to|wake|takes me|usually|always|every|tomorrow|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b").containsMatchIn(t)) return null
         val work = "(?:work|my shift|the shift|shift|job|my job)"
         val inn = Regex("\\b(clock(ed|ing)? ?(me )?in|sign(ed|ing)? in|start(ed|ing)? $work|begin(ning)? $work|began $work|i'm (at|in) work|i am (at|in) work|(arrived|got in) (at|to|into|in to)? ?$work|on shift now|at work now)\\b")
-        val out = Regex("\\b(clock(ed|ing)? ?(me )?out|sign(ed|ing)? out|(finish(ed|ing)?|done|end(ed|ing)?|leav(e|ing)|left|off|knock(ed)? off|wrap(ped)? up) (with |from )?$work|(finish(ed)?|left|done|ended|got off) (now|just now)|i'm off now|off shift)\\b|^i (finished|clocked out|left) at\\b|^(finished|done) (for (the|to)day)")
+        val out = Regex("\\b(clock(ed|ing)? ?(me )?out|sign(ed|ing)? out|(finish(ed|ing)?|done|end(ed|ing)?|leav(e|ing)|left|off|knock(ed)? off|wrap(ped)? up) (with |from )?$work|(finish(ed)?|left|done|ended|got off) (now|just now)|i'm off now|off shift|out at)\\b|^i (finished|clocked out|left) at\\b|^(finished|done) (for (the|to)day)")
         val isIn = inn.containsMatchIn(t)
         val isOut = out.containsMatchIn(t)
+        // Times said ("at 6:15", "at 8.25", "at 7"); none means now.
+        val times = Regex("\\bat (\\d{1,2}(?:[:.]\\d{2})? ?(?:am|pm)?)\\b").findAll(t).mapNotNull { anyTime("at " + it.groupValues[1].replace('.', ':')) }.toList()
+        // Both in one go ("today I clocked in at 8.25 and out at 12.45", "on Saturday …"): that day as worked.
+        if (isIn && isOut && times.size >= 2) {
+            val day = when {
+                Regex("\\byesterday\\b").containsMatchIn(t) -> today.minusDays(1)
+                else -> WEEKDAY.find(t)?.let { dateFor(weekday(it.groupValues[1]), weekOf(t, today), today, past = true) } ?: today
+            }
+            return Command.AddShifts(listOf(RotaDay(day, times[0], times[1])), worked = true)
+        }
+        // How you usually do things, or plans ("to start work at 7", "takes me 40 minutes to get to work"): lessons, not clocking.
+        if (Regex("\\b(to start|to finish|need to|have to|wake|takes me|usually|always|every|tomorrow|next|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b").containsMatchIn(t)) return null
         if (isIn == isOut) return null
-        // A time said ("at 6:15", "at 7"); none means now.
-        val at = Regex("\\bat (\\d{1,2}(?::\\d{2})? ?(?:am|pm)?)\\b").find(t)?.groupValues?.get(1)?.let { anyTime("at $it") }
+        val at = times.firstOrNull()
         return if (isIn) Command.ClockIn(at) else Command.ClockOut(at)
     }
 

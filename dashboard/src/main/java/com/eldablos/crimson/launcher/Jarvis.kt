@@ -283,6 +283,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             val t = text.lowercase()
             val c = JarvisParser.parse(text)
             if (c == Command.No) return styled(Reply(say("Very well.", "Fair enough.", "OK.")))
+            // "Put it in a PDF with…": the picture goes into the document.
+            if (c is Command.MakeDoc) return styled(makeDoc(c.kind, c.what, java.io.File(p.path))).also { lastReply = it }
             if (c !is Command.Unknown && c !is Command.Yes && !Regex("rota|shift|schedule|clock|what|read|describe|explain|tell|summar|translate|how|who|which|is |are ").containsMatchIn(t)) return@let
             return styled(readImage(java.io.File(p.path), Regex("rota|shift|schedule|clock|hours").containsMatchIn(t), text))
         }
@@ -335,6 +337,184 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         // Not sure his rules caught all of it ("the weather for next week" heard as today's): a brain checks first.
         if (!inRoutine && meant == null && pending == null && JarvisBrain.ready(context) && unsure(text, parsed)) return styled(doubleCheck(text, parsed))
         return finish(text, parsed, meant, inRoutine)
+    }
+
+    // --- Documents ---
+
+    /** The last document he made: "make it a PDF instead" rebuilds it in another format. */
+    private var lastDoc: Documents.Doc? = null
+    private var lastDocAt = 0L
+
+    private fun docKind(word: String?) = when (word) {
+        "pdf" -> Documents.Kind.PDF
+        "excel" -> Documents.Kind.EXCEL
+        "word" -> Documents.Kind.WORD
+        else -> null
+    }
+
+    /**
+     * A document: your shifts and pay, notes or habits straight from what he keeps; anything else written by a
+     * brain (plans and breakdowns by the Think brain, summaries and explainers by the Talk brain, from the web
+     * when online, or from a picture with Gemma's eyes). Saved to Downloads/Jarvis, ready to open or send.
+     */
+    private fun makeDoc(kindWord: String?, what: String, attached: java.io.File? = null): Reply {
+        val w = what.lowercase().trim()
+        // A picture: the one you attached, or your latest screenshot when you mention one.
+        val pic = attached ?: (pending as? Pending.Image)?.path?.let { java.io.File(it) }
+            ?: if (Regex("\\b(picture|screenshot|screen shot|photo|image)\\b").containsMatchIn(w)) latestScreenshot() else null
+        val asked = docKind(kindWord)
+        val that = Regex("^(that|this|it|them|those|what you (just )?said|your (last )?answer|that answer|the answer|the last one|the same|same)$").matches(w)
+        // "Make it a PDF instead": the last document again, in the new format.
+        if (that && lastDoc != null && System.currentTimeMillis() - lastDocAt < 30 * 60_000L && asked != null) return deliver(lastDoc!!, asked)
+        // From what he keeps: no brain needed, ready at once.
+        localDoc(w)?.let { (doc, kind) ->
+            // "My shifts, with the screenshot": the picture goes on the end.
+            val shown = pic?.let { Documents.picture(context, it, "Your picture") }
+            if (pic != null) pending = null
+            return deliver(if (shown != null) doc.copy(blocks = doc.blocks + Documents.Block.Heading("Picture") + shown) else doc,
+                asked ?: if (shown != null) Documents.Kind.PDF else kind)
+        }
+        if (!JarvisBrain.ready(context)) return Reply("I need one of my brains to write that${sir()}. Add one in my settings, under Jarvis Brains. " +
+            "I can already make documents of your shifts and pay, notes and habits.", failed = true,
+            actions = listOf(Action("SHIFTS & PAY", "put my shifts and pay in a spreadsheet", primary = true), Action("MY NOTES", "make a pdf of my notes")))
+        val planLike = Regex("\\b(plan|planner|schedule|timetable|routine|budget|breakdown|break down|steps|step by step|guide|checklist|itinerary|tracker|strategy|revision|roadmap|programme|program|compare|comparison|pros and cons)\\b").containsMatchIn(w)
+        val kind = asked ?: if (Regex("\\b(budget|tracker|log|expenses|costs|spending|compare|comparison|table|list of)\\b").containsMatchIn(w)) Documents.Kind.EXCEL else Documents.Kind.PDF
+        val sheet = kind == Documents.Kind.EXCEL
+        val title = what.replaceFirstChar { it.uppercase() }.take(70)
+        val start = say("Right away, sir. I'll have it ready shortly.", pick("Drafting it now.", "Putting pen to paper, so to speak."), "Writing it.")
+        fun finished(out: String?, sources: List<WebLookup.Page> = emptyList(), picture: Documents.Block.Image? = null) {
+            if (out.isNullOrBlank()) {
+                host.later(styled(Reply("I couldn't write that one${sir()}. Try asking a little more simply.", failed = true)))
+                return
+            }
+            var doc = Documents.parse(out, title)
+            // The picture itself goes in too, after the opening (PDF and Word show it; Excel notes it).
+            if (picture != null) doc = doc.copy(blocks = doc.blocks.toMutableList().apply {
+                val at = indexOfFirst { it !is Documents.Block.Para }.let { if (it < 0) size else it }
+                add(at, picture)
+            })
+            if (sources.isNotEmpty()) doc = doc.copy(blocks = doc.blocks + Documents.Block.Heading("Sources") + Documents.Block.Bullets(sources.map { "${it.title}: ${it.url}" }))
+            host.later(styled(deliver(doc, kind)))
+        }
+        if (pic != null) {
+            pending = null
+            val shown = Documents.picture(context, pic, if (Regex("screenshot|screen shot").containsMatchIn(w)) "Your screenshot" else "Your picture")
+            // Gemma reads it and writes around it; without eyes, the Think or Talk brain writes the rest and the picture goes in as it is.
+            if (JarvisBrain.canSee(context)) JarvisBrain.see(context, pic.path, JarvisBrain.documentRules(sheet, planLike) +
+                "\n\nThe picture goes into the document as well. Write what Vee asked for, using what's in the picture. Request: $what") { finished(it, picture = shown) }
+            else JarvisBrain.write(context, planLike, what, aboutVee(), null, sheet, planLike) { finished(it, picture = shown) }
+            return Reply(start, more = true)
+        }
+        // About what he just said, or your conversation.
+        if (that || Regex("\\b(our|this|the) (conversation|chat)\\b").containsMatchIn(w)) {
+            val material = (listOfNotNull(lastReply?.say?.takeIf { it.isNotBlank() }) + JarvisChat.recent(context, 14)).joinToString("\n")
+            JarvisBrain.write(context, false, "a document summarising this", aboutVee(), material, sheet, false) { finished(it) }
+            return Reply(start, more = true)
+        }
+        // Plans and breakdowns: thought through, fitted around your week. Facts: looked up first when online.
+        if (planLike || !online(context)) {
+            JarvisBrain.write(context, planLike, what, aboutVee(), null, sheet, planLike) { finished(it) }
+            return Reply(start, more = true)
+        }
+        Thread {
+            val pages = runCatching { WebLookup.gather(what, 3).second }.getOrDefault(emptyList())
+            val material = pages.joinToString("\n\n") { "Source (${it.title}):\n${it.text.take(2200)}" }.ifBlank { null }
+            main.post { JarvisBrain.write(context, false, what, aboutVee(), material, sheet, false) { finished(it, pages) } }
+        }.start()
+        return Reply(say("Looking into it, sir. I'll write it up for you.", "Researching. Then writing. Then basking.", "Looking it up."), more = true)
+    }
+
+    /** Saved and handed over: a card with what's in it, to open or send (or have in another format). */
+    private fun deliver(doc: Documents.Doc, kind: Documents.Kind): Reply {
+        lastDoc = doc
+        lastDocAt = System.currentTimeMillis()
+        val uri = Documents.save(context, doc, kind) ?: return Reply("I wrote it${sir()}, but couldn't save it to your Downloads.", failed = true)
+        val parts = listOfNotNull(
+            doc.headings.size.takeIf { it > 0 }?.let { "$it section${if (it == 1) "" else "s"}" },
+            doc.tables.size.takeIf { it > 0 }?.let { "$it table${if (it == 1) "" else "s"}" },
+            "about ${(doc.words / 10 * 10).coerceAtLeast(10)} words",
+        ).joinToString(" · ")
+        val others = Documents.Kind.values().filter { it != kind }.map { k -> Action("AS ${k.label}", run = { host.later(styled(deliver(doc, k))) }) }
+        return Reply("${say("Here it is, sir", "Done. One ${kind.label.lowercase()}, freshly made", "Done")}: ${doc.title}. It's in Downloads, in the Jarvis folder.",
+            card = Card("▤", "${kind.label} · READY", sub = doc.title, rows = (doc.headings.ifEmpty { doc.tables.mapNotNull { it.title } }).take(5).map { Row("§", it) } +
+                listOf(Row("IN IT", parts)), tone = Tone.GREEN),
+            actions = listOf(Action("OPEN", primary = true, run = { Documents.open(context, uri, kind) }), Action("SHARE", run = { Documents.share(context, uri, kind) })) + others)
+    }
+
+    /** Documents from what he keeps: shifts and pay, notes, habits. Null when it's something to write. */
+    private fun localDoc(w: String): Pair<Documents.Doc, Documents.Kind>? {
+        if (Regex("\\b(plan|planner|schedule around|study|revision|advice|tips|ideas|how to|why)\\b").containsMatchIn(w)) return null
+        return when {
+            Regex("\\b(shifts?|rota|hours|pay|payslips?|earnings|wages?|salary|money i|tax|clocked|worked)\\b").containsMatchIn(w) -> payBook() to Documents.Kind.EXCEL
+            Regex("^(my )?(notes?|to ?dos?|to-do list|list)\\b").containsMatchIn(w) -> notesBook() to Documents.Kind.PDF
+            Regex("^(my )?(habits?|streaks?|habit tracker)\\b").containsMatchIn(w) -> habitsBook() to Documents.Kind.EXCEL
+            else -> null
+        }
+    }
+
+    private fun gbp(v: Double) = "£" + "%.2f".format(Locale.ROOT, v)
+
+    /** Your shifts (rota and clocked), hours and pay: the last few pay periods and the one you're in, each costed. */
+    private fun payBook(): Documents.Doc {
+        val setup = Pay.setup(context)
+        val today = LocalDate.now()
+        val (curA, curB) = Pay.periodOf(today, setup)
+        // The pay period you're in and the three before it.
+        val len = 364L / setup.periods
+        val periods = (3 downTo 0).map { back -> Pay.periodOf(curA.minusDays(back * len), setup) }.distinct().sortedBy { it.first }
+        val from = periods.first().first
+        val to = maxOf(curB, today.plusDays(14))
+        val rota = Shifts.all(context)
+        val clocked = Shifts.actual(context)
+        val worked = Shifts.worked(context)
+        val df = DateTimeFormatter.ofPattern("d MMM yyyy")
+        val day = DateTimeFormatter.ofPattern("EEE")
+        val shiftRows = generateSequence(from) { it.plusDays(1) }.takeWhile { !it.isAfter(to) }.mapNotNull { d ->
+            val r = rota[d]
+            val c = clocked[d]
+            val wk = worked[d] ?: return@mapNotNull null
+            val hours = wk.minutes / 60.0
+            listOf(d.format(df), d.format(day), r?.times() ?: "–", c?.times() ?: if (d.isAfter(today)) "planned" else "as rota",
+                "%.2f".format(Locale.ROOT, hours), gbp(hours * setup.hourly))
+        }.toList()
+        val payRows = periods.map { (a, b) ->
+            val slip = Pay.slipFor(context, a, b, setup)
+            listOf("${a.format(DateTimeFormatter.ofPattern("d MMM"))} – ${b.format(df)}", Pay.payday(b).format(df), "%.2f".format(Locale.ROOT, slip.hours),
+                gbp(slip.basic), gbp(slip.tronc), gbp(slip.gross), gbp(slip.tax), gbp(slip.ni), gbp(slip.pension), gbp(slip.net))
+        }
+        val curSlip = Pay.slipFor(context, curA, curB, setup)
+        return Documents.Doc("Shifts and pay", listOf(
+            Documents.Block.Heading("This pay period"),
+            Documents.Block.Para("${curA.format(DateTimeFormatter.ofPattern("d MMM"))} to ${curB.format(df)}, paid ${Pay.payday(curB).format(df)}: " +
+                "${"%.1f".format(Locale.ROOT, curSlip.hours)} hours, about ${gbp(curSlip.net)} take-home from ${gbp(curSlip.gross)} gross."),
+            Documents.Block.Para("Estimates at ${gbp(setup.hourly)} an hour (${gbp(setup.basicRate)} basic plus ${gbp(setup.troncRate)} TRONC), tax code ${setup.taxCode}, " +
+                "pension ${"%.0f".format(Locale.ROOT, setup.pensionPct)}%. Clocked times count where you have them; otherwise the rota does."),
+            Documents.Block.Table("Pay periods", listOf("Period", "Payday", "Hours", "Basic", "TRONC", "Gross", "Tax", "NI", "Pension", "Take-home"), payRows),
+            Documents.Block.Table("Shifts", listOf("Date", "Day", "Rota", "Clocked", "Hours", "Est. pay"), shiftRows),
+        ))
+    }
+
+    private fun notesBook(): Documents.Doc {
+        val lines = DeckData.note(context).lines().map { it.trim() }.filter { it.isNotBlank() }
+        val open = lines.filterNot { it.startsWith(DONE) }
+        val done = lines.filter { it.startsWith(DONE) }.map { it.removePrefix(DONE) }
+        return Documents.Doc("My notes", buildList {
+            add(Documents.Block.Heading("To do"))
+            add(if (open.isEmpty()) Documents.Block.Para("Nothing open. Splendid.") else Documents.Block.Bullets(open))
+            if (done.isNotEmpty()) { add(Documents.Block.Heading("Done")); add(Documents.Block.Bullets(done.map { "✓ $it" })) }
+        })
+    }
+
+    private fun habitsBook(): Documents.Doc {
+        val today = LocalDate.now()
+        val rows = DeckStore.habits(context).map { h ->
+            var streak = 0
+            var d = if (today in h.done) today else today.minusDays(1)
+            while (d in h.done) { streak++; d = d.minusDays(1) }
+            val month = (0L until 30L).count { today.minusDays(it) in h.done }
+            listOf(h.name, if (today in h.done) "Yes" else "Not yet", "$streak", "$month", "${month * 100 / 30}%")
+        }
+        return Documents.Doc("Habits", listOf(Documents.Block.Table("Habits", listOf("Habit", "Done today", "Streak (days)", "Last 30 days", "Hit rate"), rows)))
     }
 
     // --- Conversation ---
@@ -978,6 +1158,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         Command.Date -> Reply("It's ${LocalDate.now().format(dayName)}.", card = Card("▦", "DATE", LocalDate.now().format(DateTimeFormatter.ofPattern("d MMM")), LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE · 'week' w"))))
         is Command.Weather -> weather(cmd)
         is Command.WeatherWeek -> weatherWeek(cmd.weekend, cmd.rainOnly)
+        is Command.MakeDoc -> makeDoc(cmd.kind, cmd.what)
         is Command.Travel -> {
             // "And the Central?" after asking about tomorrow: still tomorrow.
             val prev = last as? Command.Travel
@@ -4517,6 +4698,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
         /** Things he can do, to offer when he didn't follow. */
         val EXAMPLES = listOf(
+            "Make me a PDF of my shifts", "Put my pay in a spreadsheet", "Create a study plan for my exams", "Summarise that into a Word doc",
             "Make a note", "Read my notes", "Add dentist on Monday at 3pm to my calendar", "What's on tomorrow", "Am I working tomorrow?",
             "When's my next shift?", "Set an alarm for 7", "Set an alarm for my next shift", "Show my alarms", "Set a timer for 10 minutes",
             "What's the weather?", "Will it rain tomorrow?", "Any emails from Even Us?", "Any messages?", "Open Spotify", "Call Mum",

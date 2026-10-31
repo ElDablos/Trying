@@ -394,6 +394,24 @@ object JarvisBrain {
             "Only if there's an obviously useful thing to do, end with a separate last line \"OFFER: <command>\" where the command is written like one of these:\n" +
             commands.take(60).joinToString("\n") { "- $it" } + "\nand phrase the offer as a question in your reply.", "Vee: $said", done)
 
+    /** How a document is written for [Documents.parse]: plain lines, headings, lists, tables. */
+    fun documentRules(spreadsheet: Boolean, plan: Boolean): String =
+        "Write the document Vee asked for. Output ONLY the document, in this plain format:\n" +
+            "# Title (the first line)\n## Section heading\n### Sub-heading\n- a bullet point (or 1. 2. 3. for steps in order)\n" +
+            "Tables: one row per line, cells separated by \" | \", the first row naming the columns; no separator lines.\n" +
+            "Everything else is plain paragraphs. No bold, italics, code, emoji or links. British English. Be specific and practical. " +
+            (if (spreadsheet) "This becomes a spreadsheet: put the substance in tables, one per topic, with each number in its own cell (only £ or % with numbers). "
+            else "Aim for about 300 to 700 words. ") +
+            (if (plan) "Use real dates starting from today, and fit it around Vee's shifts and uni where you know them. " else "")
+
+    /**
+     * A document written by a brain: [plan] by the Think brain (plans, schedules, breakdowns), otherwise the Talk
+     * brain (summaries, explainers), from [material] when there is some (web pages, a conversation).
+     */
+    fun write(context: Context, plan: Boolean, request: String, about: String, material: String?, spreadsheet: Boolean, planDates: Boolean, done: (String?) -> Unit) =
+        ask(context, if (plan) Job.REASON else Job.ANSWER, persona(about) + "\n\n" + documentRules(spreadsheet, planDates),
+            "Request: $request" + (material?.let { "\n\nMaterial to work from (use it, don't copy it word for word):\n${it.take(6500)}" } ?: ""), done)
+
     /** Something to work through ("why…", a plan, a comparison): the Think brain, a little more room, still plain. */
     fun reason(context: Context, question: String, about: String, done: (String?) -> Unit) =
         ask(context, Job.REASON, persona(about) + "\n\nThink it through carefully, then give the answer in at most six short sentences, plainly, without markdown.", question, done)

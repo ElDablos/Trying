@@ -73,6 +73,8 @@ object JarvisParser {
         data class MakeCommand(val description: String) : Command()
         /** The days ahead's weather ("next week", "this weekend"). */
         data class WeatherWeek(val weekend: Boolean, val rainOnly: Boolean) : Command()
+        /** A document made for you: [kind] "word", "excel", "pdf" (or null: he picks), about [what]. */
+        data class MakeDoc(val kind: String?, val what: String) : Command()
         /** "What did I miss?": your notifications, summed up. */
         object Missed : Command()
         object ShiftAlarm : Command()
@@ -247,6 +249,37 @@ object JarvisParser {
     }
 
     /** What [said] asks for, with [today] for working out dates. */
+    private val DOC_FORMAT = Regex("\\b(word doc(ument)?|word file|docx|doc|document|pdf|spreadsheet|excel( sheet| file| spreadsheet)?|xlsx|sheet|workbook)s?\\b")
+    private val DOC_VERB = Regex("^(make|create|build|generate|write|put|export|turn|save|give|draft|prepare|produce|do|summari[sz]e|summary of|convert|compile|get|send|i need|i want|need|want)\\b")
+
+    /** A request for a document, with what it's about and in which format. */
+    fun makeDoc(t: String): Command.MakeDoc? {
+        if (Regex("\\b(bed ?sheets?|the sheets|sheets on|sheet music|cheat sheet)\\b").containsMatchIn(t)) return null
+        val format = DOC_FORMAT.find(t)
+        val plan = Regex("^(make|create|build|write|draft|prepare|plan|give me|i need|need|generate)( me)? (a |an |my )?((weekly|daily|monthly|revision|study|exam|workout|gym|meal|savings?|budget|training|reading|learning|work) )+(plan|schedule|timetable|planner|tracker|routine|breakdown|guide|checklist)\\b").containsMatchIn(t)
+        if (format == null && !plan) return null
+        // Not a document request: "read the document", "open my excel", "what's in the pdf".
+        if (format != null && !DOC_VERB.containsMatchIn(t) && !Regex("\\b(into|in|as|to) (an? |my |the )?(${format.value})").containsMatchIn(t)) return null
+        if (Regex("^(open|read|show|find|where|what|delete|close)\\b").containsMatchIn(t)) return null
+        val f = format?.value.orEmpty()
+        val kind = when {
+            Regex("pdf").containsMatchIn(f) -> "pdf"
+            Regex("spreadsheet|excel|xlsx|sheet|workbook").containsMatchIn(f) -> "excel"
+            f.isNotEmpty() -> "word"
+            else -> null
+        }
+        val what = t
+            .replace(Regex("\\b(in|into|as|to|on) (an? |my |the )?(nice |simple |proper )?${DOC_FORMAT.pattern}"), " ")
+            .replace(DOC_FORMAT, " ")
+            .replace(Regex("^(can you |could you |please )?(make|create|build|generate|write|put|export|turn|save|give|draft|prepare|produce|do|convert|compile|get|send|i need|i want|need|want|summari[sz]e|summary of|sum up)( me| up| out)?\\b"), " ")
+            .replace(Regex("^\\s*(an?|the)\\b"), " ")
+            .replace(Regex("^\\s*(of|about|on|with|for|from|containing|showing|listing|that has|that shows)\\b"), " ")
+            .replace(Regex("\\b(an?|the)\\s*$"), " ")
+            .replace(Regex("\\s+(of|about|on|with|for|from)\\s*$"), " ")
+            .replace(Regex("\\s+"), " ").trim()
+        return Command.MakeDoc(kind, what.ifEmpty { "that" })
+    }
+
     fun parse(said: String, today: LocalDate = LocalDate.now()): Command {
         val raw = said.trim().trimEnd('.', '!', '?')
         // "Jarvis, …" and politeness aside.
@@ -279,6 +312,9 @@ object JarvisParser {
         Regex("^(?:no,? (?:it's called|it's|its|i mean|i meant|i said)|it's called|it is called|its called|it's named|the app is called|i mean|i meant|i said)\\s+(the )?(.+?)( app)?$").find(t)?.let { return Command.Correct(it.groupValues[2].clean()) }
 
         if (Regex("^(restart|reboot|reset|refresh) ?(yourself|jarvis|your systems|all systems|everything|all of jarvis|your hands)?$").matches(t)) return Command.Reboot
+        // A document: "make me a PDF of my shifts", "put my pay in a spreadsheet", "summarise that into a Word doc",
+        // "create a study plan for my exams".
+        makeDoc(t)?.let { return it }
         // Maths: anything that's all sum ("what's 12 times 7", "15% of 80", "square root of 144").
         com.eldablos.crimson.launcher.Calc.read(raw)?.let { return Command.Calc(it) }
         // Clocking in and out: the real start and end of today's shift.

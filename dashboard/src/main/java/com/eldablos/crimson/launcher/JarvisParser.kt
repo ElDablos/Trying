@@ -912,13 +912,19 @@ object JarvisParser {
         return when {
             Regex("\\b(next week|the week after|following week)\\b").containsMatchIn(t) -> monday.plusWeeks(1)
             Regex("\\bthis week\\b").containsMatchIn(t) -> monday
+            Regex("\\b(last week|previous week|the week before|past week)\\b").containsMatchIn(t) -> monday.minusWeeks(1)
             else -> null
         }
     }
 
     /** [d] in [week] if given, else the next one coming (today included). */
-    private fun dateFor(d: java.time.DayOfWeek, week: LocalDate?, today: LocalDate): LocalDate =
-        week?.plusDays((d.value - 1).toLong()) ?: today.plusDays(((d.value - today.dayOfWeek.value + 7) % 7).toLong())
+    private fun dateFor(d: java.time.DayOfWeek, week: LocalDate?, today: LocalDate, past: Boolean = false): LocalDate =
+        week?.plusDays((d.value - 1).toLong())
+            ?: if (past) today.minusDays(((today.dayOfWeek.value - d.value + 7) % 7).toLong())
+            else today.plusDays(((d.value - today.dayOfWeek.value + 7) % 7).toLong())
+
+    /** Said about what's been ("I worked Monday 7 till 3", "last week I did…"): days are the ones just gone. */
+    private val PAST = Regex("\\b(worked|i did|i've done|i done|was in|was working|was on|i've worked|last week|previous week|yesterday)\\b")
 
     private fun times(r: MatchResult) = shiftTimes(r.groupValues[1].replace('.', ':'), r.groupValues[2].replace('.', ':'))
 
@@ -929,11 +935,19 @@ object JarvisParser {
      * makes it that whole week (the days not said are off); otherwise each day is the next one coming.
      */
     fun rota(t: String, today: LocalDate): Command.AddShifts? {
-        val days = WEEKDAY.findAll(t).toList()
         val week = weekOf(t, today)
+        val past = PAST.containsMatchIn(t)
+        // "I worked yesterday 7 till 3": the day just gone.
+        if (past && Regex("\\byesterday\\b").containsMatchIn(t) && WEEKDAY.find(t) == null) {
+            val r = RANGE.find(t) ?: return null
+            val (a, b) = times(r)
+            if (a == null || b == null || UNI.containsMatchIn(t)) return null
+            return Command.AddShifts(listOf(RotaDay(today.minusDays(1), a, b)))
+        }
+        val days = WEEKDAY.findAll(t).toList()
         val only = Regex("\\b(only|just|rest|that's it|that's all|nothing else|other days)\\b").containsMatchIn(t)
-        if (days.isEmpty() || (days.size < 2 && !(week != null && only)) || RANGE.findAll(t).none()) return null
-        if (!Regex("\\b(shifts?|rota|working|work|i'm on|i am on|i'm in|these|my week)\\b").containsMatchIn(t)) return null
+        if (days.isEmpty() || (days.size < 2 && !(week != null && only) && !past) || RANGE.findAll(t).none()) return null
+        if (!Regex("\\b(shifts?|rota|working|work|worked|i'm on|i am on|i'm in|these|my week|i did|i was)\\b").containsMatchIn(t)) return null
         if (Regex("^(what|when|which|how|am i|do i|is|are)\\b").containsMatchIn(t)) return null
         val out = LinkedHashMap<LocalDate, RotaDay>()
         val uni = LinkedHashMap<LocalDate, RotaDay>()
@@ -941,7 +955,7 @@ object JarvisParser {
         var last: Pair<LocalTime, LocalTime>? = null
         var uniNext = false
         days.forEachIndexed { i, m ->
-            val date = dateFor(weekday(m.groupValues[1]), week, today)
+            val date = dateFor(weekday(m.groupValues[1]), week, today, past)
             val seg = t.substring(m.range.last + 1, if (i + 1 < days.size) days[i + 1].range.first else t.length)
             val ranges = RANGE.findAll(seg).toList()
             // Uni in this day's words: the times after "uni" (or its only times) are uni, the rest the shift.
@@ -985,8 +999,10 @@ object JarvisParser {
             }
         }
         if (out.none { it.value.start != null } && uni.isEmpty()) return null
-        if (week == null && out.size + uni.size < 2) return null
-        return Command.AddShifts(out.values.sortedBy { it.date }, uni.values.sortedBy { it.date }, week)
+        if (week == null && out.size + uni.size < 2 && !past) return null
+        // A week gone by keeps the shifts already in it unless you say that was all.
+        val whole = week?.takeIf { it >= today.minusDays((today.dayOfWeek.value - 1).toLong()) || only }
+        return Command.AddShifts(out.values.sortedBy { it.date }, uni.values.sortedBy { it.date }, whole)
     }
 
     /** Uni on its own: "I've got uni from 5pm to 9pm on Wednesday", "uni every Monday 9 till 12", "no uni this Wednesday". */

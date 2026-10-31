@@ -93,6 +93,20 @@ class RealPhrasesTest {
     }
 
     @Test
+    fun shiftsGoneBy() {
+        // Today is Friday 30 Oct; last week is Mon 19 to Sun 25 Oct.
+        fun o(day: Int) = LocalDate.of(2026, 10, day)
+        val r = JarvisParser::RotaDay
+        assertEquals(Command.AddShifts(listOf(r(o(19), t(7), t(18)), r(o(20), t(8), t(17)), r(o(24), t(8), t(14)))),
+            p("add shifts for last week monday 7 till 6, tuesday 8 till 5 and saturday 8 till 2"))
+        assertEquals(Command.AddShifts(listOf(r(o(19), t(7), t(15)), r(o(21), t(7), t(15))), week = o(19)),
+            p("last week I only worked monday and wednesday 7 till 3"))
+        assertEquals(Command.AddShifts(listOf(r(o(26), t(7), t(15)))), p("I worked Monday 7 till 3"))
+        assertEquals(Command.AddShifts(listOf(r(o(29), t(9), t(17)))), p("I worked yesterday 9 till 5"))
+        assertEquals(Command.Hours("lastweek", true), p("what did I earn last week"))
+    }
+
+    @Test
     fun notesAndHabits() {
         assertEquals(Command.TickAllNotes, p("tick my notes"))
         assertEquals(Command.TickNote("#2"), p("I want to finish my second note"))

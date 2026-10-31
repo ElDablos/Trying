@@ -2683,6 +2683,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             week != null && week == Shifts.monday(LocalDate.now()).plusWeeks(1) -> "next week"
             week != null -> "the week of ${week.dayOfMonth} ${week.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())}"
             Shifts.monday(first) == Shifts.monday((days + uni).maxOf { it.date }) && Shifts.monday(first) == Shifts.monday(LocalDate.now()).plusWeeks(1) -> "next week"
+            Shifts.monday(first) == Shifts.monday((days + uni).maxOf { it.date }) && Shifts.monday(first) == Shifts.monday(LocalDate.now()).minusWeeks(1) -> "last week"
+            Shifts.monday(first) == Shifts.monday(LocalDate.now()) && (days + uni).maxOf { it.date } <= LocalDate.now() -> "this week"
+            (days + uni).maxOf { it.date } < LocalDate.now() -> "so far"
             else -> "the coming days"
         }
         val sayDays = working.joinToString(", ") { d -> "${dayName(d.date)} ${d.start!!.format(tf)} till ${d.end!!.format(tf)}" }
@@ -2701,8 +2704,14 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 listOfNotNull(sh?.let { "${it.start!!.format(tf)}–${it.end!!.format(tf)}" }, u?.let { "UNI ${it.start!!.format(tf)}–${it.end!!.format(tf)}" }).joinToString(" · ").ifEmpty { "OFF" },
                 ok = if (sh != null) true else null)
         }
+        // Shifts already worked: what they add to the payday they're in.
+        val payNote = working.filter { it.date <= LocalDate.now() }.takeIf { it.isNotEmpty() }?.let { done ->
+            val setup = Pay.setup(context)
+            val (a, b) = Pay.periodOf(done.last().date, setup)
+            " That's in your ${Pay.payday(b).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))} pay, about ${money(Pay.slipFor(context, a, b, setup).net)} take-home for the fortnight."
+        }.orEmpty()
         return Reply(
-            (if (working.isEmpty()) "Got it${sir()}." else "Got it${sir()}: ${working.size} shift${if (working.size == 1) "" else "s"} $span, $hours hours. $sayDays.") + sayUni + sayOff +
+            (if (working.isEmpty()) "Got it${sir()}." else "Got it${sir()}: ${working.size} shift${if (working.size == 1) "" else "s"} $span, $hours hours. $sayDays.") + sayUni + sayOff + payNote +
                 if (synced && working.isNotEmpty()) " They're on the Even Us calendar too." else "",
             card = Card("⧗", "ROTA SAVED · ${span.uppercase()}", "${hours}h", "${working.size} shifts${if (uni.isNotEmpty()) " · ${uni.size} uni" else ""}", rows, Tone.HOT),
             actions = listOf(undoAction, Action("MY WEEK", if (span == "next week") "what's my rota next week" else "what's my rota this week")),

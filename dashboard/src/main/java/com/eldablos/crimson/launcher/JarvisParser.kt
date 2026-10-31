@@ -647,6 +647,12 @@ object JarvisParser {
             if (date != null) return Command.RemoveShift(date)
         }
         if (Regex("^am i (off|free|working|on)\\b|^do i (work|have work|have a shift)|^have i got (work|a shift)").containsMatchIn(t)) return Command.Shift(dayAhead0)
+        // About work, not the clock: "what time am I working tomorrow", "when do I work Friday", "what's my rota".
+        if (has("what time", "when", "what hours", "how long", "what's my", "what is my", "whats my") &&
+            has("working", "work", "shift", "shifts", "rota", "start", "finish", "in tomorrow", "on tomorrow") && !has("time is it")) {
+            return Command.Shift(dayAhead0 ?: if (has("next")) null else 0)
+        }
+        if (has("rota")) return Command.Shift(dayAhead0)
         if (has("time is it", "the time", "what time")) return Command.Time
         if (has("date", "what day is it", "what's today")) return Command.Date
         val dayAhead = whenIn(t, today).first?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() }

@@ -12,8 +12,8 @@ android {
         // Health Connect is built into Android 14+, so no extra library is needed.
         minSdk = 34
         targetSdk = 34
-        versionCode = 47
-        versionName = "1.46"
+        versionCode = 48
+        versionName = "1.47"
         // "Hey Jarvis" listens with Vosk's native library: the phone's 64-bit ARM build is all it needs.
         ndk { abiFilters += "arm64-v8a" }
     }

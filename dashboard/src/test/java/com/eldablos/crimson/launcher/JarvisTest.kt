@@ -67,6 +67,13 @@ class JarvisTest {
     fun questions() {
         assertEquals(Command.Weather(1, rainOnly = true), p("Is it going to rain tomorrow?"))
         assertEquals(Command.Shift(1), p("Am I working tomorrow?"))
+        assertEquals(Command.Shift(1), p("what time I'm working tomorrow"))
+        assertEquals(Command.Shift(1), p("What time am I working tomorrow?"))
+        assertEquals(Command.Shift(1), p("when do I start work tomorrow"))
+        assertEquals(Command.Shift(1), p("what time do I finish tomorrow"))
+        assertEquals(Command.Shift(1), p("what's my rota tomorrow"))
+        assertEquals(Command.Time, p("what time is it"))
+        assertEquals(Command.Time, p("what's the time"))
         assertEquals(Command.ShiftWeek(next = true), p("How many hours am I working next week"))
         assertEquals(Command.Agenda(1), p("What's on tomorrow"))
         assertEquals(Command.Emails(true), p("Any emails from Even Us?"))

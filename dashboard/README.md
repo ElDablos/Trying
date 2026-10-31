@@ -314,3 +314,36 @@ back to One UI Home the same way at any time.
 - The clock follows your phone's 12- or 24-hour setting, and weeks start on the day your phone's region uses (Monday in the UK).
 - Home-screen widgets can't be swiped sideways, because the home screen uses that swipe to change pages. That's why the calendar uses arrows.
 - Weather comes from [Open-Meteo](https://open-meteo.com), which is free and needs no account.
+
+## Setting up Jarvis's brains (1.54)
+
+1. **Install the app** (CrimsonWidget.apk) over your current one: everything you've set up stays.
+2. **Open Jarvis → ⚙ Settings → JARVIS BRAINS.** For each brain you want, tap **GET IT**: the page opens in
+   your browser. Sign in to Hugging Face (free), accept the licence, and download the `.litertlm` file
+   (Wi-Fi; a few GB each). Then back in settings, **ADD** and pick the file from Downloads. Copying takes a
+   minute or two; he tells you when each is in. Delete the copy in Downloads afterwards to free the space.
+   - **Gemma 4 E4B** (TALK): his main brain; also reads pictures. Start with this one.
+   - **Qwen3 4B Thinking** (THINK): for working things through.
+   - **Qwen3 1.7B** (QUICK): for quickly working out what you meant.
+3. **His voice (optional):** in settings, *How he speaks* → **JARVIS**. For a neural British voice, *A truer
+   Jarvis voice* → **GET IT** (VoxSherpa), open it once to download Kokoro's George or Lewis, then
+   *Voice* → **CHANGE** and pick it.
+4. **Photos (for "read my screenshot"):** the first time, he asks; allow it. The ⊕ button needs nothing.
+
+## Testing it
+
+| Say or do | What should happen |
+| --- | --- |
+| "What's 15% of 80" | 12, at once (no brain needed) |
+| "Can you make it so my phone stops making noise" | THINKING, then silent mode on and a green LEARNT card; say it again: instant |
+| "Explain how my pension works" | An answer from the TALK brain, spoken as Jarvis |
+| "Help me plan my revision around my shifts" | The THINK brain (a few seconds more); card says which brain |
+| "Look up when Tesco Canary Wharf closes today" | LOOKING IT UP, then a short summary card with the sources (shown, not read out) |
+| ⊕ → a Grind rota screenshot → ADD THE ROTA | Every day's rota and clocked times; ADD THEM puts them in |
+| "Read my rota from my screenshot" | The same, from your latest screenshot |
+| "When I say heading to work, turn off the lights and tell me the tube" | A NEW COMMAND card; then say "heading to work" |
+| "What did I miss?" | Your notifications in a few lines |
+| "Learn how to …" | He goes home and follows you: open the app, tap through it, stop |
+
+If a brain answer is slow the first time, that's it loading (up to ten seconds); after that it's quicker.
+If look-ups come back empty, or something gets stuck, say "hands log" or tell me what happened.

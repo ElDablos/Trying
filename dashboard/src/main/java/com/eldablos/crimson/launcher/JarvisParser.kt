@@ -1075,11 +1075,13 @@ object JarvisParser {
         if (Regex("^(what|when|how|do|does|am i|will|should|is|are)\\b").containsMatchIn(t) || t.endsWith("?")) return null
         val work = "(?:work|my shift|the shift|shift|job|my job)"
         val inn = Regex("\\b(clock(ed|ing)? ?(me )?in|sign(ed|ing)? in|start(ed|ing)? $work|begin(ning)? $work|began $work|i'm (at|in) work|i am (at|in) work|(arrived|got in) (at|to|into|in to)? ?$work|on shift now|at work now)\\b")
-        val out = Regex("\\b(clock(ed|ing)? ?(me )?out|sign(ed|ing)? out|(finish(ed|ing)?|done|end(ed|ing)?|leav(e|ing)|left|off|knock(ed)? off|wrap(ped)? up) (with |from )?$work|(finish(ed)?|left|done|ended|got off) (now|just now)|i'm off now|off shift|out at)\\b|^i (finished|clocked out|left) at\\b|^(finished|done) (for (the|to)day)")
+        val out = Regex("\\b(clock(ed|ing)? ?(me )?(out|off|up)|sign(ed|ing)? out|(finish(ed|ing)?|done|end(ed|ing)?|leav(e|ing)|left|off|knock(ed)? off|wrap(ped)? up) (with |from )?$work|(finish(ed)?|left|done|ended|got off) (now|just now)|i'm off now|off shift|out at)\\b|^i (finished|clocked out|left) at\\b|^(finished|done) (for (the|to)day)")
         val isIn = inn.containsMatchIn(t)
         val isOut = out.containsMatchIn(t)
         // Times said ("at 6:15", "at 8.25", "at 7"); none means now.
-        val times = Regex("\\bat (\\d{1,2}(?:[:.]\\d{2})? ?(?:am|pm)?)\\b").findAll(t).mapNotNull { anyTime("at " + it.groupValues[1].replace('.', ':')) }.toList()
+        // "at 6:15", "at 7", and a time said straight after ("clocked out 18.15", "finished 6pm").
+        val times = Regex("\\bat (\\d{1,2}(?:[:.]\\d{2})? ?(?:am|pm)?)\\b|(?<![\\d.:])(\\d{1,2}[:.]\\d{2}(?: ?(?:am|pm))?|\\d{1,2} ?(?:am|pm))\\b").findAll(t)
+            .mapNotNull { m -> anyTime("at " + m.groupValues[1].ifEmpty { m.groupValues[2] }.replace('.', ':')) }.toList()
         // Both in one go ("today I clocked in at 8.25 and out at 12.45", "on Saturday …"): that day as worked.
         if (isIn && isOut && times.size >= 2) {
             val day = when {

@@ -51,6 +51,11 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
+- **1.67** (pending "build it") — Clocking: "clocked out 18.15" takes the time (was only read after "at", so it
+  logged 18:20); "clocked up/off" is clocking out; if you've already clocked in today, or the shift's within 45
+  min of ending, "clocked in" is taken as clocking out (it had clocked in at 18:19 after an 18:00 finish). A
+  clock-in under 30 min old doesn't count as the start, and a shift under 15 min or over 16 h is asked about,
+  never logged (the mistaken 18:19 in had made 18:19–18:19 = "24 hours, £432").
 - **1.66** — Pay follow-ups build on the last pay answer: "and with tomorrow's shift",
   "plus Sunday", "including my next shift", "so altogether" stretch the range and add it up as one (this month
   can't hold tomorrow when tomorrow is the 1st; payday answer also counts). Short follow-ups that lean on the

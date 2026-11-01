@@ -66,6 +66,15 @@ class BatchTest {
     }
 
     @Test
+    fun clockingAsSaid() {
+        assertEquals(Command.ClockOut(LocalTime.of(18, 15)), p("Clocked out 18.15"))
+        assertEquals(Command.ClockIn(LocalTime.of(7, 18)), p("I clocked in at 07.18 this morning"))
+        assertEquals(Command.ClockOut(null), p("I have just clocked up"))
+        assertEquals(Command.ClockOut(null), p("I've clocked off"))
+        assertEquals(Command.ClockOut(LocalTime.of(18, 0)), p("finished work 6pm"))
+    }
+
+    @Test
     fun spending() {
         assertEquals(Command.Spent(12.0, "lunch"), p("I spent £12 on lunch"))
         assertEquals(Command.Spent(4.5, "coffee"), p("spent 4.50 on coffee"))

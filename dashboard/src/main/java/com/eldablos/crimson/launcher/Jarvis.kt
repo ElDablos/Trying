@@ -2798,6 +2798,19 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val at = time?.let { recent(it, now) } ?: now
         val date = at.toLocalDate()
         val planned = Shifts.all(context)[date]
+        // Already clocked in today, or the shift's nearly over: this is the end of it, not a second start.
+        val inToday = Shifts.clockedIn(context)?.takeIf { it.toLocalDate() == date && java.time.Duration.between(it, at).toMinutes() >= 30 }
+        val startedToday = Shifts.actual(context)[date]?.takeIf { java.time.Duration.between(date.atTime(it.start), at).toMinutes() >= 120 && it.start.isBefore(at.toLocalTime()) }
+        val nearEnd = planned != null && !planned.overnight && !at.toLocalTime().isBefore(planned.end.minusMinutes(45))
+        if (inToday != null || startedToday != null || nearEnd) {
+            val r = clockOut(time)
+            val why = when {
+                inToday != null -> "You'd already clocked in at ${inToday.toLocalTime().format(tf)}, so I've clocked you out."
+                startedToday != null -> "You'd already started at ${startedToday.start.format(tf)}, so I've clocked you out."
+                else -> "Your shift ends at ${planned!!.end.format(tf)}, so I've taken that as clocking out."
+            }
+            return r.copy(say = "$why ${r.say}")
+        }
         val before = Shifts.actual(context)[date]
         val was = Shifts.clockedIn(context)
         // Until you clock out: the rota's finish (or 8 hours on, with nothing planned).
@@ -2828,7 +2841,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun clockOut(time: LocalTime?): Reply {
         val now = LocalDateTime.now().withSecond(0).withNano(0)
         val at = time?.let { recent(it, now) } ?: now
-        val inAt = Shifts.clockedIn(context)?.takeIf { it.isBefore(at) && java.time.Duration.between(it, at).toHours() < 20 }
+        // A clock-in only counts if it's a real start: half an hour or more before, and under 20 hours ago
+        // (one made a minute ago by mistake would make a "shift" of no time, or of 24 hours).
+        val inAt = Shifts.clockedIn(context)?.takeIf { it.isBefore(at) && java.time.Duration.between(it, at).toMinutes() in 30..(20 * 60) }
         val plan = Shifts.all(context)
         val worked = Shifts.actual(context)
         // Which day's shift: the one you clocked in for, today's, or last night's running past midnight.
@@ -2839,8 +2854,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 actions = listOf(Action("I STARTED AT…", "I started work at ")))
         val planned = plan[date]
         val before = worked[date]
-        val start = inAt?.toLocalTime() ?: before?.start ?: planned!!.start
+        val start = inAt?.toLocalTime()
+            ?: before?.start?.takeIf { java.time.Duration.between(date.atTime(it), at).toMinutes() in 30..(20 * 60) }
+            ?: planned?.start ?: before!!.start
         val shift = Shifts.Shift(start, at.toLocalTime(), planned?.name ?: shiftName(start, at.toLocalTime()))
+        // A shift of no time, or of more than 16 hours, is a mix-up: ask rather than log it.
+        if (shift.minutes < 15 || shift.minutes > 16 * 60) return Reply("That would make a shift of ${minutesSaid(shift.minutes)}${sir()} (${start.format(tf)} till ${at.toLocalTime().format(tf)}), which doesn't look right. " +
+            "When did you start? Say \"I started work at …\" and I'll log it properly.", listen = true, actions = listOf(Action("I STARTED AT…", "I started work at ")))
         val was = Shifts.clockedIn(context)
         Shifts.setActual(context, date, shift)
         Shifts.setClockedIn(context, null)

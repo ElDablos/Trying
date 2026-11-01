@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Jarvis reads your latest screenshot (a rota, say) with his brain, on the phone. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- "All files access", asked for once when you first ask Jarvis to find a file: it lets him search your documents. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- The Command Deck saves your work shifts to your calendar. -->
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />

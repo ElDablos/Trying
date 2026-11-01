@@ -606,6 +606,12 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
     }
 
     private val jarvisHost = object : Jarvis.Host {
+        override fun deckText(section: String?): String? = try {
+            deck.deckText(section)
+        } catch (e: Exception) {
+            null
+        }
+
         override fun pick(what: String) {
             handler.post { if (what == "backup") pickBackup() else pickFile() }
         }

@@ -228,6 +228,31 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     /** The briefing's sections, in order. */
     private fun chapters(): List<String> = script.map { chapterOf(it.first) }.distinct().filter { it != "END" }
 
+    /**
+     * The deck as Jarvis reads it out: everything on it, or one part ("work", "weather", "messages", "email",
+     * "notes", "habits", "countdowns", "money", "news", "travel"). Null when that part has nothing on it.
+     */
+    fun deckText(section: String?): String? {
+        val parts = board.spokenNow()
+        if (section.isNullOrBlank()) return parts.filter { it.first != "x:end" }.joinToString(" ") { it.second }
+        val s = section.lowercase()
+        val ids = when {
+            Regex("work|shift|rota|uni|plan|calendar|agenda").containsMatchIn(s) -> listOf("x:work", "x:uni", "x:plan")
+            Regex("weather|sky|rain|forecast").containsMatchIn(s) -> listOf("x:sky")
+            Regex("message|comms|text|whatsapp").containsMatchIn(s) -> listOf("x:msgs")
+            Regex("mail|email|inbox").containsMatchIn(s) -> listOf("x:mail")
+            Regex("note").containsMatchIn(s) -> listOf("x:notes")
+            Regex("habit").containsMatchIn(s) -> listOf("x:habits")
+            Regex("countdown").containsMatchIn(s) -> listOf("x:soon")
+            Regex("money|market|crypto|coin").containsMatchIn(s) -> listOf("x:money")
+            Regex("news|headline").containsMatchIn(s) -> listOf("x:newsintro", "news:")
+            Regex("tube|travel|train|commute").containsMatchIn(s) -> listOf("x:travel")
+            Regex("battery|phone|steps|vitals").containsMatchIn(s) -> listOf("x:bits")
+            else -> return parts.filter { it.first != "x:end" }.joinToString(" ") { it.second }
+        }
+        return parts.filter { p -> ids.any { p.first.startsWith(it) } }.joinToString(" ") { it.second }.ifBlank { null }
+    }
+
     /** Reads today's briefing from the start. */
     fun readBriefing() {
         Mail.catchUp(context)

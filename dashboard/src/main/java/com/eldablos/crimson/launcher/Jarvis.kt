@@ -59,6 +59,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         fun briefingActive(): Boolean = false
         /** An answer that's taken a moment (his brain, a look-up): shown and said when it's ready. */
         fun later(reply: Reply) {}
+        /** The Command Deck's contents as he'd read them ([section] or all), from the launcher; null elsewhere. */
+        fun deckText(section: String?): String? = null
         /** The phone's file picker, for a [what] ("backup", "file"); what's picked comes back to Jarvis. */
         fun pick(what: String) {}
     }
@@ -356,7 +358,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         if (!inRoutine && meant == null && pending == null) habitSaid(text)?.let { h -> return finish(text, Command.Habit(h.name), null, inRoutine) }
         val parsed = JarvisParser.parse(meant ?: text)
         // Telling him something, not asking ("I'll be on my lessons soon, so that'll be done too"): he talks back.
-        if (!inRoutine && meant == null && pending == null && remark(text, parsed)) {
+        // (With his brain reading everything first, it decides what's a chat; this is for when it's off or not there.)
+        if (!inRoutine && meant == null && pending == null && !(JarvisMemory.smart(context) && JarvisBrain.ready(context)) && remark(text, parsed)) {
             lastAt = System.currentTimeMillis()
             return styled(converse(text)).also { lastReply = it }
         }
@@ -816,6 +819,41 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     private fun lastDocKind(): Documents.Kind =
         runCatching { Documents.Kind.valueOf(context.getSharedPreferences("jarvis", Context.MODE_PRIVATE).getString("doc_kind", "PDF")!!) }.getOrDefault(Documents.Kind.PDF)
+
+    // --- Your files ---
+
+    private var lastFiles: List<Files.Found> = emptyList()
+
+    /** Your files, found by name, kind, date and what's in them; the best few on a card, each to open. */
+    private fun findFiles(query: String): Reply {
+        val full = Files.fullAccess()
+        Thread {
+            val found = runCatching { Files.search(context, query) }.getOrDefault(emptyList())
+            lastFiles = found
+            val df = DateTimeFormatter.ofPattern("d MMM")
+            val r = if (found.isEmpty()) Reply("I couldn't find anything like that${sir()}." + if (!full) " I can only see your photos, videos and music so far: allow All files access and I'll search your documents too." else "",
+                failed = true, actions = if (!full) listOf(Action("ALLOW ACCESS", primary = true, run = { start(Files.accessIntent(context)) })) else emptyList())
+            else Reply("${if (found.size == 1) "Found it" else "Found ${found.size}"}${sir()}: ${found.first().name}${if (found.size > 1) ", and the others on the card" else ""}.",
+                card = Card("⌕", "FILES", "${found.size}", query.take(60), found.take(6).mapIndexed { i, f -> Row("${i + 1} · ${f.kind.uppercase()}", "${f.name.take(36)} · ${f.date.format(df)}") }, Tone.BLUE),
+                actions = found.take(3).mapIndexed { i, f -> Action(if (i == 0) "OPEN" else "OPEN ${i + 1}", primary = i == 0, run = { Files.open(context, f) }) } +
+                    listOf(Action("SHARE", run = { Files.share(context, found.first()) })) +
+                    (if (!full) listOf(Action("SEARCH EVERYTHING", run = { start(Files.accessIntent(context)) })) else emptyList()))
+            main.post { host.later(styled(r)) }
+        }.start()
+        return Reply(say("Searching your files, sir.", "Rummaging through your files.", "Searching."), more = true)
+    }
+
+    // --- Learning your voice ---
+
+    private fun trainVoice(): Reply {
+        val ok = JarvisEar.trainVoice(step = { n, heard ->
+            host.later(styled(Reply(if (n < 3) "Got that${sir()} (\"$heard\"). ${if (n == 1) "Twice more" else "Once more"}: say \"Hey Jarvis\"." else "And that's three.",
+                card = Card("◉", "TRAINING", "$n/3", "say \"Hey Jarvis\"", tone = Tone.HOT), listen = false)))
+        }, done = { summary -> host.later(styled(Reply(summary, card = Card("◉", "VOICE LEARNT", sub = "Hey Jarvis, tuned to you", tone = Tone.GREEN)))) })
+        if (!ok) return Reply("Turn on Hey Jarvis first${sir()}, in my settings, then say \"train my voice\" again.", failed = true, actions = listOf(Action("SETTINGS", "jarvis settings")))
+        return Reply("Right${sir()}. Say \"Hey Jarvis\" three times, the way you normally would, with a pause between. I'm listening.",
+            card = Card("◉", "TRAINING", "0/3", "say \"Hey Jarvis\"", tone = Tone.HOT))
+    }
 
     // --- Self-repair ---
 
@@ -1703,6 +1741,17 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.WeatherWeek -> weatherWeek(cmd.weekend, cmd.rainOnly)
         is Command.MakeDoc -> makeDoc(cmd.kind, cmd.what)
         is Command.OpenDoc -> openDocs(cmd.all)
+        is Command.PayWith -> {
+            val setup = Pay.setup(context)
+            if (lastPay == null || System.currentTimeMillis() - lastPayAt > 10 * 60_000L) Pay.periodOf(LocalDate.now(), setup).let { (a, b) -> lastPay = Triple(a, b, "this pay period"); lastPayAt = System.currentTimeMillis() }
+            payFollowUp("and with ${cmd.day}") ?: payday()
+        }
+        is Command.FindFiles -> findFiles(cmd.query)
+        is Command.ReadDeck -> host.deckText(cmd.section)?.let { text ->
+            Reply(text, full = true, card = Card("◆", "COMMAND DECK", sub = cmd.section?.uppercase() ?: "EVERYTHING ON IT", tone = Tone.HOT),
+                actions = listOf(Action("BRIEF ME", "brief me")))
+        } ?: Reply("I can only read the deck from the home screen${sir()}.", failed = true)
+        Command.TrainVoice -> trainVoice()
         Command.Ack -> Reply(say(pick("Very good, sir.", "Splendid.", "Noted."), pick("Marvellous.", "Consider it filed."), "OK."), end = true)
         Command.SelfCheck -> selfCheck()
         Command.Backup -> backupNow()
@@ -2457,17 +2506,32 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     /** Clear enough to do at once, without his brain reading it first: simple answers, and requests that carry your own words. */
-    private fun obvious(text: String, cmd: Command): Boolean = when (cmd) {
-        Command.Yes, Command.No, Command.Undo, Command.Repeat, Command.Dismiss, Command.Thanks, Command.Ack, Command.Payday, Command.Time, Command.Date, Command.Battery,
-        Command.Reboot, Command.SystemsCheck, Command.Backup, Command.Restore, Command.StudyDone, Command.MorningBrief, Command.Briefing, Command.Habits,
-        is Command.Calc, is Command.Spent, is Command.MakeDoc, is Command.OpenDoc, is Command.ClockIn, is Command.ClockOut, is Command.AddShifts, is Command.Timer,
-        is Command.AddNote, is Command.WhatsApp, is Command.Text, is Command.Remember -> true
-        // Your light and heating, when his own rules already know it: straight to his hands, never re-read.
-        // (A light "called" a whole sentence, "you switched it on and then off", isn't one: that goes to his brain.)
-        is Command.Lights -> (cmd.name?.split(' ')?.size ?: 0) <= 3
-        is Command.Brightness, is Command.LightColour, Command.LightsStatus, is Command.Climate, is Command.SetTemp, is Command.HeaterNow -> true
-        is Command.Unknown -> false
-        else -> text.trim().split(Regex("\\s+")).size <= 3 && !unsure(text, cmd)
+    /**
+     * Done at once, without his brain reading it first. Everything else goes to his brain, which sees the
+     * conversation and what's true now. At once: plain answers (yes, undo, the time, sums), requests carrying
+     * your own words (a note, a message, spending), things his rules read exactly (documents, files, the deck),
+     * and short, clear light and heating commands, which must never be slowed or second-guessed.
+     */
+    private fun obvious(text: String, cmd: Command): Boolean {
+        val words = text.trim().split(Regex("\\s+")).size
+        return when (cmd) {
+            Command.Yes, Command.No, Command.Undo, Command.Repeat, Command.Dismiss, Command.Thanks, Command.Ack, Command.Time, Command.Date, Command.Battery,
+            Command.Reboot, Command.SystemsCheck, Command.Backup, Command.Restore, Command.MorningBrief, Command.Briefing, Command.TrainVoice,
+            is Command.Calc, is Command.Spent, is Command.MakeDoc, is Command.OpenDoc, is Command.FindFiles, is Command.ReadDeck, is Command.PayWith, is Command.Timer,
+            is Command.AddNote, is Command.WhatsApp, is Command.Text, is Command.Remember -> true
+            is Command.Lights -> (cmd.name?.split(' ')?.size ?: 0) <= 3 && words <= 6
+            is Command.Brightness, is Command.LightColour, Command.LightsStatus, is Command.Climate, is Command.SetTemp, is Command.HeaterNow -> words <= 7
+            // Said exactly the way his rules know it (one of his own phrasings): no need to ask.
+            is Command.Unknown -> false
+            else -> canonical(text)
+        }
+    }
+
+    /** [text] is one of his own phrasings, word for word (give or take punctuation and "please"). */
+    private fun canonical(text: String): Boolean {
+        fun n(s: String) = s.lowercase().replace(Regex("[^a-z0-9' ]"), " ").replace(Regex("\\b(please|jarvis|hey|ok)\\b"), " ").replace(Regex("\\s+"), " ").trim()
+        val t = n(text)
+        return (CATALOGUE + EXAMPLES).any { !it.contains('<') && n(it) == t }
     }
 
     /**
@@ -2476,23 +2540,67 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      * chat, or an answer.
      */
     private fun translate(text: String, guess: Command): Reply {
-        JarvisBrain.interpret(context, text, examplesNow()) { meant ->
-            val c = meant?.let { JarvisParser.parse(it) }?.takeIf { it !is Command.Unknown && it !is Command.WebSearch && it !is Command.AskClaude && sensible(it) }
-            val r = when {
-                c != null && meant != null -> {
-                    // Learnt for next time when it's the kind of thing you'd say again (not a long one-off).
-                    if (!meant.equals(text.trim(), true) && worthLearning(text)) JarvisMemory.learnMeaning(context, text, meant)
-                    finish(text, c, meant, false)
-                }
-                guess !is Command.Unknown -> finish(text, guess, null, false)
-                remark(text, guess) -> converse(text)
-                else -> freeAnswer(text)
+        JarvisBrain.route(context, text, CATALOGUE + examplesNow().take(20), worldNow(), describe(guess)) { r ->
+            val reply = try {
+                understood(text, guess, r)
+            } catch (e: Exception) {
+                if (guess !is Command.Unknown) finish(text, guess, null, false) else freeAnswer(text)
             }
             lastAt = System.currentTimeMillis()
-            host.later(styled(r))
+            host.later(styled(reply))
         }
         return if (!JarvisBrain.awake) Reply(say("One moment, sir, my brain's waking up.", "Waking the brain.", "Waking up."), more = true)
             else Reply("", silent = true, more = true)
+    }
+
+    /** What his brain made of [text], carried out: commands (one, or several in order), a chat, an answer, a piece of writing. */
+    private fun understood(text: String, guess: Command, r: JarvisBrain.Route?): Reply {
+        val fallback = { if (guess !is Command.Unknown) finish(text, guess, null, false) else if (remark(text, guess)) converse(text) else freeAnswer(text) }
+        if (r == null) return fallback()
+        return when (r.kind) {
+            JarvisBrain.Route.Kind.KEEP -> fallback()
+            JarvisBrain.Route.Kind.CHAT -> converse(text)
+            JarvisBrain.Route.Kind.ANSWER -> freeAnswer(text)
+            JarvisBrain.Route.Kind.WRITE -> creative(text, force = true) ?: freeAnswer(text)
+            JarvisBrain.Route.Kind.DO -> {
+                // Each command checked by his own rules before it's done: nothing made up gets through.
+                val cmds = r.lines.map { it.replace(Regex("\\s*\\(the user's own habit\\)", RegexOption.IGNORE_CASE), "").trim() }.map { it to JarvisParser.parse(it) }
+                    .filter { (_, c) -> c !is Command.Unknown && c !is Command.WebSearch && c !is Command.AskClaude && sensible(c) }
+                when {
+                    cmds.isEmpty() -> fallback()
+                    cmds.size == 1 -> {
+                        val (line, c) = cmds[0]
+                        if (!line.equals(text.trim(), true) && worthLearning(text)) JarvisMemory.learnMeaning(context, text, line)
+                        finish(text, c, line, false)
+                    }
+                    else -> several(cmds.map { it.first })
+                }
+            }
+        }
+    }
+
+    /** How his rules read it, for his brain: "Shift(day=1)", "Lights(on=true, name=null)", or nothing. */
+    private fun describe(c: Command): String = if (c is Command.Unknown) "nothing (didn't recognise it)" else c.toString().let {
+        if (it.contains('@')) c::class.simpleName.orEmpty() else it
+    }
+
+    /** What's true right now, for his brain: the time, today's work and clocking, habits, notes, devices, the last pay sum. */
+    private fun worldNow(): String = buildString {
+        val now = LocalDateTime.now()
+        val today = now.toLocalDate()
+        append("Now: ${now.format(DateTimeFormatter.ofPattern("EEEE d MMMM yyyy, HH:mm"))}\n")
+        val shifts = Shifts.all(context)
+        shifts[today]?.let { append("Work today: ${it.times()}\n") } ?: append("Work today: none\n")
+        shifts[today.plusDays(1)]?.let { append("Work tomorrow: ${it.times()}\n") }
+        Shifts.clockedIn(context)?.takeIf { it.toLocalDate() == today }?.let { append("Clocked in today at ${it.toLocalTime().format(tf)} (not clocked out yet)\n") }
+            ?: Shifts.actual(context)[today]?.let { append("Today's worked shift so far: ${it.times()}\n") }
+        DeckStore.habits(context).takeIf { it.isNotEmpty() }?.let { h -> append("Habits: ${h.joinToString("; ") { "${it.name} (${if (today in it.done) "done today" else "not yet"})" }}\n") }
+        openNotes().filterNot { it.startsWith(DONE) }.take(5).takeIf { it.isNotEmpty() }?.let { append("Open notes: ${it.joinToString("; ")}\n") }
+        append("Devices: light \"Vee Room\" in Tapo; heater \"Bedroom\" in Air+\n")
+        lastPay?.takeIf { System.currentTimeMillis() - lastPayAt < 10 * 60_000L }?.let { (a, b, l) -> append("Last pay sum shown: $l (${a} to ${b})\n") }
+        lastDoc?.takeIf { System.currentTimeMillis() - lastDocAt < 30 * 60_000L }?.let { append("Last document made: ${it.title}\n") }
+        val (pa, pb) = Pay.periodOf(today, Pay.setup(context))
+        append("Pay is fortnightly: this period ${pa} to ${pb}, paid ${Pay.payday(pb)}\n")
     }
 
     /** The question handed to Claude. */
@@ -5535,6 +5643,28 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         private val STOP = setOf("the", "and", "you", "can", "could", "please", "for", "with", "that", "this", "what", "how", "jarvis", "want", "would", "like", "need", "just", "some", "are", "was", "its", "it's")
 
         /** Things he can do, to offer when he didn't follow. */
+        /** Everything he can do, written the way his rules read it, for his brain to choose from (slots in <>). */
+        val CATALOGUE = listOf(
+            "turn the light on", "turn the light off", "make the light <colour>", "light brightness to <n> percent", "dim the light", "brighter",
+            "turn the heating on", "turn the heating off", "set the heating to <n> degrees", "heating up 1 degree", "heating down 1 degree",
+            "what's my next payday", "my pay including <tomorrow / Sunday / my next shift>", "how much have I earned this week", "how much have I earned this month",
+            "how many hours did I work last week", "my pay log", "check my payslip",
+            "I started work now", "I clocked in at <time>", "I finished work now", "I clocked out at <time>",
+            "am I working tomorrow", "when's my next shift", "what's my rota this week", "what's my rota next week", "add shifts <days and times>",
+            "set my alarms for work", "set an alarm for <time>", "what alarms do I have", "turn off my alarms", "set a timer for <n> minutes",
+            "add <text> to my notes", "read my notes", "tick off note <n>", "delete note <n>",
+            "tick off <habit>", "my habits", "add a habit called <name>",
+            "what's the weather today", "what's the weather tomorrow", "what's the weather this week", "will it rain today", "how's the tube",
+            "what's on my calendar today", "what's on tomorrow", "add <event> on <day> at <time> to my calendar",
+            "call <person>", "text <person> <message>", "whatsapp <person> <message>", "any messages", "any emails", "what did I miss",
+            "open <app>", "lock my phone", "take a screenshot", "close the app",
+            "find files <what, kind, when>", "read my deck", "brief me", "morning brief",
+            "make a pdf of <what>", "put my shifts and pay in a spreadsheet", "create a study plan for <subject>", "open my last document", "my documents",
+            "I spent £<n> on <thing>", "how much have I spent this week", "I've finished studying", "how's my study going",
+            "remember <fact>", "what's <fact>", "countdown to <event> on <date>", "how long until <event>",
+            "run a check", "back up your memory", "train my voice", "good night", "what time is it", "what's <maths>",
+        )
+
         val EXAMPLES = listOf(
             "Make me a PDF of my shifts", "Put my pay in a spreadsheet", "Create a study plan for my exams", "Summarise that into a Word doc",
             "Run a systems check", "Back up your memory", "I spent £12 on lunch", "How much have I spent this week?", "I've finished studying",

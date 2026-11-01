@@ -841,9 +841,9 @@ object JarvisParser {
         if (Regex("^(train|learn|calibrate|tune) (my|your) (voice|wake word|hey jarvis|ears?)|^(learn|get used to) (how i say|my) (hey jarvis|accent|voice)").containsMatchIn(t)) return Command.TrainVoice
         Regex("^(?:my )?(?:pay|payslip|next payslip|wages)(?: for this period)? (?:including|with|plus|and) (.+)$").find(t)?.let { return Command.PayWith(it.groupValues[1].trim()) }
         // Your files: "find the pdf about…", "where's my payslip file", "search my files for…", "find photos from last week".
+        Regex("^search (?:my )?(?:files|phone|storage) (?:for )?(.+)$").find(t)?.let { return Command.FindFiles(it.groupValues[1].trim()) }
         Regex("^(?:can you )?(?:find|search for|look for|locate|search|where'?s|where is|where are)(?: me)? (?:my |the |a |an |that |those |some )?(.*?\\b(?:file|files|pdf|pdfs|document|documents|doc|docs|spreadsheet|spreadsheets|excel|word file|photo|photos|picture|pictures|screenshot|screenshots|video|videos|download|downloads|recording|recordings)\\b.*)$").find(t)
             ?.takeIf { !Regex("\\b(make|create|write|you made|you just made)\\b").containsMatchIn(t) }?.let { return Command.FindFiles(it.groupValues[1].trim()) }
-        Regex("^search (?:my )?(?:files|phone|storage) (?:for )?(.+)$").find(t)?.let { return Command.FindFiles(it.groupValues[1].trim()) }
         Regex("^(?:read|show|tell me|what'?s on|whats on|go through) (?:me )?(?:my |the )?(?:command )?deck$|^(?:read|what'?s on|whats on) (?:my |the )?(.+?) card$").find(t)?.let { m -> return Command.ReadDeck(m.groupValues[1].ifBlank { null }) }
         // Just an acknowledgement ("ok", "removed", "cool"): nothing to do, nothing for his brain.
         if (Regex("^(ok|okay|k|kk|cool|great|nice|perfect|good|alright|all right|right|sound|removed|deleted|done|got it|lovely|brilliant|cheers|noted|fine|fair enough|sweet|ace|grand|nice one|good stuff)( then| one)?( jarvis| sir| mate)?$").matches(t)) return Command.Ack

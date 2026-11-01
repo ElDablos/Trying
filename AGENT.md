@@ -51,7 +51,21 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
-- **1.67** (pending "build it") — Clocking: "clocked out 18.15" takes the time (was only read after "at", so it
+- **1.68** — AI-first Jarvis. `translate()` → `JarvisBrain.route()`: every request that isn't instant goes to Gemma
+  with the conversation (last 6 lines), `worldNow()` (time, today's/tomorrow's shift, clocked-in state, habits,
+  notes, devices, last pay sum, pay period) and the rules' own reading; it answers DO: <command> lines (chains),
+  KEEP, CHAT, ANSWER or WRITE. Each DO line is re-parsed by the rules and checked (`sensible`) before running;
+  one line is learnt as a meaning. `CATALOGUE` lists every canonical command. `obvious()` = instant path: plain
+  answers, your-own-words requests (notes, messages, spending), docs/files/deck, short light & heating commands,
+  and exact canonical phrasings. New: file search (`Files.kt`, MediaStore, All files access, names/kinds/dates and
+  text inside docx/xlsx/txt; FIND card with OPEN 1-3/SHARE), "read my deck" (`DeckView.deckText`), "my pay
+  including <day>", "train my voice" (3 tries → learnt wake names + personal bar). Wake word: base bar 0.62,
+  sound-alikes accepted after "hey" once trained, pace 0.25–2.2 s, "jarvis" alone if very clear, old bar reset.
+  Hey Jarvis strip redesigned: STOP/TALK, REPEAT, OPEN, CLOSE keys, scan line. Command Deck: cards fold to
+  one-line strips with live summaries (tap to open, hold the title to fold; quieter cards start folded).
+  Air+ works from either screen: home card's own power toggle (`airHomePower`) or the heater's page; the home
+  screen is told apart by Air+'s `dashboard_*` ids. Includes 1.67's clocking fixes.
+- **1.67** (built into 1.68) — Clocking: "clocked out 18.15" takes the time (was only read after "at", so it
   logged 18:20); "clocked up/off" is clocking out; if you've already clocked in today, or the shift's within 45
   min of ending, "clocked in" is taken as clocking out (it had clocked in at 18:19 after an 18:00 finish). A
   clock-in under 30 min old doesn't count as the start, and a shift under 15 min or over 16 h is asked about,

@@ -1043,6 +1043,8 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             setPadding(0, 0, 0, dp(6f))
         }
         body.addView(status)
+        item(body, "Train my voice", "Say \"Hey Jarvis\" three times so he learns how you say it (accents welcome)", "TRAIN",
+            onButton = { closeSheet(); submit("train my voice") })
         toggle(body, "Only while charging", "Save the battery: he listens for \"Hey Jarvis\" only on the charger", JarvisEar.chargingOnly(context)) {
             JarvisEar.setChargingOnly(context, it)
             JarvisEar.stop(context)

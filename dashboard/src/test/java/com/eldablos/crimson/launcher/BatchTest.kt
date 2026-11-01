@@ -75,6 +75,23 @@ class BatchTest {
     }
 
     @Test
+    fun filesDeckAndVoice() {
+        assertEquals(Command.FindFiles("pdf from uni about statistics"), p("find the pdf from uni about statistics"))
+        assertEquals(Command.FindFiles("screenshots from yesterday"), p("find my screenshots from yesterday"))
+        assertEquals(Command.FindFiles("payslip"), p("search my files for payslip"))
+        assertEquals(Command.ReadDeck(null), p("read my deck"))
+        assertEquals(Command.ReadDeck("comms"), p("what's on the comms card"))
+        assertEquals(Command.TrainVoice, p("train my voice"))
+        assertEquals(Command.PayWith("tomorrow"), p("my pay including tomorrow"))
+        // What the file search makes of a request.
+        assertEquals(setOf("pdf"), Files.kinds("the pdf from uni about statistics"))
+        assertEquals(listOf("uni", "statistics"), Files.words("the pdf from uni about statistics"))
+        assertEquals(today.minusDays(1)..today.minusDays(1), Files.dates("screenshots from yesterday", today))
+        assertEquals("screenshot", Files.kindOf("image/png", "Screenshot_20261031.png"))
+        assertEquals("spreadsheet", Files.kindOf("", "Shifts and pay.xlsx"))
+    }
+
+    @Test
     fun spending() {
         assertEquals(Command.Spent(12.0, "lunch"), p("I spent £12 on lunch"))
         assertEquals(Command.Spent(4.5, "coffee"), p("spent 4.50 on coffee"))

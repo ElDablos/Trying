@@ -105,6 +105,17 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     private var order: List<Section> = Section.entries
     private var hidden: Set<Section> = emptySet()
     private var expanded: Set<Section> = emptySet()
+
+    /** Cards folded down to a one-line strip with a live summary; tap one to open it, hold a card's title to fold it. */
+    private var folded: Set<Section> = context.getSharedPreferences("deck", Context.MODE_PRIVATE).getStringSet("folded", null)
+        ?.mapNotNull { n -> Section.entries.firstOrNull { it.name == n } }?.toSet()
+        ?: setOf(Section.CLOCKS, Section.LINKS, Section.MOST_USED, Section.BUDS, Section.POWER, Section.DATA, Section.TIME, Section.SYSTEMS, Section.MARKETS, Section.FOCUS)
+
+    private fun fold(s: Section, on: Boolean) {
+        folded = if (on) folded + s else folded - s
+        context.getSharedPreferences("deck", Context.MODE_PRIVATE).edit().putStringSet("folded", folded.map { it.name }.toSet()).apply()
+        board.invalidate()
+    }
     private var actionList: List<Action> = emptyList()
     private var links: List<DeckStore.Link> = emptyList()
     private var customizing = false
@@ -741,10 +752,10 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     y = header(canvas, y, now)
                     order.filter { it !in hidden }.forEach { s ->
                         val before = y
-                        y = section(canvas, s, y + 12 * u, now)
-                        if (y < before + 12 * u) y = before
+                        y = if (s in folded && s != Section.CLAUDE) strip(canvas, s, y + 10 * u, now) else section(canvas, s, y + 12 * u, now)
+                        if (y < before + 10 * u) y = before
                     }
-                    canvas.drawText("▸ SWIPE RIGHT TO RETURN HOME · ✎ TO REARRANGE", width / 2f, y + 30 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .16f, Paint.Align.CENTER))
+                    canvas.drawText("▸ TAP A STRIP TO OPEN · HOLD A TITLE TO FOLD · ✎ REARRANGE", width / 2f, y + 30 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .16f, Paint.Align.CENTER))
                 }
             }
             contentH = y + 56 * u
@@ -806,6 +817,72 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             Section.SYSTEMS -> systems(canvas, top, now)
         }
 
+        // --- Folded cards ---
+
+        /**
+         * A folded card: one sleek line, its number and name, a live summary, a pulse and a chevron. Tapped, it
+         * opens into the full card.
+         */
+        private fun strip(canvas: Canvas, s: Section, top: Float, now: Long): Float {
+            val h = 44 * u
+            val r = RectF(14 * u, top, width - 14 * u, top + h)
+            card(canvas, now, top, h) {
+                val c = 9 * u
+                canvas.drawPath(Hud.cut(r, c, path), Hud.fill(Hud.alpha(Hud.tint(0xFF120507.toInt()), .78f)))
+                canvas.drawPath(Hud.cut(r, c, path), Hud.stroke(Hud.alpha(Hud.CRIMSON, .38f), u))
+                // A soft pulse travelling along the bottom edge.
+                val px = r.left + r.width() * (((now + s.ordinal * 400) % 4000) / 4000f)
+                canvas.drawLine(px - 40 * u, r.bottom - .5f * u, px, r.bottom - .5f * u, Paint().apply {
+                    strokeWidth = 1.5f * u
+                    shader = LinearGradient(px - 40 * u, 0f, px, 0f, Color.TRANSPARENT, Hud.HOT, Shader.TileMode.CLAMP)
+                })
+                canvas.drawRect(r.left + 3 * u, r.top + 12 * u, r.left + 5 * u, r.bottom - 12 * u, Hud.glow(Hud.fill(Hud.HOT), 4 * u))
+                val shown = order.filter { it !in hidden }.indexOf(s)
+                val label = "%02d // %s".format(if (shown >= 0) shown + 1 else 0, s.title)
+                canvas.drawText(label, r.left + 14 * u, r.centerY() + 3.2f * u, Hud.text(8.5f * u, Hud.CRIMSON, Hud.MONO, .2f))
+                val lw = Hud.text(8.5f * u, Hud.CRIMSON, Hud.MONO, .2f).measureText(label)
+                val sum = summary(s)
+                val sp = Hud.fit(sum, Hud.text(10 * u, Hud.BONE, Hud.SANS, align = Paint.Align.RIGHT), r.width() - lw - 60 * u)
+                canvas.drawText(sum, r.right - 34 * u, r.centerY() + 3.5f * u, sp)
+                canvas.drawText("▾", r.right - 16 * u, r.centerY() + 4 * u, Hud.glow(Hud.text(11 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER), 5 * u))
+                tap(r) { fold(s, false) }
+            }
+            return top + h
+        }
+
+        /** One line of what a card holds right now, for its folded strip. */
+        private fun summary(s: Section): String = try {
+            val today = LocalDate.now()
+            val nowMs = System.currentTimeMillis()
+            when (s) {
+                Section.AGENDA, Section.CALENDAR -> agenda.firstOrNull { it.end > nowMs && it.id !in shiftEvents }?.let { e ->
+                    "${e.title.take(26)} · ${if (e.allDay) "all day" else java.time.Instant.ofEpochMilli(e.begin).atZone(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"))}"
+                } ?: "nothing coming up"
+                Section.NOTES -> note.lines().count { it.isNotBlank() && !it.startsWith(DONE) }.let { if (it == 0) "all clear" else "$it open" }
+                Section.COMMS -> groups.sumOf { it.count }.let { if (it == 0) "no unread" else "$it unread" }
+                Section.HABITS -> if (habits.isEmpty()) "none yet" else "${habits.count { today in it.done }} of ${habits.size} done today"
+                Section.COUNTDOWNS -> countdowns.filter { !it.date.isBefore(today) }.minByOrNull { it.date }?.let { c ->
+                    "${c.name} · ${java.time.temporal.ChronoUnit.DAYS.between(today, c.date)} days"
+                } ?: "none"
+                Section.SKY, Section.WEEK -> forecast?.let { f -> "${f.temp}° now" + (f.days.firstOrNull()?.let { d -> " · ${d.low}–${d.high}° · rain ${d.rain}%" } ?: "") } ?: "—"
+                Section.VITALS, Section.POWER -> telemetry?.let { t -> "${t.battery}%${if (t.charging) " · charging" else ""}" + (t.steps?.let { " · $it steps" } ?: "") } ?: "—"
+                Section.MARKETS -> coins.firstOrNull()?.let { c -> "${c.name} ${Markets.money(c.price)} ${if (c.changePct >= 0) "▲" else "▼"}${"%.1f".format(Locale.ROOT, abs(c.changePct))}%" } ?: "—"
+                Section.FOCUS -> focus?.let { "${((it.endAt - nowMs) / 60_000).coerceAtLeast(0)} min left" } ?: "ready"
+                Section.CLOCKS -> LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm")) + (if (clockZones.isNotEmpty()) " · +${clockZones.size} more" else "")
+                Section.LINKS -> "${links.size} links"
+                Section.MOST_USED -> launched.take(2).joinToString(" · ").ifBlank { "—" }
+                Section.TIME -> "day ${today.dayOfYear} · week ${today.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR)}"
+                Section.DATA -> net?.let { "online" } ?: "—"
+                Section.AUDIO -> "music"
+                Section.ACTIONS -> "${actionList.size} quick actions"
+                Section.BUDS -> "earbuds"
+                Section.SYSTEMS -> specs?.let { "phone status" } ?: "phone status"
+                Section.CLAUDE -> ""
+            }
+        } catch (e: Exception) {
+            "tap to open"
+        }
+
         // --- Building blocks ---
 
         /** How far card [i] has risen in as the deck opens. */
@@ -842,6 +919,11 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val shown = order.filter { it !in hidden }.indexOf(s)
             val n = if (shown >= 0) shown + 1 else ++number
             canvas.drawText("◆ %02d // %s".format(n, s.title), r.left + 14 * u, r.top + 20 * u, p)
+            // Hold the title to fold the card away to a strip.
+            if (s != Section.CLAUDE) hold(RectF(r.left, r.top, r.right, r.top + 30 * u)) {
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                fold(s, true)
+            }
             var rx = r.right - 14 * u
             if (s.expandable) {
                 canvas.drawText(if (s in expanded) "▴" else "▾", rx, r.top + 21 * u, Hud.text(10 * u, Hud.HOT, Hud.SANS, align = Paint.Align.RIGHT))

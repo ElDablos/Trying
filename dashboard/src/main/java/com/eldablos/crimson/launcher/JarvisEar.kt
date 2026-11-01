@@ -367,6 +367,26 @@ class JarvisEar : Service() {
 
     private fun showOverlay() {
         val o = overlay ?: JarvisOverlay(this).also {
+            it.onStop = {
+                Speech.stop()
+                stopHush()
+            }
+            it.onTalk = {
+                Speech.stop()
+                stopWaiting()
+                JarvisSound.play(this, JarvisSound.Cue.LISTEN)
+                listen(followUp = false)
+            }
+            it.onRepeat = {
+                lastSpoken?.let { line ->
+                    overlay?.said(line)
+                    overlay?.state = JarvisOverlay.State.SPEAKING
+                    Speech.speak(this, listOf("again" to Speech.speakable(line)), object : Speech.Listener {
+                        override fun onPart(id: String) {}
+                        override fun onEnd(finished: Boolean) { overlay?.state = JarvisOverlay.State.STANDBY }
+                    })
+                }
+            }
             it.onDismiss = {
                 if (waiting) waved = true
                 end(goHome = false)
@@ -638,6 +658,7 @@ class JarvisEar : Service() {
         }
         val safety = Runnable { after() }
         main.postDelayed(safety, 9000)
+        lastSpoken = Jarvis.spokenFor(reply)
         Speech.speak(this, listOf("ear" to Speech.speakable(Jarvis.spokenFor(reply))), object : Speech.Listener {
             override fun onPart(id: String) {
                 main.removeCallbacks(safety)
@@ -656,6 +677,9 @@ class JarvisEar : Service() {
     }
 
     // --- Waiting for an answer that takes a moment ---
+
+    /** What he said last, for REPEAT on the strip. */
+    private var lastSpoken: String? = null
 
     private var waiting = false
     /** Dismissed while he was thinking: the answer goes quietly to the panel. */

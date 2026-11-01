@@ -34,6 +34,11 @@ class JarvisOverlay(private val context: Context) {
     /** Tapped: carry on in the Jarvis panel. */
     var onOpen: (() -> Unit)? = null
 
+    /** The controls along the bottom: stop him talking, talk to him again, hear it again. */
+    var onStop: (() -> Unit)? = null
+    var onTalk: (() -> Unit)? = null
+    var onRepeat: (() -> Unit)? = null
+
     private val wm = context.getSystemService(WindowManager::class.java)
     private val u = context.resources.displayMetrics.widthPixels / 412f
     private val view = Strip()
@@ -56,7 +61,7 @@ class JarvisOverlay(private val context: Context) {
     fun show() {
         if (shown || !canShow()) return
         val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT, (112 * u).toInt(),
+            WindowManager.LayoutParams.MATCH_PARENT, (148 * u).toInt(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
@@ -106,12 +111,26 @@ class JarvisOverlay(private val context: Context) {
         private var layout: StaticLayout? = null
         private var layoutFor = ""
 
+        /** The buttons drawn last frame, to tap. */
+        private val buttons = ArrayList<Pair<RectF, () -> Unit>>()
+
         override fun onTouchEvent(e: MotionEvent): Boolean {
             if (e.actionMasked == MotionEvent.ACTION_UP) {
-                // The × in the top right sends him away; anywhere else opens him.
-                if (e.x > width - 52 * u && e.y < 44 * u) onDismiss?.invoke() else (onOpen ?: onDismiss)?.invoke()
+                performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                buttons.firstOrNull { it.first.contains(e.x, e.y) }?.second?.invoke()
+                    ?: if (e.x > width - 52 * u && e.y < 44 * u) onDismiss?.invoke() else (onOpen ?: onDismiss)?.invoke()
             }
             return true
+        }
+
+        /** A control along the bottom: a small cut-corner key with a glyph and a word. */
+        private fun key(canvas: Canvas, r: RectF, glyph: String, label: String, hot: Boolean, action: (() -> Unit)?) {
+            val c = 6 * u
+            val path = Hud.cut(r, c)
+            canvas.drawPath(path, Hud.fill(Hud.alpha(if (hot) Hud.HOT else Hud.BLOOD, if (hot) .28f else .22f)))
+            canvas.drawPath(path, Hud.stroke(Hud.alpha(Hud.HOT, if (hot) .95f else .55f), u))
+            canvas.drawText("$glyph $label", r.centerX(), r.centerY() + 3.2f * u, Hud.glow(Hud.text(8.2f * u, if (hot) Color.WHITE else Hud.BONE, Hud.MONO_BOLD, .12f, Paint.Align.CENTER), 3 * u, Hud.HOT))
+            if (action != null) buttons += RectF(r.left, r.top - 6 * u, r.right, r.bottom + 6 * u) to action
         }
 
         override fun onDraw(canvas: Canvas) {
@@ -153,7 +172,15 @@ class JarvisOverlay(private val context: Context) {
                 shader = RadialGradient(cx, cy, 11 * u * (1 + .2f * energy), intArrayOf(Color.WHITE, holo, Color.TRANSPARENT), floatArrayOf(0f, .55f, 1f), Shader.TileMode.CLAMP)
             })
             // The ×.
-            canvas.drawText("✕", r.right - 22 * u, r.top + 22 * u, Hud.text(11 * u, Hud.alpha(holo, .75f), Hud.SANS, align = android.graphics.Paint.Align.CENTER))
+            canvas.drawText("✕", r.right - 22 * u, r.top + 22 * u, Hud.text(12 * u, Hud.alpha(holo, .85f), Hud.SANS, align = android.graphics.Paint.Align.CENTER))
+            // A thin scan line sweeping the panel while he's busy.
+            if (state != State.STANDBY) {
+                val sx = r.left + (r.width()) * ((t * .45f) % 1f)
+                canvas.drawLine(sx, r.top + 6 * u, sx, r.bottom - 6 * u, Paint().apply {
+                    strokeWidth = 1.2f * u
+                    shader = LinearGradient(0f, r.top, 0f, r.bottom, intArrayOf(Color.TRANSPARENT, Hud.alpha(holo, .35f), Color.TRANSPARENT), null, Shader.TileMode.CLAMP)
+                })
+            }
             // Status and words.
             val x = cx + 50 * u
             val tw = r.right - 40 * u - x
@@ -172,7 +199,7 @@ class JarvisOverlay(private val context: Context) {
                 canvas.restore()
             }
             // Waveform along the bottom.
-            val wy = r.bottom - 10 * u
+            val wy = r.bottom - 44 * u
             val bw = tw / wave.size
             for (i in wave.indices) {
                 val target = when (state) {
@@ -185,6 +212,16 @@ class JarvisOverlay(private val context: Context) {
                 val h = (1f + wave[i] * 6) * u
                 canvas.drawRect(x + i * bw + bw * .2f, wy - h, x + (i + 1) * bw - bw * .2f, wy + h, Hud.fill(Hud.alpha(holo, .8f)))
             }
+            // The controls: stop or talk, again, open, close.
+            buttons.clear()
+            val ky = r.bottom - 32 * u
+            val kw = (r.width() - 28 * u - 3 * 8 * u) / 4
+            var kx = r.left + 14 * u
+            val speaking = state == State.SPEAKING
+            key(canvas, RectF(kx, ky, kx + kw, ky + 22 * u), if (speaking) "■" else "●", if (speaking) "STOP" else "TALK", true, if (speaking) onStop else onTalk); kx += kw + 8 * u
+            key(canvas, RectF(kx, ky, kx + kw, ky + 22 * u), "⟲", "REPEAT", false, onRepeat); kx += kw + 8 * u
+            key(canvas, RectF(kx, ky, kx + kw, ky + 22 * u), "▣", "OPEN", false, onOpen); kx += kw + 8 * u
+            key(canvas, RectF(kx, ky, kx + kw, ky + 22 * u), "✕", "CLOSE", false, onDismiss)
             if (isAttachedToWindow) postInvalidateDelayed(33)
         }
     }

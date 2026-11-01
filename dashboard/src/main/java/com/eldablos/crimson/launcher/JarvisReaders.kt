@@ -329,11 +329,17 @@ object JarvisReaders {
      * buttons). Never the heater's own page, even though the card has a Power button and the same label.
      */
     fun airHome(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).let { all ->
-        all.any { says(it, "My Devices") } && all.none { says(it, "Controls") || airId(it).startsWith("philips_control_") }
+        // Air+'s own ids for the home screen and its device cards ("dashboard_…"); its quick buttons share some
+        // of the page's names (philips_control_temperature_btn), so those don't decide it.
+        all.any { airId(it).startsWith("dashboard_") || says(it, "My Devices") } && all.none { says(it, "Controls") || airId(it) == "philips_control_power_btn_id" }
     }
 
+    /** The heater's card on the home screen has its own power toggle: on and off can be done right there. */
+    fun airHomePower(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
+        JarvisHands.nodes(root).firstOrNull { airId(it) == "dashboard_control_power_btn" }
+
     fun airDevicePage(root: AccessibilityNodeInfo) = !airHome(root) && JarvisHands.nodes(root).any {
-        says(it, "Controls") || says(it, "Power") || airId(it).startsWith("philips_control_") ||
+        says(it, "Controls") || says(it, "Power") || airId(it) == "philips_control_power_btn_id" || airId(it) == "philips_control_layout_id" ||
             // The heater's page while it's still drawing its controls.
             airId(it) in setOf("purifier_control_root", "purifier_control_content", "purifier_control_readings_title")
     }
@@ -345,6 +351,8 @@ object JarvisReaders {
         // On the home screen: the heater's card (its "Temperature around device" line or its picture), which opens
         // its page. On the heater's own page the same label opens a history chart, so never there.
         if (airHome(root)) {
+            // The card itself (its name or picture), never its quick buttons.
+            all.firstOrNull { airId(it) in setOf("dashboard_device_name", "dashboard_purifier_container", "dashboard_card_content") }?.let { return it }
             return all.firstOrNull { textOf(it).startsWith("Temperature around device", true) }
                 ?: all.firstOrNull { Regex("^\\d{1,2}\\s*°\\s*c$", RegexOption.IGNORE_CASE).matches(textOf(it)) && !it.isClickable }
         }

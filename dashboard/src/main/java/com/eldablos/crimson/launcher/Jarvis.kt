@@ -4290,6 +4290,19 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 return@custom if (++waiting < 45) null else "${app.label} couldn't connect to the heater, sir. Is it plugged in?"
             }
             val t = tries - waiting
+            // On Air+'s home screen, the heater's card has its own power toggle: on and off are done right there.
+            if (JarvisReaders.airHome(root)) JarvisReaders.airHomePower(root)?.let { p ->
+                if (pressed) {
+                    if (p.isCheckable && p.isChecked == on) return@custom "Done, sir. The heating is ${if (on) "on" else "off"}."
+                    return@custom if (++checks < 8) null else "I've pressed Power, sir, but Air+ still shows it ${if (on) "off" else "on"}. The heater may be offline."
+                }
+                // A moment for the card to fill in, then only if it needs changing.
+                if (++settled < 3 || !p.isEnabled) return@custom if (++waiting < 45) null else "${app.label} couldn't reach the heater, sir."
+                if (p.isCheckable && p.isChecked == on) return@custom "It's already ${if (on) "on" else "off"}, sir."
+                JarvisHands.press(p)
+                pressed = true
+                return@custom null
+            }
             if (!JarvisReaders.airDevicePage(root)) {
                 // A moment first: Air+ often opens straight on the heater's page, drawing it in bits.
                 JarvisReaders.airCard(root, null)?.let { if (t >= 2 && t % 4 == 2) JarvisHands.press(it) } ?: run { if ((t == 3 || t == 6) && !JarvisReaders.airHome(root)) JarvisHands.back() }

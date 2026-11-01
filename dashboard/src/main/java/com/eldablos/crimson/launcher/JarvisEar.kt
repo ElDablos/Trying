@@ -136,6 +136,8 @@ class JarvisEar : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // 1.68: the old, stricter bar (it could climb until he stopped hearing you) starts afresh.
+        prefs(this).let { p -> if (!p.getBoolean("wake_v2", false)) p.edit().remove("wake_bar").putBoolean("wake_v2", true).apply() }
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Hey Jarvis", NotificationManager.IMPORTANCE_LOW).apply {
             description = "Shows while Jarvis listens for \"Hey Jarvis\""
@@ -229,22 +231,36 @@ class JarvisEar : Service() {
      * [wakeBar]). Near misses go in the wake log.
      */
     private fun heardWake(json: String?) {
-        if (json == null || session) return
+        if (json == null) return
         try {
             val o = JSONObject(json)
             val text = o.optString("text").replace("[unk]", "").replace(Regex("\\s+"), " ").trim()
-            if (!text.contains("jarvis")) return
-            val words = o.optJSONArray("result") ?: return
-            val list = (0 until words.length()).map { words.getJSONObject(it) }
-            val i = list.indexOfFirst { it.optString("word") == "jarvis" }
+            val words = o.optJSONArray("result")
+            val list = if (words == null) emptyList() else (0 until words.length()).map { words.getJSONObject(it) }
+            // Training: everything heard goes to the trainer, nothing wakes him.
+            trainer?.let { t ->
+                if (text.isNotEmpty()) main.post { t(text, list) }
+                return
+            }
+            if (session) return
+            val names = wakeNames(this)
+            // The name: "jarvis", or how it comes out in your voice (learnt in training: "jervis", "travis"…).
+            val i = list.indexOfLast { it.optString("word") in names }
+            if (i < 0) return
+            val name = list[i]
             val first = list.getOrNull(i - 1)
             val bar = wakeBar(this)
+            val hey = first != null && first.optString("word") in setOf("hey", "ok", "okay", "hi", "hello")
+            val nameConf = name.optDouble("conf", 0.0)
+            val pace = if (first != null) name.optDouble("end") - first.optDouble("start") else 0.0
             val reason = when {
-                text !in setOf("hey jarvis", "ok jarvis", "okay jarvis") -> "not on its own"
-                first == null || first.optString("word") !in setOf("hey", "ok", "okay") -> "no hey"
-                first.optDouble("conf", 0.0) < bar - .1 || list[i].optDouble("conf", 0.0) < bar -> "unsure"
-                list[i].optDouble("end") - first.optDouble("start") !in .35..1.6 -> "wrong pace"
-                else -> null
+                // Said with "hey" (or "ok"): the usual way.
+                hey && first!!.optDouble("conf", 0.0) >= bar - .15 && nameConf >= bar && pace in .25..2.2 -> null
+                // The name on its own, said clearly (only the real name, never a sound-alike).
+                !hey && name.optString("word") == "jarvis" && nameConf >= maxOf(bar + .12, .88) && list.size <= 2 -> null
+                !hey && name.optString("word") != "jarvis" -> "sound-alike without hey"
+                hey && pace !in .25..2.2 -> "wrong pace"
+                else -> "unsure"
             }
             val confs = list.joinToString(" ") { "${it.optString("word")}:${"%.2f".format(java.util.Locale.ROOT, it.optDouble("conf", 0.0))}" }
             logWake(this, if (reason == null) "WOKE" else "ignored ($reason)", "$confs · bar ${"%.2f".format(java.util.Locale.ROOT, bar)}")
@@ -252,6 +268,59 @@ class JarvisEar : Service() {
         } catch (e: Exception) {
             // Not a result we can read.
         }
+    }
+
+    // --- Learning your voice ---
+
+    /** While training, what the wake-word listener hears goes here instead of waking him. */
+    private var trainer: ((String, List<JSONObject>) -> Unit)? = null
+
+    /**
+     * "Train my voice": you say "Hey Jarvis" three times; he listens with the wake-word model and learns how it
+     * comes out in your voice (the word it hears for "Jarvis", and how sure it is), then sets himself to that.
+     * [step] is told each try's result; [done] gets the summary.
+     */
+    private fun train(step: (Int, String) -> Unit, done: (String) -> Unit) {
+        if (!modelReady(this)) return done("I need the Hey Jarvis download first, sir: it's in my settings.")
+        val heard = ArrayList<List<JSONObject>>()
+        stopWake()
+        paused = 0
+        session = false
+        val timeout = Runnable {
+            trainer = null
+            done(if (heard.isEmpty()) "I didn't hear anything, sir. Try again somewhere quieter." else summarise(heard))
+            startWake()
+        }
+        trainer = { text, list ->
+            // Only tries that sound like "hey ___" count.
+            if (list.size in 1..3) {
+                heard += list
+                step(heard.size, text)
+                if (heard.size >= 3) {
+                    main.removeCallbacks(timeout)
+                    trainer = null
+                    done(summarise(heard))
+                }
+            }
+        }
+        main.postDelayed(timeout, 45_000)
+        startWake()
+    }
+
+    /** What three tries taught him: the word your "Jarvis" comes out as, and a bar he'll reliably clear. */
+    private fun summarise(tries: List<List<JSONObject>>): String {
+        val nameWords = tries.mapNotNull { t -> t.lastOrNull { it.optString("word") !in setOf("hey", "ok", "okay", "hi", "hello", "the", "a") } }
+        if (nameWords.isEmpty()) return "I couldn't make out the name, sir. Try once more, a little slower."
+        val learnt = nameWords.map { it.optString("word") }.filter { it.isNotBlank() && it != "[unk]" }.toSet()
+        val lowest = nameWords.minOf { it.optDouble("conf", 0.0) }
+        val bar = (lowest - .08).coerceIn(.5, .86)
+        val p = prefs(this)
+        p.edit().putStringSet("wake_names", (learnt + "jarvis")).putFloat("wake_bar", bar.toFloat()).putFloat("wake_base", bar.toFloat()).apply()
+        logWake(this, "TRAINED", "names ${learnt.joinToString()} · bar ${"%.2f".format(java.util.Locale.ROOT, bar)}")
+        startWake()
+        val extra = (learnt - "jarvis")
+        return "Got it, sir. " + (if (extra.isNotEmpty()) "In your voice \"Jarvis\" sometimes comes out as \"${extra.joinToString("\" or \"")}\", so I'll answer to that too after \"hey\". " else "") +
+            "I've tuned myself to how you say it. Try \"Hey Jarvis\" from anywhere."
     }
 
     /** Nothing said after the wake word: likely a false start. The bar goes up a little, and it's logged. */
@@ -267,7 +336,7 @@ class JarvisEar : Service() {
     private fun calledForReal() {
         if (!wokeByWord) return
         wokeByWord = false
-        setWakeBar(this, (wakeBar(this) - .01).coerceAtLeast(WAKE_CONFIDENCE))
+        setWakeBar(this, (wakeBar(this) - .02).coerceAtLeast(wakeBase(this)))
     }
 
     private fun wakeUp() {
@@ -748,7 +817,8 @@ class JarvisEar : Service() {
         private const val NOTIFICATION = 7301
         private const val ACTION_STOP = "stop"
         /** Where the wake word's confidence bar starts (it rises after false starts, eases back after real calls). */
-        private const val WAKE_CONFIDENCE = .8
+        /** Where the wake word's confidence bar starts (training sets your own; false starts nudge it up a little). */
+        private const val WAKE_CONFIDENCE = .62
 
         /** At or below this (and not charging), "Hey Jarvis" rests to save the battery. */
         private const val LOW_BATTERY = 8
@@ -762,7 +832,18 @@ class JarvisEar : Service() {
             "[unk]",
         ).joinToString(", ", "[", "]") { "\"$it\"" }
 
-        fun wakeBar(context: Context) = prefs(context).getFloat("wake_bar", WAKE_CONFIDENCE.toFloat()).toDouble().coerceIn(WAKE_CONFIDENCE, .86)
+        fun wakeBase(context: Context) = prefs(context).getFloat("wake_base", WAKE_CONFIDENCE.toFloat()).toDouble()
+        fun wakeBar(context: Context) = prefs(context).getFloat("wake_bar", wakeBase(context).toFloat()).toDouble().coerceIn(minOf(wakeBase(context), WAKE_CONFIDENCE), .86)
+
+        /** The words he answers to after "hey": "jarvis", plus how it comes out in your voice (from training). */
+        fun wakeNames(context: Context): Set<String> = prefs(context).getStringSet("wake_names", null)?.plus("jarvis") ?: setOf("jarvis")
+
+        /** "Train my voice": three tries of "Hey Jarvis", from the panel. False if he isn't running. */
+        fun trainVoice(step: (Int, String) -> Unit, done: (String) -> Unit): Boolean {
+            val ear = instance ?: return false
+            ear.main.post { ear.train(step, done) }
+            return true
+        }
         private fun setWakeBar(context: Context, v: Double) = prefs(context).edit().putFloat("wake_bar", v.toFloat()).apply()
 
         /** The last few times he heard "jarvis": woken, or ignored and why. For "wake log". */

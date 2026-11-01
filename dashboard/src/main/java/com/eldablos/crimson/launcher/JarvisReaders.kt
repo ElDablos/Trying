@@ -324,7 +324,15 @@ object JarvisReaders {
         return t.equals(word, true) || (t.length < 60 && t.lines().any { it.trim().equals(word, true) })
     }
 
-    fun airDevicePage(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).any {
+    /**
+     * Air+'s home screen ("My Devices", with each heater's card: its name, "Temperature around device", and quick
+     * buttons). Never the heater's own page, even though the card has a Power button and the same label.
+     */
+    fun airHome(root: AccessibilityNodeInfo) = JarvisHands.nodes(root).let { all ->
+        all.any { says(it, "My Devices") } && all.none { says(it, "Controls") || airId(it).startsWith("philips_control_") }
+    }
+
+    fun airDevicePage(root: AccessibilityNodeInfo) = !airHome(root) && JarvisHands.nodes(root).any {
         says(it, "Controls") || says(it, "Power") || airId(it).startsWith("philips_control_") ||
             // The heater's page while it's still drawing its controls.
             airId(it) in setOf("purifier_control_root", "purifier_control_content", "purifier_control_readings_title")
@@ -334,8 +342,12 @@ object JarvisReaders {
     fun airCard(root: AccessibilityNodeInfo, name: String?): AccessibilityNodeInfo? {
         val all = JarvisHands.nodes(root)
         name?.let { n -> all.firstOrNull { textOf(it).equals(n, true) }?.let { return it } }
-        // The home card says "Temperature around device" too, but so does the reading box on the heater's own
-        // page (which opens a history chart): never that one.
+        // On the home screen: the heater's card (its "Temperature around device" line or its picture), which opens
+        // its page. On the heater's own page the same label opens a history chart, so never there.
+        if (airHome(root)) {
+            return all.firstOrNull { textOf(it).startsWith("Temperature around device", true) }
+                ?: all.firstOrNull { Regex("^\\d{1,2}\\s*°\\s*c$", RegexOption.IGNORE_CASE).matches(textOf(it)) && !it.isClickable }
+        }
         if (airDevicePage(root)) return null
         return all.firstOrNull { textOf(it).startsWith("Temperature around device", true) && !airId(it).startsWith("purifier_control") }
     }

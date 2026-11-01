@@ -4272,7 +4272,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             val t = tries - waiting
             if (!JarvisReaders.airDevicePage(root)) {
                 // A moment first: Air+ often opens straight on the heater's page, drawing it in bits.
-                JarvisReaders.airCard(root, null)?.let { if (t >= 2 && t % 3 == 2) JarvisHands.press(it) } ?: run { if (t == 3 || t == 6) JarvisHands.back() }
+                JarvisReaders.airCard(root, null)?.let { if (t >= 2 && t % 4 == 2) JarvisHands.press(it) } ?: run { if ((t == 3 || t == 6) && !JarvisReaders.airHome(root)) JarvisHands.back() }
                 if (t < 12) return@custom null
                 JarvisRepair.find(context, app.component.packageName, "open the heater's control page", root)?.let { JarvisHands.press(it); return@custom null }
                 return@custom if (JarvisRepair.thinking(app.component.packageName, "open the heater's control page") || t < 40) null else "I couldn't open the heater in ${app.label}, sir."
@@ -4353,8 +4353,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                             return@custom null
                         }
                         if (!JarvisReaders.airDevicePage(root)) {
-                            JarvisReaders.airCard(root, null)?.let { JarvisHands.press(it); cool = 1 } ?: run { if (t == 3 || t == 6) JarvisHands.back() }
-                            return@custom if (t < 14) null else "I couldn't open the heater in ${app.label}, sir."
+                            // The heater's card, once (and again only if its page still hasn't opened a few looks later:
+                            // a second tap landing on the page would open its temperature history instead).
+                            JarvisReaders.airCard(root, null)?.let { if (t >= 1 && t % 4 == 1) { JarvisHands.press(it); cool = 2 } }
+                                ?: run { if ((t == 3 || t == 6) && !JarvisReaders.airHome(root)) JarvisHands.back() }
+                            return@custom if (t < 16) null else "I couldn't open the heater in ${app.label}, sir."
                         }
                         // Landed on the heater's page (straight away, if Air+ was left there): a moment to settle,
                         // and no taps while its controls are greyed out reconnecting.

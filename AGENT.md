@@ -61,6 +61,10 @@ Clock-in/out times are kept separately; the calendar only ever shows the planned
   "Hey Jarvis" stopped answering at 15% battery without saying so: now rests only at ≤8% (not charging), and
   the ongoing notification says "Jarvis is resting — battery 14%…" / "listening" as it changes. The wake
   word's adaptive strictness is capped at 0.86 so false starts can't make him deaf.
+  Air+: the "My Devices" home screen (Bedroom card with its own Power, Auto and 34°C buttons and "Temperature
+  around device") was taken for the heater's page (its card's Power button), so he never tapped the card when
+  setting the temperature. `airHome()` now tells them apart; on home he taps the card once (again only after a
+  few looks, so a second tap can't land on the page's history box).
 - **1.65** — Phrase sweep (90 everyday phrases run through the parser, misses fixed): text-speak and typos
   ("tmrw", "tmr", "wat", "nxt", "lite", "switch of the light", "heating of", "ive"); "put the heater on 25" sets
   25°; "whats my take home this month" is pay; "whats my day like" is the morning brief; "countdown to my

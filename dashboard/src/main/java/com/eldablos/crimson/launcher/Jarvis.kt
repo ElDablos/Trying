@@ -230,6 +230,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val top = depth == 0 && !inRoutine
         depth++
         try {
+            if (top) JarvisChat.heard(said, via)
             var r = answerNow(said, inRoutine)
             if (top) {
                 // His voice grows with you: how he says it changes the more you talk.

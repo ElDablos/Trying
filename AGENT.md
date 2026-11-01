@@ -51,6 +51,12 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
+- **1.69 (in progress, not pushed)** — Chat keeps up with the strip: `JarvisChat.watcher` hands every
+  line to the open panel as it's said, so a "Hey Jarvis" exchange over the panel appears in the chat at once
+  (before, it only showed on reopening). `JarvisChat.heard()` shows your words the moment they're heard, before
+  the brain answers, and the stored line keeps that time so reopening never duplicates it. Command Deck visual
+  redesign mocked up ("Stark HUD": ring-clock hero, quick tiles, glass TODAY cards, MODULES grid) and waiting
+  for the owner's OK.
 - **1.68** — AI-first Jarvis. `translate()` → `JarvisBrain.route()`: every request that isn't instant goes to Gemma
   with the conversation (last 6 lines), `worldNow()` (time, today's/tomorrow's shift, clocked-in state, habits,
   notes, devices, last pay sum, pay period) and the rules' own reading; it answers DO: <command> lines (chains),

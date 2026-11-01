@@ -255,6 +255,16 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             bubble(e.text, e.mine, stamp = if (e.mine) "$via  ·  YOU  ›" else "◆ JARVIS  ·  $via${if (e.via == JarvisChat.EAR) "  ·  $time" else ""}")
         }
         shownUpTo = now
+        // While he's open, what's said over the strip ("Hey Jarvis") appears here as it's said, not on reopening.
+        JarvisChat.watcher = { e ->
+            if (e.via == JarvisChat.EAR) main.post {
+                if (visibility != VISIBLE || e.at <= shownUpTo) return@post
+                shownUpTo = e.at
+                val time = java.time.Instant.ofEpochMilli(e.at).atZone(java.time.ZoneId.systemDefault()).format(tf)
+                bubble(e.text, e.mine, stamp = if (e.mine) "HEY JARVIS  ·  YOU  ›" else "◆ JARVIS  ·  HEY JARVIS  ·  $time")
+                lastActive = System.currentTimeMillis()
+            }
+        }
         // He says hello once a session, not every time you open him.
         if (!greet || now - greetedAt < SESSION_MS) {
             if (listen) listen()

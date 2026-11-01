@@ -4073,8 +4073,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         }
         private fun short(time: java.time.LocalTime) = if (time.minute == 0) "${time.hour}" else time.format(DateTimeFormatter.ofPattern("H:mm"))
 
-        private val HINTS = listOf("Ask Claude anything…", "Ask Claude anything…", "Ask Claude anything…", "Ask Claude anything…")
-        private val TITLES = listOf("Now", "Plan", "Money", "Life")
+        private val HINTS = List(5) { "Ask Claude anything…" }
+        private val TITLES = listOf("Now", "Plan", "Money", "Life", "System")
 
         /** Cached per minute: pay and the clocked times (they read storage). */
         private var cacheAt = 0L
@@ -4115,9 +4115,10 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             var y = contentTop
             y = when (deckTab) {
                 0 -> nowTab(canvas, y, now)
-                1 -> planTab(canvas, y, now)
+                1 -> planMonthTab(canvas, y, now)
                 2 -> moneyTab(canvas, y, now)
-                else -> lifeTab(canvas, y, now)
+                3 -> lifeTab(canvas, y, now)
+                else -> systemTab(canvas, y, now)
             }
             contentH = y + 120 * u
             canvas.restore()
@@ -4141,16 +4142,18 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val dm = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
             val small = when (deckTab) {
                 0 -> today.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))
-                1 -> "Week ${shiftWeek.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR)}"
+                1 -> calMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))
                 2 -> "Pay period ${pa.format(dm)} – ${pb.format(dm)}"
+                4 -> "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}"
                 else -> if (habits.isEmpty()) "Habits, notes and more" else "${habits.count { today in it.done }} of ${habits.size} habits done"
             }
             val hour = LocalDateTime.now().hour
             val big = when (deckTab) {
                 0 -> "${when { hour < 5 -> "Late night"; hour < 12 -> "Morning"; hour < 18 -> "Afternoon"; else -> "Evening" }}, ${userName()}"
-                1 -> "Your week"
+                1 -> "Calendar"
                 2 -> "Money"
-                else -> "Life"
+                3 -> "Life"
+                else -> "System"
             }
             canvas.drawText(small, 18 * u, y + 16 * u, t(13f, MUTED))
             canvas.drawText(big, 18 * u, y + 44 * u, Hud.fit(big, t(25f, Color.WHITE, Hud.MEDIUM), width - 100 * u))
@@ -4165,7 +4168,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val r = RectF(16 * u, y, width - 16 * u, y + 50 * u)
             canvas.drawRoundRect(r, 17 * u, 17 * u, Hud.fill(Color.argb(13, 255, 255, 255)))
             canvas.drawRoundRect(r, 17 * u, 17 * u, Hud.stroke(Color.argb(22, 255, 255, 255), u))
-            val w = (r.width() - 8 * u) / 4
+            val w = (r.width() - 8 * u) / TITLES.size
             // The highlight glides to the chosen tab.
             tabPos += (deckTab - tabPos) * .3f
             if (abs(deckTab - tabPos) > .01f) postInvalidateOnAnimation() else tabPos = deckTab.toFloat()
@@ -4177,16 +4180,18 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             TITLES.forEachIndexed { i, name ->
                 val cell = RectF(r.left + 4 * u + i * w, r.top, r.left + 4 * u + (i + 1) * w, r.bottom)
                 val on = i == deckTab
-                canvas.drawText(name, cell.centerX(), cell.centerY() + 5.5f * u, t(15f, if (on) Theme.on(Hud.RED) else MUTED, Hud.MEDIUM, Paint.Align.CENTER))
+                canvas.drawText(name, cell.centerX(), cell.centerY() + 5 * u, Hud.fit(name, t(14f, if (on) Theme.on(Hud.RED) else MUTED, Hud.MEDIUM, Paint.Align.CENTER), w - 8 * u))
                 tap(cell) { setTab(i) }
             }
         }
 
         fun setTab(i: Int) {
             if (i == deckTab) { scroller.forceFinished(true); scroll = 0f; return }
-            deckTab = i.coerceIn(0, 3)
+            scroller.forceFinished(true)
+            tabScroll[deckTab] = scroll
+            deckTab = i.coerceIn(0, TITLES.size - 1)
             sheetDay = null
-            scroll = 0f
+            scroll = tabScroll[deckTab]
             cardIndex = 0
             openedAt = SystemClock.uptimeMillis() - 200
             input.hint = HINTS[deckTab]
@@ -4302,12 +4307,12 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     big = f?.let { "${it.temp}°" } ?: hm(ms)
                     bigSmall = f?.days?.firstOrNull()?.let { "  ${it.low}° – ${it.high}° · rain ${it.rain}%" } ?: ""
                     next?.let { (d, s) -> facts += Fact("◷", "Next shift ${d.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()))} · ${s.times()}", Color.WHITE) }
-                        ?: facts.add(Fact("◷", "No shifts planned — tap Plan to add them", MUTED))
+                        ?: facts.add(Fact("◷", "No shifts planned — add them on Money", MUTED))
                     agenda.firstOrNull { it.end > ms && it.id !in shiftEvents }?.let { e ->
                         facts += Fact("▦", "${e.title} · ${if (e.allDay) "all day" else Instant.ofEpochMilli(e.begin).atZone(zone).format(DateTimeFormatter.ofPattern("EEE HH:mm"))}", Color.WHITE)
                     }
                     buttons += Triple("Weather", 2) { onWeather?.invoke() }
-                    buttons += Triple("Plan my week", 0) { setTab(1) }
+                    buttons += Triple("Add shifts", 0) { setTab(2) }
                 }
             }
             val h = 16 * u + 18 * u + 56 * u + (if (progress >= 0) 16 * u else 0f) + facts.size * 38 * u + 12 * u + 50 * u + 16 * u
@@ -4492,27 +4497,148 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             return top + h
         }
 
-        // --- Plan ---
+        // --- Plan: the month ---
 
-        private fun planTab(canvas: Canvas, top: Float, now: Long): Float {
-            var y = shiftWeekCard(canvas, top, now) + 12 * u
-            val bw = (width - 32 * u - 16 * u) / 3
-            listOf("Copy last week" to { val days = (0..6).map { shiftWeek.plusDays(it.toLong()) }; days.forEach { d -> Shifts.set(context, d, shifts[d.minusWeeks(1)]) }; loadShifts() },
-                "Shift types" to { addTemplate() },
-                "Calendar" to { if (Shifts.canWrite(context)) pickCalendar() else askCalendarAccess() }).forEachIndexed { i, (lab, act) ->
-                val r = RectF(16 * u + i * (bw + 8 * u), y, 16 * u + i * (bw + 8 * u) + bw, y + 50 * u)
-                pill(canvas, r, lab, size = 14f) { act() }
-            }
-            y += 62 * u
-            val week = (0..6).map { shiftWeek.plusDays(it.toLong()) }
-            val events = upcoming(13).filter { it.date in week && it.title != "Uni" && it.sub != "Countdown" }
-            y = listCard(canvas, y, now, "Calendar", null, events.take(6), "Nothing else in your calendar this week") + 12 * u
-            val cds = countdowns.filter { !it.date.isBefore(LocalDate.now()) }.sortedBy { it.date }.take(4).map { c ->
-                Up(c.date, 0, c.name, "Countdown", warn())
-            }
+        private fun planMonthTab(canvas: Canvas, top: Float, now: Long): Float {
+            var y = monthCard(canvas, top, now) + 12 * u
+            y = dayCard(canvas, y, now, calDay) + 12 * u
+            val cds = countdowns.filter { !it.date.isBefore(LocalDate.now()) }.sortedBy { it.date }.take(4).map { c -> Up(c.date, 0, c.name, "Countdown", warn()) }
             y = listCard(canvas, y, now, "Countdowns", "+ Add", cds, "No countdowns — tap + Add") { addCountdown() }
             return y
         }
+
+        private fun monthCard(canvas: Canvas, top: Float, now: Long): Float {
+            val first = calMonth.atDay(1)
+            val lead = first.dayOfWeek.value - 1
+            val rows = (lead + calMonth.lengthOfMonth() + 6) / 7
+            val gap = 4 * u
+            val cw = (width - 32 * u - 24 * u - 6 * gap) / 7
+            val ch = cw + 10 * u
+            val h = 16 * u + 46 * u + 30 * u + rows * (ch + gap) + 44 * u
+            val today = LocalDate.now()
+            card(canvas, now, top, h) {
+                val r = RectF(16 * u, top, width - 16 * u, top + h)
+                glass(canvas, r, 26 * u)
+                val prev = RectF(r.left + 12 * u, top + 12 * u, r.left + 58 * u, top + 58 * u)
+                val next = RectF(r.right - 58 * u, top + 12 * u, r.right - 12 * u, top + 58 * u)
+                pill(canvas, prev, "‹", size = 20f) { shiftMonth(-1) }
+                pill(canvas, next, "›", size = 20f) { shiftMonth(1) }
+                val title = calMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()))
+                canvas.drawText(title, r.centerX(), top + 42 * u, t(18f, Color.WHITE, Hud.MEDIUM, Paint.Align.CENTER))
+                if (calMonth != YearMonth.now()) tap(RectF(prev.right + 8 * u, top + 12 * u, next.left - 8 * u, top + 58 * u)) {
+                    calMonth = YearMonth.now(); calDay = today; monthEvents = emptyMap(); loadMonth()
+                }
+                val x0 = r.left + 12 * u
+                val y0 = top + 72 * u
+                listOf("M", "T", "W", "T", "F", "S", "S").forEachIndexed { i, d ->
+                    canvas.drawText(d, x0 + i * (cw + gap) + cw / 2, y0 + 10 * u, t(12f, if (i >= 5) FAINT else MUTED, Hud.MEDIUM, Paint.Align.CENTER))
+                }
+                val save = canvas.save()
+                canvas.clipRect(r.left + 2 * u, y0 + 18 * u, r.right - 2 * u, r.bottom - 30 * u)
+                canvas.translate(calSlide * r.width() * .35f, 0f)
+                val gy = y0 + 22 * u
+                for (k in 0 until rows * 7) {
+                    val d = first.minusDays(lead.toLong()).plusDays(k.toLong())
+                    val inMonth = d.month == calMonth.month
+                    val cx = x0 + (k % 7) * (cw + gap)
+                    val cy = gy + (k / 7) * (ch + gap)
+                    val cell = RectF(cx, cy, cx + cw, cy + ch)
+                    val selected = d == calDay
+                    val isToday = d == today
+                    if (selected) canvas.drawRoundRect(cell, 12 * u, 12 * u, Hud.fill(Color.argb(26, 255, 255, 255)))
+                    if (isToday) {
+                        canvas.drawCircle(cell.centerX(), cy + 18 * u, 15 * u, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            shader = LinearGradient(cx, cy, cx + cw, cy + 30 * u, Hud.HOT, Hud.RED, Shader.TileMode.CLAMP)
+                        })
+                    }
+                    val numColor = when { isToday -> Theme.on(Hud.RED); !inMonth -> Color.argb(60, 255, 255, 255); d.dayOfWeek.value >= 6 -> MUTED; else -> Color.WHITE }
+                    canvas.drawText("${d.dayOfMonth}", cell.centerX(), cy + 23 * u, t(15f, numColor, if (isToday || selected) Hud.MEDIUM else Hud.SANS, Paint.Align.CENTER))
+                    if (inMonth) {
+                        // Markers: a red bar for a shift, then dots — blue uni, white events, gold countdowns.
+                        val s = shifts[d]
+                        val mY = cy + 40 * u
+                        if (s != null) canvas.drawRoundRect(RectF(cell.left + 7 * u, mY - 2 * u, cell.right - 7 * u, mY + 2 * u), 2 * u, 2 * u, Hud.fill(if (d.isBefore(today)) Hud.alpha(Hud.HOT, .55f) else Hud.HOT))
+                        val dots = ArrayList<Int>()
+                        if (Uni.on(context, d) != null) dots += UNI_BLUE
+                        monthEvents[d].orEmpty().filter { it.id !in shiftEvents }.take(3).forEach { _ -> dots += Color.argb(200, 255, 255, 255) }
+                        if (countdowns.any { it.date == d }) dots += warn()
+                        val dw = 7 * u
+                        var dx = cell.centerX() - (dots.size.coerceAtMost(4) - 1) * dw / 2
+                        dots.take(4).forEach { c -> canvas.drawCircle(dx, mY + 9 * u, 2.4f * u, Hud.fill(c)); dx += dw }
+                    }
+                    tap(cell) {
+                        if (!inMonth) { calMonth = YearMonth.from(d); monthEvents = emptyMap(); loadMonth() }
+                        calDay = d
+                    }
+                }
+                canvas.restoreToCount(save)
+                // A key for the markers.
+                val ky = r.bottom - 16 * u
+                var kx = r.left + 16 * u
+                listOf(Hud.HOT to "Shift", UNI_BLUE to "Uni", Color.WHITE to "Event", warn() to "Countdown").forEach { (c, lab) ->
+                    canvas.drawCircle(kx + 3 * u, ky - 4 * u, 3 * u, Hud.fill(c))
+                    canvas.drawText(lab, kx + 10 * u, ky, t(12f, MUTED))
+                    kx += 10 * u + t(12f, MUTED).measureText(lab) + 16 * u
+                }
+            }
+            return top + h
+        }
+
+        /** The chosen day: its shift (tap to change), uni, events and countdowns, with buttons to add to it. */
+        private fun dayCard(canvas: Canvas, top: Float, now: Long, d: LocalDate): Float {
+            val zone = ZoneId.systemDefault()
+            val s = shifts[d]
+            val worked = actualCache[d]
+            val uni = Uni.on(context, d)
+            val events = monthEvents[d].orEmpty().filter { it.id !in shiftEvents }
+            val cds = countdowns.filter { it.date == d }
+            val rows = ArrayList<Triple<String, String, Int>>() // left, right, colour of the marker
+            rows += Triple(if (s != null) "Shift" else "No shift", s?.let { it.times() + (worked?.let { w -> " · worked ${w.times()}" } ?: "") } ?: "Tap to add one", if (s != null) Hud.HOT else FAINT)
+            uni?.let { rows += Triple("Uni", it.times(), UNI_BLUE) }
+            events.forEach { e -> rows += Triple(e.title, if (e.allDay) "All day" else Instant.ofEpochMilli(e.begin).atZone(zone).format(DateTimeFormatter.ofPattern("HH:mm")), Color.WHITE) }
+            cds.forEach { c -> rows += Triple(c.name, "Countdown", warn()) }
+            val rowH = 50 * u
+            val h = 60 * u + rows.size * rowH + 66 * u
+            card(canvas, now, top, h) {
+                val r = RectF(16 * u, top, width - 16 * u, top + h)
+                glass(canvas, r, 26 * u)
+                val today = LocalDate.now()
+                val when_ = when (d) { today -> "Today"; today.plusDays(1) -> "Tomorrow"; today.minusDays(1) -> "Yesterday"; else -> null }
+                canvas.drawText(d.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault())), r.left + 16 * u, top + 38 * u, t(18f, Color.WHITE, Hud.MEDIUM))
+                when_?.let { canvas.drawText(it, r.right - 16 * u, top + 38 * u, t(13f, accent(), Hud.MEDIUM, Paint.Align.RIGHT)) }
+                rows.forEachIndexed { i, (a, b, c) ->
+                    val y = top + 56 * u + i * rowH
+                    canvas.drawLine(r.left + 16 * u, y, r.right - 16 * u, y, Hud.stroke(Color.argb(14, 255, 255, 255), u))
+                    canvas.drawRoundRect(RectF(r.left + 16 * u, y + 14 * u, r.left + 20 * u, y + rowH - 14 * u), 2 * u, 2 * u, Hud.fill(c))
+                    canvas.drawText(Hud.ellipsize(a, t(15.5f, Color.WHITE, Hud.MEDIUM), r.width() * .5f), r.left + 30 * u, y + 31 * u, t(15.5f, Color.WHITE, Hud.MEDIUM))
+                    canvas.drawText(b, r.right - 16 * u, y + 31 * u, Hud.fit(b, t(14f, MUTED, Hud.SANS, Paint.Align.RIGHT), r.width() * .48f))
+                    if (i == 0) tap(RectF(r.left, y, r.right, y + rowH)) { sheetDay = d }
+                }
+                val bw = (r.width() - 32 * u - 8 * u) / 2
+                val by = r.bottom - 58 * u
+                pill(canvas, RectF(r.left + 16 * u, by, r.left + 16 * u + bw, by + 46 * u), "+ Add event", light = true, size = 14.5f) { addEvent(d) }
+                pill(canvas, RectF(r.left + 24 * u + bw, by, r.right - 16 * u, by + 46 * u), if (s != null) "Change shift" else "Add shift", size = 14.5f) { sheetDay = d }
+            }
+            return top + h
+        }
+
+        private fun addEvent(d: LocalDate) {
+            val zone = ZoneId.systemDefault()
+            val start = d.atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
+            try {
+                context.startActivity(Intent(Intent.ACTION_INSERT, CalendarContract.Events.CONTENT_URI)
+                    .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, start)
+                    .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, start + 3_600_000L)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {
+                Toast.makeText(context, "No calendar app to add it in", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        /** Each tab remembers how far down you'd scrolled. */
+        private val tabScroll = FloatArray(5)
+
+        // --- Plan ---
 
         private fun shiftWeekCard(canvas: Canvas, top: Float, now: Long): Float {
             val today = LocalDate.now()
@@ -4632,12 +4758,12 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 canvas.drawRoundRect(row, 16 * u, 16 * u, Hud.stroke(if (on) Hud.alpha(Hud.HOT, .6f) else Color.argb(22, 255, 255, 255), u))
                 canvas.drawText(tp.name.lowercase().replaceFirstChar { it.uppercase() }, row.left + 16 * u, row.centerY() + 6 * u, t(16.5f, Color.WHITE, Hud.MEDIUM))
                 canvas.drawText(tp.times().replace("–", " – ") + if (on) "  ✓" else "", row.right - 16 * u, row.centerY() + 6 * u, t(15f, if (on) Color.WHITE else MUTED, Hud.SANS, Paint.Align.RIGHT))
-                tap(row) { setShift(d, tp); sheetDay = null }
+                tap(row) { setShift(d, tp); sheetDay = null; dropCaches() }
                 y += rowH
             }
             val half = (width - 32 * u - 8 * u) / 2
             pill(canvas, RectF(16 * u, y, 16 * u + half, y + rowH - 8 * u), "Custom times", size = 16f) { val day = d; sheetDay = null; pickTimes("SHIFT") { sh -> setShift(day, sh) } }
-            pill(canvas, RectF(24 * u + half, y, width - 16 * u, y + rowH - 8 * u), "Day off", size = 16f) { setShift(d, null); sheetDay = null }
+            pill(canvas, RectF(24 * u + half, y, width - 16 * u, y + rowH - 8 * u), "Day off", size = 16f) { setShift(d, null); sheetDay = null; dropCaches() }
             y += rowH
             if (!d.isAfter(LocalDate.now())) {
                 val row = RectF(16 * u, y, width - 16 * u, y + rowH - 8 * u)
@@ -4656,6 +4782,15 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
         private fun moneyTab(canvas: Canvas, top: Float, now: Long): Float {
             var y = payslipCard(canvas, top, now) + 12 * u
+            // Your shifts, where they turn into pay: set a day and the payslip above follows.
+            y = shiftWeekCard(canvas, y, now) + 12 * u
+            val bw = (width - 32 * u - 16 * u) / 3
+            listOf("Copy last week" to { val days = (0..6).map { shiftWeek.plusDays(it.toLong()) }; days.forEach { d -> Shifts.set(context, d, shifts[d.minusWeeks(1)]) }; loadShifts(); dropCaches() },
+                "Shift types" to { addTemplate() },
+                "Calendar" to { if (Shifts.canWrite(context)) pickCalendar() else askCalendarAccess() }).forEachIndexed { i, (lab, act) ->
+                pill(canvas, RectF(16 * u + i * (bw + 8 * u), y, 16 * u + i * (bw + 8 * u) + bw, y + 50 * u), lab, size = 14f) { act() }
+            }
+            y += 62 * u
             y = weeksCard(canvas, y, now) + 12 * u
             y = spendCard(canvas, y, now)
             if (coins.isNotEmpty()) y = marketsCard(canvas, y + 12 * u, now)
@@ -4957,6 +5092,258 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             return top + h
         }
 
+        // --- System ---
+
+        /** CPU speed now (average and fastest core, GHz), read once a second where Android allows it. */
+        private var cpuAt = 0L
+        private var cpu: Pair<Float, Float>? = null
+        private val cpuHistory = ArrayDeque<Float>()
+
+        private fun sampleCpu() {
+            val ms = SystemClock.elapsedRealtime()
+            if (ms - cpuAt < 1000) return
+            cpuAt = ms
+            val cores = Runtime.getRuntime().availableProcessors()
+            val f = (0 until cores).mapNotNull { i ->
+                try {
+                    java.io.File("/sys/devices/system/cpu/cpu$i/cpufreq/scaling_cur_freq").readText().trim().toLong() / 1_000_000f
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            cpu = if (f.isEmpty()) null else f.average().toFloat() to f.max()
+            cpu?.let { cpuHistory.addLast(it.first); while (cpuHistory.size > 40) cpuHistory.removeFirst() }
+            // Memory and storage, every few seconds.
+            if ((ms / 1000) % 5 == 0L) specs = DeckData.specs(context)
+        }
+
+        private fun row(canvas: Canvas, r: RectF, y: Float, k: String, v: String, color: Int = Color.WHITE): Float {
+            canvas.drawLine(r.left + 16 * u, y, r.right - 16 * u, y, Hud.stroke(Color.argb(14, 255, 255, 255), u))
+            canvas.drawText(k, r.left + 16 * u, y + 27 * u, t(14.5f, MUTED))
+            canvas.drawText(v, r.right - 16 * u, y + 27 * u, Hud.fit(v, t(14.5f, color, Hud.SANS, Paint.Align.RIGHT), r.width() * .58f))
+            return y + 42 * u
+        }
+
+        private fun meter(canvas: Canvas, r: RectF, y: Float, k: String, used: Float, text: String): Float {
+            canvas.drawText(k, r.left + 16 * u, y + 20 * u, t(14.5f, MUTED))
+            canvas.drawText(text, r.right - 16 * u, y + 20 * u, t(14.5f, Color.WHITE, Hud.SANS, Paint.Align.RIGHT))
+            val bar = RectF(r.left + 16 * u, y + 30 * u, r.right - 16 * u, y + 38 * u)
+            canvas.drawRoundRect(bar, 4 * u, 4 * u, Hud.fill(Color.argb(24, 255, 255, 255)))
+            val f = used.coerceIn(0f, 1f)
+            canvas.drawRoundRect(RectF(bar.left, bar.top, bar.left + bar.width() * f, bar.bottom), 4 * u, 4 * u, Hud.fill(if (f > .9f) warn() else Hud.HOT))
+            return y + 52 * u
+        }
+
+        private fun gb(b: Long) = if (b >= 1_000_000_000L) "%.1f GB".format(Locale.ROOT, b / 1e9) else "${b / 1_000_000} MB"
+        private fun netRate(bps: Float) = when {
+            bps >= 1_000_000f -> "%.1f MB/s".format(Locale.ROOT, bps / 1e6)
+            bps >= 1_000f -> "${(bps / 1e3).toInt()} KB/s"
+            else -> "${bps.toInt()} B/s"
+        }
+
+        private fun graph(canvas: Canvas, box: RectF, values: List<Float>, color: Int) {
+            if (values.size < 2) return
+            val hi = values.max().coerceAtLeast(1f)
+            val p = Path()
+            values.forEachIndexed { i, v ->
+                val x = box.left + box.width() * i / (values.size - 1)
+                val y = box.bottom - box.height() * (v / hi)
+                if (i == 0) p.moveTo(x, y) else p.lineTo(x, y)
+            }
+            canvas.drawPath(p, Hud.glow(Hud.stroke(color, 2 * u), 4 * u))
+            val fillP = Path(p).apply { lineTo(box.right, box.bottom); lineTo(box.left, box.bottom); close() }
+            canvas.drawPath(fillP, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(0f, box.top, 0f, box.bottom, Hud.alpha(color, .25f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            })
+        }
+
+        private fun systemTab(canvas: Canvas, top: Float, now: Long): Float {
+            sampleTraffic()
+            sampleCpu()
+            // Keeps the live readings moving while you're here.
+            touchedAt = SystemClock.uptimeMillis()
+            var y = top
+            y = perfCard(canvas, y, now) + 12 * u
+            y = netCard(canvas, y, now) + 12 * u
+            y = batteryCard(canvas, y, now) + 12 * u
+            y = statusCard(canvas, y, now) + 12 * u
+            y = logCard(canvas, y, now) + 12 * u
+            y = deviceCard(canvas, y, now)
+            return y
+        }
+
+        private fun perfCard(canvas: Canvas, top: Float, now: Long): Float {
+            val s = specs
+            val h = 44 * u + 96 * u + 52 * u * 3 + 42 * u + 8 * u
+            card(canvas, now, top, h) {
+                val r = RectF(16 * u, top, width - 16 * u, top + h)
+                glass(canvas, r, 26 * u)
+                val thermal = try {
+                    when (context.getSystemService(android.os.PowerManager::class.java)?.currentThermalStatus) {
+                        0 -> "Cool"; 1 -> "Warm"; 2 -> "Warm"; 3 -> "Hot"; 4, 5, 6 -> "Very hot"; else -> null
+                    }
+                } catch (e: Exception) { null }
+                caption(canvas, r, top + 28 * u, "Performance", thermal, if (thermal == "Cool" || thermal == null) GOOD else warn())
+                val c = cpu
+                canvas.drawText(c?.let { "%.2f GHz".format(Locale.ROOT, it.first) } ?: "—", r.left + 16 * u, top + 78 * u, t(32f, Color.WHITE, Hud.LIGHT))
+                canvas.drawText(c?.let { "CPU average · fastest core %.2f GHz".format(Locale.ROOT, it.second) } ?: "CPU speed isn't readable on this phone", r.left + 16 * u, top + 100 * u, t(13f, MUTED))
+                graph(canvas, RectF(r.left + 180 * u, top + 46 * u, r.right - 16 * u, top + 96 * u), cpuHistory.toList(), Hud.HOT)
+                var yy = top + 44 * u + 96 * u
+                if (s != null) {
+                    yy = meter(canvas, r, yy, "Memory", 1f - s.ramFree.toFloat() / s.ramTotal, "${gb(s.ramTotal - s.ramFree)} of ${gb(s.ramTotal)}")
+                    yy = meter(canvas, r, yy, "Storage", 1f - s.storageFree.toFloat() / s.storageTotal, "${gb(s.storageFree)} free of ${gb(s.storageTotal)}")
+                }
+                val rt = Runtime.getRuntime()
+                yy = meter(canvas, r, yy, "Launcher memory", (rt.totalMemory() - rt.freeMemory()).toFloat() / rt.maxMemory(), "${(rt.totalMemory() - rt.freeMemory()) / 1_000_000} of ${rt.maxMemory() / 1_000_000} MB")
+                row(canvas, r, yy, "Cores · uptime", "${Runtime.getRuntime().availableProcessors()} · ${s?.let { span(it.uptimeMs) } ?: "—"}")
+            }
+            return top + h
+        }
+
+        private fun netCard(canvas: Canvas, top: Float, now: Long): Float {
+            val n = net
+            val h = 44 * u + 120 * u + 42 * u * 3 + 8 * u
+            card(canvas, now, top, h) {
+                val r = RectF(16 * u, top, width - 16 * u, top + h)
+                glass(canvas, r, 26 * u)
+                caption(canvas, r, top + 28 * u, "Network", n?.let { if (it.kind == "OFFLINE") "Offline" else "Online" }, if (n?.kind == "OFFLINE") warn() else GOOD)
+                val down = downRates.lastOrNull() ?: 0f
+                val up = upRates.lastOrNull() ?: 0f
+                val half = (r.width() - 40 * u) / 2
+                listOf(Triple("↓ Down", down, downRates.toList()), Triple("↑ Up", up, upRates.toList())).forEachIndexed { i, (k, v, list) ->
+                    val x = r.left + 16 * u + i * (half + 8 * u)
+                    canvas.drawText(k, x, top + 62 * u, t(13f, MUTED))
+                    canvas.drawText(netRate(v), x, top + 90 * u, t(22f, Color.WHITE, Hud.LIGHT))
+                    graph(canvas, RectF(x, top + 104 * u, x + half, top + 150 * u), list, if (i == 0) GOOD else Hud.HOT)
+                }
+                var yy = top + 44 * u + 120 * u
+                yy = row(canvas, r, yy, "Connection", n?.let { listOfNotNull(it.kind.lowercase().replaceFirstChar { c -> c.uppercase() }, it.name).joinToString(" · ") } ?: "—")
+                yy = row(canvas, r, yy, "Signal · VPN", "${n?.bars ?: 0} of 4 bars · ${if (n?.vpn == true) "on" else "off"}", Color.WHITE)
+                row(canvas, r, yy, "Data today", data?.let { (wifi, mobile) -> "Wi‑Fi ${gb(wifi)} · mobile ${gb(mobile)}" } ?: "Allow usage access to see it")
+            }
+            return top + h
+        }
+
+        private fun batteryCard(canvas: Canvas, top: Float, now: Long): Float {
+            val tel = telemetry
+            val p = power
+            val h = 44 * u + 42 * u * 4 + 8 * u
+            card(canvas, now, top, h) {
+                val r = RectF(16 * u, top, width - 16 * u, top + h)
+                glass(canvas, r, 26 * u)
+                caption(canvas, r, top + 28 * u, "Battery", tel?.let { "${it.battery}%${if (it.charging) " · charging" else ""}" })
+                var yy = top + 44 * u
+                yy = row(canvas, r, yy, "Time left", batteryEstimate()?.lowercase()?.replaceFirstChar { it.uppercase() } ?: if (tel?.charging == true) "Charging" else "Working it out")
+                yy = row(canvas, r, yy, "Temperature", p?.let { "%.1f °C".format(Locale.ROOT, it.tempC) } ?: "—", if ((p?.tempC ?: 0f) >= 40f) warn() else Color.WHITE)
+                yy = row(canvas, r, yy, "Health", p?.health?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "—", if (p?.health == "GOOD") GOOD else warn())
+                row(canvas, r, yy, "Voltage · type", p?.let { "%.2f V · %s".format(Locale.ROOT, it.voltage, it.tech) } ?: "—")
+            }
+            return top + h
+        }
+
+        /** What Jarvis and the deck depend on, each with a tap to fix it. */
+        private fun statusCard(canvas: Canvas, top: Float, now: Long): Float {
+            val pkg = context.packageName
+            val listeners = try { Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners").orEmpty() } catch (e: Exception) { "" }
+            val items = listOf(
+                Triple("Brain (Gemma)", if (JarvisBrain.installed(context)) (JarvisBrain.installedName(context) ?: "ready") to true else "Not downloaded" to false) { onJarvis?.invoke() },
+                Triple("Hands", when { JarvisHands.instance != null -> "Connected" to true; JarvisHands.enabled(context) -> "On but not answering" to false; else -> "Off" to false }) {
+                    try { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+                },
+                Triple("Hey Jarvis", when { !JarvisEar.wakeEnabled(context) -> "Off" to false; JarvisEar.instance != null -> "Listening" to true; else -> "On, not running" to false }) { onJarvis?.invoke() },
+                Triple("Notifications", if (listeners.contains(pkg)) "Allowed" to true else "Not allowed" to false) {
+                    try { context.startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+                },
+                Triple("Calendar", if (Shifts.canWrite(context)) "Allowed" to true else "Not allowed" to false) { askCalendarAccess() },
+                Triple("All files", if (Files.fullAccess()) "Allowed" to true else "Photos and media only" to false) {
+                    try { context.startActivity(Files.accessIntent(context)) } catch (e: Exception) {}
+                },
+                Triple("Usage access", if (DeckData.hasUsageAccess(context)) "Allowed" to true else "Not allowed" to false) {
+                    try { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
+                },
+            )
+            val bad = items.count { !it.second.second }
+            val h = 44 * u + items.size * 46 * u + 8 * u
+            card(canvas, now, top, h) {
+                val r = RectF(16 * u, top, width - 16 * u, top + h)
+                glass(canvas, r, 26 * u)
+                caption(canvas, r, top + 28 * u, "Jarvis & access", if (bad == 0) "All good" else "$bad to fix", if (bad == 0) GOOD else warn())
+                items.forEachIndexed { i, (k, state, fix) ->
+                    val y = top + 44 * u + i * 46 * u
+                    canvas.drawLine(r.left + 16 * u, y, r.right - 16 * u, y, Hud.stroke(Color.argb(14, 255, 255, 255), u))
+                    val ok = state.second
+                    canvas.drawCircle(r.left + 22 * u, y + 23 * u, 4.5f * u, Hud.fill(if (ok) GOOD else warn()))
+                    canvas.drawText(k, r.left + 36 * u, y + 28 * u, t(15f, Color.WHITE))
+                    canvas.drawText(state.first + if (ok) "" else "  ›", r.right - 16 * u, y + 28 * u, Hud.fit(state.first, t(14f, if (ok) MUTED else warn(), Hud.SANS, Paint.Align.RIGHT), r.width() * .5f))
+                    if (!ok) tap(RectF(r.left, y, r.right, y + 46 * u)) { fix() }
+                }
+            }
+            return top + h
+        }
+
+        private var logOpen = false
+
+        private fun logCard(canvas: Canvas, top: Float, now: Long): Float {
+            val entries = SysLog.all(context)
+            val shown = entries.take(if (logOpen) 40 else 8)
+            val wake = JarvisEar.wakeLog(context)?.lines()?.filter { it.isNotBlank() }?.takeLast(if (logOpen) 10 else 3)?.reversed().orEmpty()
+            val rowH = 54 * u
+            val h = 44 * u + shown.size.coerceAtLeast(1) * rowH + (if (wake.isNotEmpty()) 34 * u + wake.size * 24 * u else 0f) + 62 * u
+            card(canvas, now, top, h) {
+                val r = RectF(16 * u, top, width - 16 * u, top + h)
+                glass(canvas, r, 26 * u)
+                val errors = entries.count { it.level == 'E' && System.currentTimeMillis() - it.at < 86_400_000L }
+                caption(canvas, r, top + 28 * u, "Log", if (errors > 0) "$errors error${if (errors == 1) "" else "s"} today" else if (entries.isEmpty()) "Clean" else "${entries.size} entries", if (errors > 0) warn() else MUTED)
+                if (shown.isEmpty()) canvas.drawText("Nothing has gone wrong", r.left + 16 * u, top + 74 * u, t(14.5f, MUTED))
+                val f = DateTimeFormatter.ofPattern("d MMM HH:mm")
+                shown.forEachIndexed { i, e ->
+                    val y = top + 44 * u + i * rowH
+                    if (i > 0) canvas.drawLine(r.left + 16 * u, y, r.right - 16 * u, y, Hud.stroke(Color.argb(14, 255, 255, 255), u))
+                    val col = when (e.level) { 'E' -> 0xFFFF6B6B.toInt(); 'W' -> warn(); else -> MUTED }
+                    canvas.drawCircle(r.left + 22 * u, y + 20 * u, 4.5f * u, Hud.fill(col))
+                    canvas.drawText(e.source, r.left + 36 * u, y + 24 * u, t(14f, Color.WHITE, Hud.MEDIUM))
+                    canvas.drawText(Instant.ofEpochMilli(e.at).atZone(ZoneId.systemDefault()).format(f), r.right - 16 * u, y + 24 * u, t(12f, FAINT, Hud.SANS, Paint.Align.RIGHT))
+                    canvas.drawText(Hud.ellipsize(e.text, t(13f, MUTED), r.width() - 52 * u), r.left + 36 * u, y + 44 * u, t(13f, MUTED))
+                }
+                var yy = top + 44 * u + shown.size.coerceAtLeast(1) * rowH
+                if (wake.isNotEmpty()) {
+                    canvas.drawText("Hey Jarvis", r.left + 16 * u, yy + 24 * u, t(12.5f, MUTED, Hud.MEDIUM))
+                    yy += 34 * u
+                    wake.forEach { l ->
+                        canvas.drawText(Hud.ellipsize(l, t(12f, FAINT, Hud.MONO), r.width() - 32 * u), r.left + 16 * u, yy + 14 * u, t(12f, FAINT, Hud.MONO))
+                        yy += 24 * u
+                    }
+                }
+                val bw = (r.width() - 32 * u - 16 * u) / 3
+                val by = r.bottom - 58 * u
+                pill(canvas, RectF(r.left + 16 * u, by, r.left + 16 * u + bw, by + 46 * u), if (logOpen) "Show less" else "Show all", size = 14f) { logOpen = !logOpen }
+                pill(canvas, RectF(r.left + 24 * u + bw, by, r.left + 24 * u + 2 * bw, by + 46 * u), "Copy", size = 14f) {
+                    val text = SysLog.text(context) + (JarvisEar.wakeLog(context)?.let { "\n\nHey Jarvis:\n$it" } ?: "")
+                    context.getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Crimson log", text))
+                    Toast.makeText(context, "Log copied", Toast.LENGTH_SHORT).show()
+                }
+                pill(canvas, RectF(r.left + 32 * u + 2 * bw, by, r.right - 16 * u, by + 46 * u), "Clear", size = 14f) { confirm("Clear the log?") { SysLog.clear(context); invalidate() } }
+            }
+            return top + h
+        }
+
+        private fun deviceCard(canvas: Canvas, top: Float, now: Long): Float {
+            val version = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName } catch (e: Exception) { "?" }
+            val chip = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.takeIf { it.isNotBlank() && it != "unknown" } else null
+            val h = 44 * u + 42 * u * 4 + 8 * u
+            card(canvas, now, top, h) {
+                val r = RectF(16 * u, top, width - 16 * u, top + h)
+                glass(canvas, r, 26 * u)
+                caption(canvas, r, top + 28 * u, "Device", null)
+                var yy = top + 44 * u
+                yy = row(canvas, r, yy, "Phone", "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}")
+                yy = row(canvas, r, yy, "Android", "${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}")
+                yy = row(canvas, r, yy, "Chip", chip ?: Build.HARDWARE)
+                row(canvas, r, yy, "Crimson", "v$version")
+            }
+            return top + h
+        }
+
         private fun openAlarms() {
             try {
                 context.startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -5015,7 +5402,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         return true
                     }
                     if (dx < 0) {
-                        if (deckTab < 3) setTab(deckTab + 1)
+                        if (deckTab < 4) setTab(deckTab + 1)
                         return true
                     }
                     if (deckTab > 0) {

@@ -254,8 +254,10 @@ object JarvisBrain {
                     }.also { lastUsed = m.name }
                 }
             } catch (e: Throwable) {
+                SysLog.error("Brain", "${model?.name ?: "No model"} failed (${job.name.lowercase()}): ${e.javaClass.simpleName} ${e.message.orEmpty().take(120)}")
                 null
             }
+            if (model == null) SysLog.warn("Brain", "No brain downloaded for ${job.name.lowercase()}")
             main.post { done(out?.takeIf { it.isNotBlank() }) }
         }
     }

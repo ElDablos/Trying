@@ -131,11 +131,15 @@ object Travel {
         conn.readTimeout = 10000
         conn.setRequestProperty("Accept", "application/json")
         try {
-            if (conn.responseCode == 200) conn.inputStream.bufferedReader().use { it.readText() } else null
+            if (conn.responseCode == 200) conn.inputStream.bufferedReader().use { it.readText() } else {
+                SysLog.warn("TfL", "HTTP ${conn.responseCode} for ${url.removePrefix(API).take(90)}")
+                null
+            }
         } finally {
             conn.disconnect()
         }
     } catch (e: Exception) {
+        SysLog.warn("TfL", "Couldn't reach TfL: ${e.javaClass.simpleName}")
         null
     }
 

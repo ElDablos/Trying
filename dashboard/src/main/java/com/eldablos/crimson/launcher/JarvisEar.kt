@@ -135,6 +135,7 @@ class JarvisEar : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        SysLog.init(this)
         instance = this
         // 1.68: the old, stricter bar (it could climb until he stopped hearing you) starts afresh.
         prefs(this).let { p -> if (!p.getBoolean("wake_v2", false)) p.edit().remove("wake_bar").putBoolean("wake_v2", true).apply() }
@@ -539,6 +540,7 @@ class JarvisEar : Service() {
     private val host = object : Jarvis.Host {
         /** A late answer over another app: said on the strip if he's still there, else in the panel. */
         override fun later(reply: Jarvis.Reply) {
+            if (reply.failed) SysLog.warn("Jarvis", reply.say.take(160))
             main.post {
                 JarvisChat.add(this@JarvisEar, false, reply.say, JarvisChat.EAR)
                 // You waved him off while he was thinking: it's kept in the panel, not said.

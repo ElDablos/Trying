@@ -51,6 +51,18 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
+- **1.73** — Deck System tab (5th tab): Performance (CPU GHz from /sys cpufreq with a live graph, thermal
+  status, memory, storage, launcher memory, cores, uptime), Network (live down/up with graphs, connection,
+  signal, VPN, data today), Battery (time left, temperature, health, voltage), Jarvis & access (brain, hands,
+  Hey Jarvis, notifications, calendar, all files, usage access — each tappable to fix), Log, Device.
+  `SysLog.kt`: the app's own log (last 200, prefs "syslog"): crashes (default uncaught handler, chained),
+  brain failures / no model, TfL HTTP errors, every failed Jarvis reply (now and later). Shown on the System
+  tab with the Hey Jarvis wake log; Show all / Copy / Clear. Ask for "copy the log" when debugging.
+  Plan is now a full month calendar (`monthCard`: ‹ › months with a slide, today filled, markers per day —
+  red bar shift, blue uni, white events, gold countdowns — and a key) with the chosen day below (`dayCard`:
+  shift row opens the day sheet, uni, events, countdowns; + Add event opens the calendar app at 9:00, Add /
+  Change shift). Shift entry moved to Money (week columns + sheet + Copy last week / Shift types / Calendar),
+  under the payslip so changes show in the pay; shift edits drop the pay cache. Each tab keeps its scroll.
 - **1.72** — Command Deck rebuilt from scratch (`DeckView.Board.deck()` and the tab functions after it; the old
   card drawing is only used by the coin page and ✎ customise now). Four tabs, Now · Plan · Money · Life
   (`deckTab`; tap or swipe left/right; back returns to Now; swipe right on Now closes). Fixed header (date line +

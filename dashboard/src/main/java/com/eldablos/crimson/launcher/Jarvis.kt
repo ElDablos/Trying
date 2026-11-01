@@ -269,6 +269,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                     r = r.copy(say = JarvisVoice.evolve(context, r.say, said, name, usual))
                 }
                 r = fresh(said, r)
+                if (r.failed) SysLog.warn("Jarvis", "\"${said.take(80)}\" → ${r.say.take(140)}")
                 JarvisChat.add(context, true, said, via)
                 JarvisChat.add(context, false, r.say, via)
             }

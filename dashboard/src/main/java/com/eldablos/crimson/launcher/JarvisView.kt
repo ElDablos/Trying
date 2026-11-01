@@ -385,6 +385,7 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
 
     /** An answer that took a moment (his brain, a look-up): shown when it's ready, opening him if he'd closed. */
     fun later(reply: Jarvis.Reply) {
+        if (reply.failed) SysLog.warn("Jarvis", reply.say.take(160))
         if (visibility != VISIBLE) show(listen = false, greet = false)
         respond(reply, "")
     }

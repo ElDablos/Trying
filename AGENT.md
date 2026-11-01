@@ -51,7 +51,7 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
-- **1.66** (pending "build it") — Pay follow-ups build on the last pay answer: "and with tomorrow's shift",
+- **1.66** — Pay follow-ups build on the last pay answer: "and with tomorrow's shift",
   "plus Sunday", "including my next shift", "so altogether" stretch the range and add it up as one (this month
   can't hold tomorrow when tomorrow is the 1st; payday answer also counts). Short follow-ups that lean on the
   conversation ("what about…", "so how much then", "with that") go to the brain with context instead of rules.

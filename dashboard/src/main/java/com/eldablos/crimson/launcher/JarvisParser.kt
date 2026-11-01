@@ -22,7 +22,8 @@ object JarvisParser {
         object Date : Command()
         data class Weather(val day: Int, val rainOnly: Boolean = false) : Command()
         /** The tube, trains and roads across London on a day (0 today), and whether to plan ahead. */
-        data class Travel(val day: Int, val line: String? = null, val dayGiven: Boolean = true) : Command()
+        /** The tube on a day ([days] long for "this week", "next week", "the weekend"); [all] lists every line in trouble. */
+        data class Travel(val day: Int, val line: String? = null, val dayGiven: Boolean = true, val days: Int = 1, val all: Boolean = false) : Command()
         /** "I take the Jubilee line to work": your usual line. */
         data class Commute(val line: String) : Command()
         /** "It takes me 40 minutes to get to work". */
@@ -532,8 +533,11 @@ object JarvisParser {
             val line = m.groupValues[1].ifEmpty { m.groupValues[2] }
             if (com.eldablos.crimson.launcher.Travel.lineId(line) != null) return Command.Commute(line)
         }
+        // "What are the six more?", "which other lines?" after a tube answer: every line in trouble.
+        if (Regex("^(what|which) (are |were )?(the )?((other|\\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve) )?(more|others|other lines|other ones|lines|ones)( then| are they| is it| affected)?$|^(list|name|tell me|read) (them|them all|all of them|the rest|the others|the other lines)$|^(and )?the (rest|others|other lines)$").matches(t))
+            return Command.Travel(0, null, dayGiven = false, all = true)
         if (!Regex("^(add|make|take|write|put|note|remind|remember|jot|create|text|message|send|tell|search|google|open)\\b").containsMatchIn(t) &&
-            (has("traffic", "tube", "underground", "jubilee", "central line", "elizabeth line", "lizzy line", "overground", "dlr", "trains", "train lines", "line status", "tfl",
+            (has("traffic", "tube", "tubes", "underground", "the trains", "rail", "planned works", "planned closures", "line closures", "closures", "works on the", "jubilee", "central line", "elizabeth line", "lizzy line", "overground", "dlr", "trains", "train lines", "line status", "tfl",
                 "commute", "my journey", "journey to work", "the roads", "delays", "cancellations", "cancelled trains", "strike", "strikes", "engineering works", "closures") ||
                 Regex("\\b(northern|victoria|piccadilly|district|bakerloo|metropolitan|circle|central|jubilee|elizabeth|waterloo and city|hammersmith and city) line\\b|\\bthe (northern|victoria|piccadilly|bakerloo|metropolitan|central|jubilee|elizabeth|lizzy|dlr)\\b").containsMatchIn(t))
         ) {
@@ -541,7 +545,30 @@ object JarvisParser {
             // One line asked about by name ("is the Central line OK", "and the Elizabeth?").
             val line = Regex("\\b(northern|victoria|piccadilly|district|bakerloo|metropolitan|circle|central|jubilee|elizabeth|lizzy|dlr|waterloo and city|hammersmith and city)\\b").find(t)?.value
                 ?.let { com.eldablos.crimson.launcher.Travel.lineId(it) }
+            // A stretch of days: "this week", "next week", "this weekend"; corrected mid-sentence, the last one said
+            // counts ("this week, oh, next week sorry").
+            val spans = Regex("\\b(this week|next week|this weekend|the weekend|weekend)\\b").findAll(t).map { it.value }.toList()
+            when (spans.lastOrNull()) {
+                "next week" -> {
+                    val mon = today.plusDays((8 - today.dayOfWeek.value).toLong())
+                    return Command.Travel(java.time.temporal.ChronoUnit.DAYS.between(today, mon).toInt(), line, dayGiven = true, days = 7)
+                }
+                "this week" -> return Command.Travel(0, line, dayGiven = true, days = 8 - today.dayOfWeek.value)
+                null -> {}
+                else -> {
+                    val sat = if (today.dayOfWeek == java.time.DayOfWeek.SUNDAY) today else today.plusDays((6 - today.dayOfWeek.value).toLong())
+                    return Command.Travel(java.time.temporal.ChronoUnit.DAYS.between(today, sat).toInt(), line, dayGiven = true,
+                        days = if (sat.dayOfWeek == java.time.DayOfWeek.SUNDAY) 1 else 2)
+                }
+            }
             return Command.Travel((d ?: 0).coerceAtLeast(0), line, dayGiven = d != null)
+        }
+        // Putting the day right: "not today, tomorrow", "no, I meant Friday", "I said next week".
+        Regex("^(?:no,? |nope,? )?(?:not (?:today|tomorrow|now|this week)[, ]+|i meant |i mean |i said |meant )(?:for )?(.+)$|^no,? (tomorrow|today|next week|this weekend|on [a-z]+day|[a-z]+day)$").find(t)?.let { m ->
+            val rest = m.groupValues[1].ifEmpty { m.groupValues[2] }
+            if (Regex("\\bnext week\\b").containsMatchIn(rest)) return Command.FollowUp(null, nextWeek = true)
+            val (d, _) = whenIn(rest, today)
+            if (d != null && rest.split(' ').size <= 4) return Command.FollowUp(d)
         }
         Regex("^(and|what about|how about|and what about|same for|and for)\\s+(.+)$").find(t)?.let { m ->
             val rest = m.groupValues[2]

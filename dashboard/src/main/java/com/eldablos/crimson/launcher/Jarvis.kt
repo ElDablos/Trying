@@ -211,6 +211,34 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun ack() = say(pick("Certainly, sir.", "Right away.", "Of course.", "Consider it done."), pick("On it.", "Consider it done.", "Your wish, my command."), "Done.")
 
     /** Brief mode trims the courtesies. */
+    /** What he answered last, and to what: so a different question never just gets the same answer again. */
+    private var sameSay: String? = null
+    private var sameFor: String? = null
+
+    /**
+     * Saying the same thing again to a different question means he didn't understand it: rather than repeat
+     * himself, he says he can't do that yet and asks you to put it another way, which he then learns.
+     */
+    private fun fresh(said: String, r: Reply): Reply {
+        if (r.say.isBlank() || r.silent) return r
+        val norm = { s: String -> s.lowercase().replace(Regex("[^a-z0-9 ]"), "").trim() }
+        // Asking the same thing again ("how's the tube now?") rightly gets the same answer: only a different question counts.
+        val words = { s: String -> norm(s).split(' ').filter { it.length > 2 }.toSet() }
+        val a = words(said)
+        val b = words(sameFor.orEmpty())
+        val overlap = if (a.isEmpty() || b.isEmpty()) 0.0 else (a intersect b).size.toDouble() / minOf(a.size, b.size)
+        val repeatAsked = JarvisParser.parse(said).let { it == Command.Repeat } || overlap >= .5
+        val same = sameSay != null && norm(r.say) == norm(sameSay!!) && !repeatAsked && r.say.length > 25
+        if (!same) {
+            sameSay = r.say
+            sameFor = said
+            return r
+        }
+        pending = Pending.Teach(said)
+        return Reply("I'd only be repeating myself there${sir()}, so I don't think I can do that one yet. Say it another way and I'll learn it, or tell me what you wanted to see.",
+            listen = true, card = Card("✦", "TEACH ME", sub = "\"${said.take(60)}\" — say what you meant and I'll remember it", tone = Tone.GOLD))
+    }
+
     private fun styled(r: Reply): Reply {
         if (persona != Persona.BRIEF) return r
         val s = r.say.replace(Regex(",? (sir|${Regex.escape(name)})(?=[.!?,])"), "").replace(Regex("^(Certainly|Of course|Right away)[,.] ?"), "").trim()
@@ -239,6 +267,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                     val usual = JarvisMemory.phrases(context).any { it.count >= 8 && it.text.equals(said.trim().trimEnd('.', '?', '!'), true) }
                     r = r.copy(say = JarvisVoice.evolve(context, r.say, said, name, usual))
                 }
+                r = fresh(said, r)
                 JarvisChat.add(context, true, said, via)
                 JarvisChat.add(context, false, r.say, via)
             }
@@ -1772,7 +1801,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         is Command.Travel -> {
             // "And the Central?" after asking about tomorrow: still tomorrow.
             val prev = last as? Command.Travel
-            travel(if (!cmd.dayGiven && prev != null && cmd.line != null) prev.day else cmd.day, cmd.line)
+            // "What are the six more?": the same day(s) as the answer before, every line in trouble.
+            if (cmd.all) travel(prev?.day ?: 0, null, prev?.days ?: 1, all = true)
+            else if (!cmd.dayGiven && prev != null && cmd.line != null) travel(prev.day, cmd.line, prev.days)
+            else travel(cmd.day, cmd.line, cmd.days)
         }
         is Command.ItAction -> itAction(cmd.kind)
         is Command.KeepRule -> keepRule(cmd.subject, cmd.keep)
@@ -2058,7 +2090,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             is Command.Shift -> if (cmd.nextWeek) Command.ShiftWeek(true) else days?.let { Command.Shift(it) }
             is Command.ShiftWeek -> if (cmd.nextWeek) Command.ShiftWeek(true) else days?.let { Command.Shift(it) }
             is Command.Agenda -> days?.let { Command.Agenda(it) }
-            is Command.Travel -> days?.let { Command.Travel(it.coerceAtLeast(0), l.line) }
+            is Command.Travel -> if (cmd.nextWeek) {
+                val today = LocalDate.now()
+                Command.Travel(8 - today.dayOfWeek.value, l.line, days = 7)
+            } else days?.let { Command.Travel(it.coerceAtLeast(0), l.line) }
             else -> null
         }
         lastFollowed = next
@@ -2169,39 +2204,62 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      * The tube, trains and roads across London on a day, from TfL: your usual line first (the Jubilee,
      * unless you've said otherwise), the back-ups, everything else in trouble, and whether to plan ahead.
      */
-    private fun travel(day: Int, line: String? = null): Reply {
+    private fun travel(day: Int, line: String? = null, days: Int = 1, all: Boolean = false): Reply {
         val date = LocalDate.now().plusDays(day.toLong())
-        val r = Travel.report(context, date, fetch = true)
-            ?: return Reply("I can't reach TfL right now${sir()}. Check you're online and ask me again.", failed = true,
-                actions = listOf(Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") })))
+        val span = days.coerceIn(1, 14)
+        // The words for when: "today", "tomorrow", "on Friday", or the stretch asked about.
+        val word = when {
+            span <= 1 -> dayWord(day).removePrefix("on ")
+            date.dayOfWeek == java.time.DayOfWeek.SATURDAY && span <= 2 -> if (day < 7) "this weekend" else "that weekend"
+            date.dayOfWeek == java.time.DayOfWeek.MONDAY && span == 7 && day > 0 -> "next week"
+            day == 0 -> "this week"
+            else -> "from ${date.format(DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.UK))}"
+        }
+        val tfl = Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") })
+        val r = Travel.report(context, date, fetch = true, days = span)
+            ?: return Reply("TfL didn't answer just now${sir()}, so I can't see $word's service. Try again in a minute, or check their status page.", failed = true,
+                actions = listOf(Action("TRY AGAIN", if (span > 1) "any tube closures $word" else "how's the tube $word"), tfl))
+        val planned = span > 1 || day > 0
+        fun whenOf(l: Travel.Line) = if (planned && l.period.isNotEmpty()) " (${l.period})" else ""
+        // Every line in trouble, as asked ("what are the six more?").
+        if (all) {
+            val trouble = r.lines.filter { !it.fine && it.mode != "national-rail" }
+            if (trouble.isEmpty()) return Reply("Nothing's disrupted $word${sir()}: good service across the tube, Elizabeth line, Overground and DLR.",
+                card = Card("🚇", "LONDON TRAVEL · ${word.uppercase()}", "ALL GOOD", "No disruption", tone = Tone.GREEN), actions = listOf(tfl))
+            val say = "Here they are${sir()}: " + trouble.joinToString("; ") { "the ${Travel.lineName(it)}, ${it.status.lowercase()}${whenOf(it)}" } + "."
+            return Reply(say, card = Card("🚇", "DISRUPTED · ${word.uppercase()}", "${trouble.size} LINE${if (trouble.size == 1) "" else "S"}", null,
+                trouble.map { Row(Travel.lineName(it).uppercase(), it.status + whenOf(it) + Travel.why(it).takeIf { w -> w.isNotEmpty() }?.let { w -> " · $w" }.orEmpty(), ok = false) }, Tone.GOLD),
+                actions = listOf(Action("PLAN JOURNEY", run = { open("https://tfl.gov.uk/plan-a-journey/") }), tfl))
+        }
         // One line by name, unless it's your usual one (then the full commute answer fits better).
         if (line != null && line != Travel.commute(context, date).firstOrNull()) {
             val l = r.lines.firstOrNull { it.id == line } ?: return Reply("TfL didn't say anything about that line${sir()}.", failed = true)
-            val word = dayWord(day).removePrefix("on ")
-            val say = if (l.fine) "The ${Travel.lineName(l)}'s running fine $word${sir()}."
-            else Travel.clause(l, word).replaceFirstChar { it.uppercase() } + Travel.because(l) + "."
-            return Reply(say, card = Card("⇄", "${Travel.lineName(l).uppercase()} · ${word.uppercase()}", l.status.uppercase(), Travel.why(l).ifEmpty { null },
+            val say = if (l.fine) "The ${Travel.lineName(l)}'s running fine $word${sir()}${if (planned) ", nothing planned" else ""}."
+            else Travel.clause(l, word).replaceFirstChar { it.uppercase() } + whenOf(l) + Travel.because(l) + "."
+            return Reply(say, card = Card("⇄", "${Travel.lineName(l).uppercase()} · ${word.uppercase()}", l.status.uppercase() + whenOf(l).uppercase(), Travel.why(l).ifEmpty { null },
                 tone = if (l.fine) Tone.GREEN else if (l.bad) Tone.HOT else Tone.GOLD),
-                actions = listOf(Action("MY COMMUTE", if (day == 0) "how's the tube" else "any delays tomorrow"), Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") })))
+                actions = listOf(Action("MY COMMUTE", if (day == 0) "how's the tube" else "any delays tomorrow"), tfl))
         }
-        val a = Travel.advise(r, Travel.commute(context, r.day))
+        val a = Travel.advise(r, Travel.commute(context, r.day), word)
         val rows = ArrayList<Row>()
-        for (l in a.commute) rows += Row(Travel.lineName(l).uppercase(), l.status, ok = l.fine)
-        for (l in a.trouble.take(5)) rows += Row(Travel.lineName(l).uppercase(), l.status, ok = false)
-        if (a.trouble.size > 5) rows += Row("+${a.trouble.size - 5} MORE", "disrupted", ok = false)
+        for (l in a.commute) rows += Row(Travel.lineName(l).uppercase(), l.status + whenOf(l), ok = l.fine)
+        for (l in a.trouble.take(5)) rows += Row(Travel.lineName(l).uppercase(), l.status + whenOf(l), ok = false)
+        if (a.trouble.size > 5) rows += Row("+${a.trouble.size - 5} MORE", "ask \"what are the others\"", ok = false)
         if (r.roads.isNotEmpty()) rows += Row("ROADS", if (a.roadTrouble.isEmpty()) "normal" else a.roadTrouble.take(3).joinToString(", ") { it.name } + " " + a.roadTrouble.first().severity.lowercase(), ok = a.roadTrouble.isEmpty())
         val usual = a.commute.firstOrNull()
         val card = Card(
-            "🚇", "LONDON TRAVEL · ${dayWord(day).removePrefix("on ").uppercase()}",
+            "🚇", "LONDON TRAVEL · ${word.uppercase()}",
             if (a.planAhead) "PLAN AHEAD" else if (usual?.fine == false) "LEAVE EARLY" else "ALL GOOD",
-            usual?.let { "${Travel.lineName(it)}: ${it.status.lowercase()}" } ?: "your line", rows,
+            usual?.let { "${Travel.lineName(it)}: ${it.status.lowercase()}${whenOf(it)}" } ?: "your line", rows,
             if (a.planAhead) Tone.HOT else if (usual?.fine == false) Tone.GOLD else Tone.GREEN,
         )
-        return Reply(a.say, card = card, actions = listOf(
-            Action("PLAN JOURNEY", primary = a.planAhead, run = { open("https://tfl.gov.uk/plan-a-journey/") }),
-            Action(if (day == 0) "TOMORROW" else "TODAY", if (day == 0) "any delays tomorrow" else "how's the tube today"),
-            Action("TFL STATUS", run = { open("https://tfl.gov.uk/tube-dlr-overground/status/") }),
-        ))
+        val actions = ArrayList<Action>()
+        actions += Action("PLAN JOURNEY", primary = a.planAhead, run = { open("https://tfl.gov.uk/plan-a-journey/") })
+        if (a.trouble.size > 3) actions += Action("ALL ${a.trouble.size}", "what are the others")
+        actions += Action(if (day == 0 && span <= 1) "TOMORROW" else "TODAY", if (day == 0 && span <= 1) "any delays tomorrow" else "how's the tube today")
+        if (span <= 1) actions += Action("NEXT WEEK", "any tube closures next week")
+        actions += tfl
+        return Reply(a.say, card = card, actions = actions)
     }
 
     /** The phone itself, done with his hands (Android lets an accessibility service do these). */
@@ -2520,6 +2578,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             Command.Reboot, Command.SystemsCheck, Command.Backup, Command.Restore, Command.MorningBrief, Command.Briefing, Command.TrainVoice,
             is Command.Calc, is Command.Spent, is Command.MakeDoc, is Command.OpenDoc, is Command.FindFiles, is Command.ReadDeck, is Command.PayWith, is Command.Timer,
             is Command.AddNote, is Command.WhatsApp, is Command.Text, is Command.Remember -> true
+            // The tube: his rules read the day, the stretch ("next week") and the line exactly; the brain's rewording loses them.
+            is Command.Travel -> true
             is Command.Lights -> (cmd.name?.split(' ')?.size ?: 0) <= 3 && words <= 6
             is Command.Brightness, is Command.LightColour, Command.LightsStatus, is Command.Climate, is Command.SetTemp, is Command.HeaterNow -> words <= 7
             // Said exactly the way his rules know it (one of his own phrasings): no need to ask.
@@ -2548,7 +2608,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 if (guess !is Command.Unknown) finish(text, guess, null, false) else freeAnswer(text)
             }
             lastAt = System.currentTimeMillis()
-            host.later(styled(reply))
+            host.later(fresh(text, styled(reply)))
         }
         return if (!JarvisBrain.awake) Reply(say("One moment, sir, my brain's waking up.", "Waking the brain.", "Waking up."), more = true)
             else Reply("", silent = true, more = true)
@@ -2565,7 +2625,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             JarvisBrain.Route.Kind.WRITE -> creative(text, force = true) ?: freeAnswer(text)
             JarvisBrain.Route.Kind.DO -> {
                 // Each command checked by his own rules before it's done: nothing made up gets through.
-                val cmds = r.lines.map { it.replace(Regex("\\s*\\(the user's own habit\\)", RegexOption.IGNORE_CASE), "").trim() }.map { it to JarvisParser.parse(it) }
+                val cmds = r.lines.map { it.replace(Regex("\\s*\\([^)]*\\)\\s*$"), "").trim() }.map { it to JarvisParser.parse(it) }
                     .filter { (_, c) -> c !is Command.Unknown && c !is Command.WebSearch && c !is Command.AskClaude && sensible(c) }
                 when {
                     cmds.isEmpty() -> fallback()
@@ -5655,7 +5715,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "set my alarms for work", "set an alarm for <time>", "what alarms do I have", "turn off my alarms", "set a timer for <n> minutes",
             "add <text> to my notes", "read my notes", "tick off note <n>", "delete note <n>",
             "tick off <habit>", "my habits", "add a habit called <name>",
-            "what's the weather today", "what's the weather tomorrow", "what's the weather this week", "will it rain today", "how's the tube",
+            "what's the weather today", "what's the weather tomorrow", "what's the weather this week", "will it rain today", "how's the tube", "how's the tube tomorrow",
+            "any tube closures next week", "any tube closures this weekend", "what are the other lines (every disrupted line, after a tube answer)",
             "what's on my calendar today", "what's on tomorrow", "add <event> on <day> at <time> to my calendar",
             "call <person>", "text <person> <message>", "whatsapp <person> <message>", "any messages", "any emails", "what did I miss",
             "open <app>", "lock my phone", "take a screenshot", "close the app",

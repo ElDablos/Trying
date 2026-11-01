@@ -57,6 +57,14 @@ Clock-in/out times are kept separately; the calendar only ever shows the planned
   the brain answers, and the stored line keeps that time so reopening never duplicates it. Command Deck visual
   redesign mocked up ("Stark HUD": ring-clock hero, quick tiles, glass TODAY cards, MODULES grid) and waiting
   for the owner's OK.
+  Tube: tomorrow/future days always said "can't reach TfL" because `/Line/Mode/{modes}/Status/{from}/{to}` isn't
+  a TfL route; future days now use `/Line/{all ids}/Status/{from}/to/{to}` (`Travel.url`), with each status's
+  validity period shown ("Sat 7 – Sun 8 Nov"). "This week", "next week", "this weekend" = a span (corrected
+  mid-sentence, the last one counts). "What are the six more" / "which other lines" lists every disrupted line;
+  ALL N button. Tube commands are `obvious()` (the brain's rewording had dropped "tomorrow"). "Not today,
+  tomorrow" / "no I meant next week" = follow-up. DO lines lose a trailing "(note)" before parsing.
+  Repeat guard (`fresh()`): the same answer to a *different* question (word overlap < 50%) becomes "I'd only be
+  repeating myself… say it another way and I'll learn it" (Pending.Teach), never a parrot.
 - **1.68** — AI-first Jarvis. `translate()` → `JarvisBrain.route()`: every request that isn't instant goes to Gemma
   with the conversation (last 6 lines), `worldNow()` (time, today's/tomorrow's shift, clocked-in state, habits,
   notes, devices, last pay sum, pay period) and the rules' own reading; it answers DO: <command> lines (chains),

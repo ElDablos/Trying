@@ -153,4 +153,23 @@ class BatchTest {
         val sheet = DocText.xlsx(Documents.xlsx(doc))
         assertTrue(sheet, sheet.contains("Name | Score") && sheet.contains("Amy | 7"))
     }
+
+    @Test
+    fun tubeDaysWeeksAndFollowUps() {
+        val today = LocalDate.of(2026, 11, 1) // a Sunday
+        fun p(s: String) = JarvisParser.parse(s, today)
+        assertEquals(JarvisParser.Command.Travel(1, "jubilee", true), p("how are the trains looking tomorrow and cancellations how's the jubilee line especially"))
+        // Corrected mid-sentence: the last one counts. Next week = Mon 2 Nov, seven days.
+        assertEquals(JarvisParser.Command.Travel(1, null, true, days = 7), p("are there any planned cancellations on the tubes this week oh next week sorry"))
+        assertEquals(JarvisParser.Command.Travel(1, "jubilee", true, days = 7), p("how's the jubilee next week"))
+        assertTrue(p("are the tubes ok tomorrow") is JarvisParser.Command.Travel)
+        assertEquals(JarvisParser.Command.Travel(0, null, dayGiven = false, all = true), p("what are the six more"))
+        assertEquals(JarvisParser.Command.Travel(0, null, dayGiven = false, all = true), p("which other lines"))
+        assertEquals(JarvisParser.Command.FollowUp(today.plusDays(1)), p("not today tomorrow"))
+        assertEquals(JarvisParser.Command.TrainVoice, p("train my voice"))
+        // Future days ask TfL per line (the mode address has no dates).
+        assertTrue(Travel.url(today.plusDays(1), 1, today).contains("/Line/bakerloo,"))
+        assertTrue(Travel.url(today.plusDays(1), 7, today).endsWith("/Status/2026-11-02T00:00:00/to/2026-11-08T23:59:59"))
+        assertTrue(Travel.url(today, 1, today).endsWith("/Line/Mode/tube,elizabeth-line,overground,dlr,tram/Status"))
+    }
 }

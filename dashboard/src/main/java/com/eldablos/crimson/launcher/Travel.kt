@@ -2,6 +2,7 @@ package com.eldablos.crimson.launcher
 
 import android.content.Context
 import org.json.JSONArray
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -15,7 +16,7 @@ import java.time.LocalDate
  */
 object Travel {
     /** A line and how it's running: TfL's severity (10 is good service) and why. */
-    class Line(val id: String, val name: String, val mode: String, val severity: Int, val status: String, val reason: String) {
+    class Line(val id: String, val name: String, val mode: String, val severity: Int, val status: String, val reason: String, val period: String = "") {
         val fine: Boolean get() = severity in FINE
         /** Closed, suspended or severely delayed: worth planning round. */
         val bad: Boolean get() = severity in BAD
@@ -88,15 +89,26 @@ object Travel {
         }
     }
 
-    /** The report for [day]: cached for ten minutes, fetched when [fetch] and stale. */
-    fun report(context: Context, day: LocalDate, fetch: Boolean): Report? {
+    /**
+     * Every line on the rail modes, by TfL id: a future day's status (planned closures, engineering works) is
+     * only given per line ("/Line/{ids}/Status/{from}/to/{to}"), not per mode.
+     */
+    private const val LINES = "bakerloo,central,circle,district,hammersmith-city,jubilee,metropolitan,northern,piccadilly,victoria,waterloo-city," +
+        "elizabeth,dlr,liberty,lioness,mildmay,suffragette,weaver,windrush,tram"
+
+    /** The address for [day] and the [days] after it: today's live status, or what's planned for later. */
+    fun url(day: LocalDate, days: Int = 1, today: LocalDate = LocalDate.now()): String =
+        if (day == today && days <= 1) "$API/Line/Mode/$RAIL/Status"
+        else "$API/Line/$LINES/Status/${day}T00:00:00/to/${day.plusDays((days - 1).coerceAtLeast(0).toLong())}T23:59:59"
+
+    /** The report for [day] (and the [days] after it): cached for ten minutes, fetched when [fetch] and stale. */
+    fun report(context: Context, day: LocalDate, fetch: Boolean, days: Int = 1): Report? {
         val p = prefs(context)
-        val key = day.toString()
+        val key = if (days <= 1) day.toString() else "$day+$days"
         val cachedAt = p.getLong("at:$key", 0)
         if (fetch && System.currentTimeMillis() - cachedAt > FRESH_MS) {
-            val today = day == LocalDate.now()
-            val range = if (today) "" else "/${day}T05:00:00/${day}T23:59:00"
-            val rail = get("$API/Line/Mode/$RAIL/Status$range")
+            // Today's by mode, falling back to the per-line address if that's refused.
+            val rail = get(url(day, days)) ?: if (day == LocalDate.now() && days <= 1) get("$API/Line/$LINES/Status") else null
             val national: String? = null
             val roads: String? = null
             if (rail != null) {
@@ -143,11 +155,30 @@ object Travel {
                     worst?.optInt("statusSeverity", 10) ?: 10,
                     worst?.optString("statusSeverityDescription").orEmpty().ifEmpty { "Good Service" },
                     worst?.optString("reason").orEmpty().trim(),
+                    worst?.let { period(it) }.orEmpty(),
                 )
             }
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    /** When a status holds, said briefly ("Sat 7 – Sun 8 Nov", "Sat 7 Nov"), from its first validity period. */
+    fun period(status: JSONObject): String = try {
+        val v = status.optJSONArray("validityPeriods")?.optJSONObject(0)
+        if (v == null) "" else {
+            val from = java.time.LocalDateTime.parse(v.optString("fromDate").removeSuffix("Z").substringBefore('+')).toLocalDate()
+            val to = java.time.LocalDateTime.parse(v.optString("toDate").removeSuffix("Z").substringBefore('+')).minusMinutes(1).toLocalDate()
+            val f = java.time.format.DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.UK)
+            val short = java.time.format.DateTimeFormatter.ofPattern("EEE d", java.util.Locale.UK)
+            when {
+                !to.isAfter(from) -> from.format(f)
+                from.month == to.month -> from.format(short) + " – " + to.format(f)
+                else -> from.format(f) + " – " + to.format(f)
+            }
+        }
+    } catch (e: Exception) {
+        ""
     }
 
     fun parseRoads(json: String): List<Road> {
@@ -201,13 +232,13 @@ object Travel {
     fun lineName(l: Line) = if (l.mode == "tube" || l.mode == "elizabeth-line") "${l.name.removeSuffix(" line")} line" else l.name
 
     /** Whether to plan ahead on [day], for someone who takes [commute] (the usual line first). */
-    fun advise(r: Report, commute: List<String>): Advice {
+    fun advise(r: Report, commute: List<String>, label: String? = null): Advice {
         val mine = commute.mapNotNull { id -> r.lines.firstOrNull { it.id == id } }
         val usual = mine.firstOrNull()
         val backups = mine.drop(1)
         // The tube and the lines like it: no buses, roads or national rail (you don't drive, and rarely bus).
         val trouble = r.lines.filter { !it.fine && it.id !in commute && it.mode != "national-rail" }
-        val day = if (r.day == LocalDate.now()) "today" else if (r.day == LocalDate.now().plusDays(1)) "tomorrow" else "on ${r.day.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }}"
+        val day = label ?: if (r.day == LocalDate.now()) "today" else if (r.day == LocalDate.now().plusDays(1)) "tomorrow" else "on ${r.day.dayOfWeek.name.lowercase().replaceFirstChar { it.uppercase() }}"
         val sb = StringBuilder()
         var plan = false
         val headline: String

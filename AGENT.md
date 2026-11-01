@@ -51,6 +51,23 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
+- **1.71** — "How much will I get paid for next week?" went to Payday (whole period + tomorrow, from the last pay
+  answer): the Payday rule now steps aside when a week is named, so it's `Hours("nextweek")`. "Only / just for
+  next week" after a pay answer is that week alone (`payFollowUp`), not stretched. A week after the current pay
+  period says which payslip it counts towards ("pay period 2 Nov to 15 Nov, paid Friday 20 November").
+  Why Gemma missed it: `describe(guess)` gave it a bare "Payday", so it said KEEP. Guesses are now explained in
+  words ("the whole current pay period's payslip … not one particular week"; "hours and pay for next week
+  only"), KEEP is only for a reading that answers exactly what was asked including the day/week/month, and the
+  prompt says to keep Vee's own time words. `keepWhen()`: a single DO line that dropped the day/week/month said
+  gets it put back before the rules read it. Catalogue has "how much will I earn next week (that week only)".
+  **Gemma first, properly** (`brainFirst` in `answerNow`): with the brain ready and Smart understanding on,
+  only answers to his own questions (pending), corrections, routines, taught meanings, document edits and the
+  heater's follow-up talk run before Gemma. The rules' pay/file follow-ups, `followOn`, chain `split`,
+  `creative` and `habitSaid` now run *after* Gemma, in `understood()`'s fallback, when it can't place a request
+  (KEEP with nothing parsed, or no valid DO). `obvious()` (instant, no Gemma) is down to yes/no/stop-type words,
+  time/date/battery, maths, timers, your own words for notes/messages/spending, short light & heater commands
+  and exact catalogue phrasings; anything with a writing cue always goes to Gemma. Gemma's world includes the
+  last file search. Without the brain, the old rules-first order still applies (tests run that way).
 - **1.70** — Found files open by tapping their name: `Row.tap` makes a card line a button (taller, › chevron,
   press highlight in `JarvisView.CardPanel`); the FILES card lists every match (up to 8), newest first among
   equals, "Your latest is …" for last/latest. Backups ("Jarvis memory…json") left out unless asked for.

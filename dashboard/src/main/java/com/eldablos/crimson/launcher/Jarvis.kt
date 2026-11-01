@@ -371,12 +371,16 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         // "No, I meant…", "that's wrong": he puts it right, and learns.
         if (!inRoutine) correction(text)?.let { return it }
         if (!inRoutine) JarvisRoutines.match(JarvisRoutines.all(context), text)?.let { return styled(runRoutine(it)).also { r -> lastReply = r } }
+        // Gemma first: with his brain there and Smart understanding on, everything that isn't an answer to his own
+        // question, a correction, a routine or a meaning you taught him goes to Gemma before any of his rules. The
+        // rules' follow-ups, chains, writing and habit-spotting only run after, when Gemma can't place it.
+        val brainFirst = !inRoutine && pending == null && JarvisBrain.ready(context) && JarvisMemory.smart(context)
         // Straight after a file search: "it should be a PDF", "the photo one", "from last week" narrow it down.
-        if (!inRoutine) fileFollowUp(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
+        if (!inRoutine && !brainFirst) fileFollowUp(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         // Something you've said before that he learnt the meaning of.
         val meant = if (inRoutine) null else JarvisMemory.meaning(context, text)
         // Several at once: "close the app and lock my phone".
-        if (!inRoutine && meant == null) JarvisParser.split(text)?.let { parts -> return styled(several(parts)).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
+        if (!inRoutine && meant == null && !brainFirst) JarvisParser.split(text)?.let { parts -> return styled(several(parts)).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         // Straight after the heater: "that's 22 actually, set it to 23", "you went down by one", "go up one".
         if (!inRoutine && meant == null && heaterContext()) heaterTalk(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         // A meaning learnt wrongly before (a habit you haven't got): forgotten, and read afresh.
@@ -385,10 +389,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             return answerNow(said, inRoutine)
         }
         // Something to write ("write a cheeky birthday note for Arnie"): his brain writes it.
-        if (!inRoutine && pending == null) creative(text)?.let { return styled(it).also { r -> lastReply = r; lastAsked = text; lastAskedAt = System.currentTimeMillis() } }
+        if (!inRoutine && pending == null && !brainFirst) creative(text)?.let { return styled(it).also { r -> lastReply = r; lastAsked = text; lastAskedAt = System.currentTimeMillis() } }
         // One of your habits, named or described ("tick off Place Orders for Work", "I placed orders for work today"):
         // before anything else reads "work" in it as your shift.
-        if (!inRoutine && meant == null && pending == null) habitSaid(text)?.let { h -> return finish(text, Command.Habit(h.name), null, inRoutine) }
+        if (!inRoutine && meant == null && pending == null && !brainFirst) habitSaid(text)?.let { h -> return finish(text, Command.Habit(h.name), null, inRoutine) }
         val parsed = JarvisParser.parse(meant ?: text)
         // Telling him something, not asking ("I'll be on my lessons soon, so that'll be done too"): he talks back.
         // (With his brain reading everything first, it decides what's a chat; this is for when it's off or not there.)
@@ -397,7 +401,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             return styled(converse(text)).also { lastReply = it }
         }
         // Building on the last pay sum: "and with tomorrow's shift", "so altogether".
-        if (!inRoutine && pending == null) payFollowUp(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
+        if (!inRoutine && pending == null && !brainFirst) payFollowUp(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         // A short follow-up that leans on what was just said ("what about Friday?", "and with that?", "so how much
         // then"): his brain reads it with the conversation, rather than his rules taking it on its own.
         if (!inRoutine && meant == null && pending == null && JarvisBrain.ready(context) && JarvisMemory.smart(context) &&
@@ -405,7 +409,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             Regex("^(with|including|plus|so|then|what about|how about|and with|and what about|and how about|and if|and including|and then what|so how much|so what)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text.trim()) &&
             text.trim().split(Regex("\\s+")).size <= 10) return styled(translate(text, parsed))
         // Adding on to what came before: "and eggs", "and one at 7:30", "at 3pm", "and Friday?".
-        if (!inRoutine && pending == null) followOn(text, parsed)?.let { (c, r) ->
+        if (!inRoutine && pending == null && (!brainFirst || meant != null)) followOn(text, parsed)?.let { (c, r) ->
             if (r != null) {
                 lastAt = System.currentTimeMillis()
                 return styled(r).also { lastReply = it }
@@ -2614,13 +2618,15 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      */
     private fun obvious(text: String, cmd: Command): Boolean {
         val words = text.trim().split(Regex("\\s+")).size
+        // Anything to be written for you ("write a note for Arnie's birthday") is Gemma's to read, never a quick note.
+        if (Regex("\\b(write|compose|draft|paragraph|poem|caption|speech|letter|essay|witty|funny|cheeky)\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)) return false
         return when (cmd) {
             Command.Yes, Command.No, Command.Undo, Command.Repeat, Command.Dismiss, Command.Thanks, Command.Ack, Command.Time, Command.Date, Command.Battery,
             Command.Reboot, Command.SystemsCheck, Command.Backup, Command.Restore, Command.MorningBrief, Command.Briefing, Command.TrainVoice,
-            is Command.Calc, is Command.Spent, is Command.MakeDoc, is Command.OpenDoc, is Command.FindFiles, is Command.ReadDeck, is Command.PayWith, is Command.Timer,
+            // Exact things: maths, your own words for a note or message, a timer. Files, documents, the deck and pay
+            // questions go to Gemma first like everything else.
+            is Command.Calc, is Command.Spent, is Command.Timer,
             is Command.AddNote, is Command.WhatsApp, is Command.Text, is Command.Remember -> true
-            // The tube: his rules read the day, the stretch ("next week") and the line exactly; the brain's rewording loses them.
-            is Command.Travel -> true
             is Command.Lights -> (cmd.name?.split(' ')?.size ?: 0) <= 3 && words <= 6
             is Command.Brightness, is Command.LightColour, Command.LightsStatus, is Command.Climate, is Command.SetTemp, is Command.HeaterNow -> words <= 7
             // Said exactly the way his rules know it (one of his own phrasings): no need to ask.
@@ -2657,7 +2663,16 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
 
     /** What his brain made of [text], carried out: commands (one, or several in order), a chat, an answer, a piece of writing. */
     private fun understood(text: String, guess: Command, r: JarvisBrain.Route?): Reply {
-        val fallback = { if (guess !is Command.Unknown) finish(text, guess, null, false) else if (remark(text, guess)) converse(text) else freeAnswer(text) }
+        val fallback = {
+            // Gemma couldn't place it (or agreed with the rules): the rules' own readings, the ones that lean on what
+            // was just said first, then the plain parse, a chat or an answer.
+            fileFollowUp(text) ?: payFollowUp(text)
+                ?: followOn(text, guess)?.let { (c, rr) -> rr ?: c?.let { finish(text, it, null, false) } }
+                ?: JarvisParser.split(text)?.let { several(it) }
+                ?: creative(text)
+                ?: habitSaid(text)?.let { h -> finish(text, Command.Habit(h.name), null, false) }
+                ?: if (guess !is Command.Unknown) finish(text, guess, null, false) else if (remark(text, guess)) converse(text) else freeAnswer(text)
+        }
         if (r == null) return fallback()
         return when (r.kind) {
             JarvisBrain.Route.Kind.KEEP -> fallback()
@@ -2666,7 +2681,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             JarvisBrain.Route.Kind.WRITE -> creative(text, force = true) ?: freeAnswer(text)
             JarvisBrain.Route.Kind.DO -> {
                 // Each command checked by his own rules before it's done: nothing made up gets through.
-                val cmds = r.lines.map { it.replace(Regex("\\s*\\([^)]*\\)\\s*$"), "").trim() }.map { it to JarvisParser.parse(it) }
+                val cmds = r.lines.map { it.replace(Regex("\\s*\\([^)]*\\)\\s*$"), "").trim() }.map { if (r.lines.size == 1) keepWhen(text, it) else it }.map { it to JarvisParser.parse(it) }
                     .filter { (_, c) -> c !is Command.Unknown && c !is Command.WebSearch && c !is Command.AskClaude && sensible(c) && asked(text, c) }
                 when {
                     cmds.isEmpty() -> fallback()
@@ -2682,8 +2697,32 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     }
 
     /** How his rules read it, for his brain: "Shift(day=1)", "Lights(on=true, name=null)", or nothing. */
-    private fun describe(c: Command): String = if (c is Command.Unknown) "nothing (didn't recognise it)" else c.toString().let {
-        if (it.contains('@')) c::class.simpleName.orEmpty() else it
+    private fun describe(c: Command): String {
+        fun day(d: Int?) = when (d) { null -> "the next one"; 0 -> "today"; 1 -> "tomorrow"; else -> "in $d days" }
+        // In words, so his brain can judge whether it answers what was asked (a bare "Payday" got waved through
+        // for "how much will I get paid for next week").
+        val meaning = when (c) {
+            is Command.Unknown -> return "nothing (didn't recognise it)"
+            Command.Payday -> "the whole current pay period's payslip (${Pay.periodOf(LocalDate.now(), Pay.setup(context)).let { (a, b) -> "$a to $b" }}) and payday — not one particular week"
+            is Command.Hours -> "${if (c.pay) "hours and pay" else "hours"} for ${when (c.period) { "nextweek" -> "next week only"; "lastweek" -> "last week only"; "month" -> "this month"; "lastmonth" -> "last month"; else -> "this week only" }}"
+            is Command.Shift -> "your shift ${day(c.day)}"
+            is Command.Weather -> "the weather ${day(c.day)}"
+            is Command.Agenda -> "your calendar ${day(c.day)}"
+            is Command.Travel -> "the tube ${day(c.day)}${if (c.days > 1) " for ${c.days} days" else ""}${c.line?.let { ", $it line" } ?: ""}"
+            else -> null
+        }
+        val raw = c.toString().let { if (it.contains('@')) c::class.simpleName.orEmpty() else it }
+        return if (meaning != null) "$raw = $meaning" else raw
+    }
+
+    /**
+     * The day, week or month you said, kept: if his brain's command dropped it ("how much will I earn next week"
+     * → "how much have I earned"), it's put back on the end before the rules read it.
+     */
+    private fun keepWhen(text: String, line: String): String {
+        val whenRx = Regex("\\b(next week|this week|last week|next month|this month|last month|this weekend|next weekend|tomorrow|tonight|today|yesterday|(?:on |this |next )?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\\b")
+        val said = whenRx.findAll(text.lowercase()).map { it.value }.lastOrNull() ?: return line
+        return if (whenRx.containsMatchIn(line.lowercase())) line else "$line $said"
     }
 
     /** What's true right now, for his brain: the time, today's work and clocking, habits, notes, devices, the last pay sum. */
@@ -2691,6 +2730,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val now = LocalDateTime.now()
         val today = now.toLocalDate()
         append("Now: ${now.format(DateTimeFormatter.ofPattern("EEEE d MMMM yyyy, HH:mm"))}\n")
+        lastFileQuery?.takeIf { System.currentTimeMillis() - lastFileAt < 10 * 60_000L }?.let {
+            append("Last file search: \"$it\" (to narrow it, search again with the same words plus the kind or date Vee adds)\n")
+        }
         val shifts = Shifts.all(context)
         shifts[today]?.let { append("Work today: ${it.times()}\n") } ?: append("Work today: none\n")
         shifts[today.plusDays(1)]?.let { append("Work tomorrow: ${it.times()}\n") }
@@ -2854,11 +2896,19 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             if (current && done > 0 && done < total) " (${h(done)} done, ${h(total - done)} to go)." else "."
         val paySaid = " That's ${money(slip.gross)} before tax and about ${money(slip.net)} take-home, after tax, NI and your pension" +
             if (current && done > 0 && done < total) ". ${money(done * setup.hourly)} of it earned so far." else "."
-        // You're paid fortnightly: what's on its way in the pay period you're in, alongside whatever else was asked.
-        val (pa, pb) = Pay.periodOf(today, setup)
+        // You're paid fortnightly: the payslip this counts towards (a later one when it's all after the current
+        // period, like next week from a Sunday), alongside whatever else was asked.
+        val (ca, cb) = Pay.periodOf(today, setup)
+        val later = from.isAfter(cb)
+        val (pa, pb) = if (later) Pay.periodOf(from, setup) else ca to cb
         val period = Pay.slipFor(context, pa, pb, setup)
-        val periodSaid = if (from == pa && to == pb) "" else
-            " Your next payslip, for ${pa.format(DateTimeFormatter.ofPattern("d MMM"))} to ${pb.format(DateTimeFormatter.ofPattern("d MMM"))}, comes to about ${money(period.net)} on ${Pay.payday(pb).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))}."
+        val dm = DateTimeFormatter.ofPattern("d MMM")
+        val paidOn = Pay.payday(pb).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))
+        val periodSaid = when {
+            from == pa && to == pb -> ""
+            later -> " It counts towards the pay period ${pa.format(dm)} to ${pb.format(dm)}, paid on $paidOn; with the shifts on your rota that payslip comes to about ${money(period.net)}."
+            else -> " Your next payslip, for ${pa.format(dm)} to ${pb.format(dm)}, comes to about ${money(period.net)} on $paidOn."
+        }
         return Reply("You've $hoursSaid$paySaid$periodSaid",
             card = Card("£", label.uppercase(), money(slip.net), "TAKE-HOME · ${money(slip.gross)} BEFORE TAX · ${h(total)}H",
                 list.map { (d, s) -> Row(d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault()).uppercase() + " " + d.dayOfMonth, s.times() + " · " + money(s.minutes / 60.0 * setup.hourly), ok = if (s.finish(d, zone) <= System.currentTimeMillis()) true else null) } +
@@ -2877,6 +2927,16 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val (from, to, label) = lastPay ?: return null
         if (System.currentTimeMillis() - lastPayAt > 10 * 60_000L) return null
         val t = text.lowercase().trim().trimEnd('.', '?', '!')
+        // "Only for next week", "just this week", "next week on its own": that stretch alone, not added on.
+        if (Regex("\\b(only|just|on its own|by itself|alone|separately)\\b").containsMatchIn(t) && t.split(Regex("\\s+")).size <= 8) {
+            when {
+                Regex("\\bnext week").containsMatchIn(t) -> return hours("nextweek", true)
+                Regex("\\blast week").containsMatchIn(t) -> return hours("lastweek", true)
+                Regex("\\b(this week|the week)").containsMatchIn(t) -> return hours("week", true)
+                Regex("\\blast month").containsMatchIn(t) -> return hours("lastmonth", true)
+                Regex("\\bthis month").containsMatchIn(t) -> return hours("month", true)
+            }
+        }
         val modifier = Regex("^(and|plus|with|including|include|add|so|what about|how about|then|together|altogether|all together|in total|total|overall|combined|if i add|if you add|count|counting)\\b").containsMatchIn(t) ||
             Regex("\\b(altogether|all together|in total|combined|overall|with it|on top)\\b").containsMatchIn(t)
         if (!modifier || t.split(Regex("\\s+")).size > 10) return null
@@ -5749,7 +5809,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val CATALOGUE = listOf(
             "turn the light on", "turn the light off", "make the light <colour>", "light brightness to <n> percent", "dim the light", "brighter",
             "turn the heating on", "turn the heating off", "set the heating to <n> degrees", "heating up 1 degree", "heating down 1 degree",
-            "what's my next payday", "my pay including <tomorrow / Sunday / my next shift>", "how much have I earned this week", "how much have I earned this month",
+            "what's my next payday", "my pay including <tomorrow / Sunday / my next shift>", "how much have I earned this week", "how much have I earned this month", "how much will I earn next week (that week only)",
+            "how much did I earn last week",
             "how many hours did I work last week", "my pay log", "check my payslip",
             "I started work now", "I clocked in at <time>", "I finished work now", "I clocked out at <time>",
             "am I working tomorrow", "when's my next shift", "what's my rota this week", "what's my rota next week", "add shifts <days and times>",
@@ -5761,7 +5822,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             "what's on my calendar today", "what's on tomorrow", "add <event> on <day> at <time> to my calendar",
             "call <person>", "text <person> <message>", "whatsapp <person> <message>", "any messages", "any emails", "what did I miss",
             "open <app>", "lock my phone", "take a screenshot", "close the app",
-            "find files <what, kind, when>", "read my deck", "brief me", "morning brief",
+            "find files <what, kind, when>", "find files <last search words> pdf (narrowing the last search)", "read my deck", "brief me", "morning brief",
             "make a pdf of <what>", "put my shifts and pay in a spreadsheet", "create a study plan for <subject>", "open my last document", "my documents",
             "I spent £<n> on <thing>", "how much have I spent this week", "I've finished studying", "how's my study going",
             "remember <fact>", "what's <fact>", "countdown to <event> on <date>", "how long until <event>",

@@ -182,4 +182,11 @@ class BatchTest {
         assertNull(Files.dates("my latest payslip", LocalDate.of(2026, 11, 1)))
         assertEquals(LocalDate.of(2026, 10, 18), Files.dates("recent payslips", LocalDate.of(2026, 11, 1))!!.start)
     }
+
+    @Test
+    fun nextWeekPayOnly() {
+        assertEquals(JarvisParser.Command.Hours("nextweek", true), JarvisParser.parse("How much will i get paid for next week?"))
+        assertEquals(JarvisParser.Command.Hours("nextweek", true), JarvisParser.parse("how much will i earn next week"))
+        assertEquals(JarvisParser.Command.Payday, JarvisParser.parse("how much will i get paid"))
+    }
 }

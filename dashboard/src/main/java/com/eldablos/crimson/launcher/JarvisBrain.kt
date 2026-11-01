@@ -391,7 +391,7 @@ object JarvisBrain {
         val learnt = JarvisMemory.meanings(context).takeLast(30)
         val system = "You are the understanding of Jarvis, the assistant on Vee's phone. Work out what Vee wants and reply in this exact format, nothing else:\n" +
             "DO: <command>   (one line per command, in order, when Vee wants something done or looked up that's in the list below)\n" +
-            "KEEP   (when Jarvis's own reading, given below, is already right)\n" +
+            "KEEP   (only when Jarvis's own reading, given below, answers exactly what Vee asked, including any day, week or month Vee named; if it covers more or less, give the right DO line instead)\n" +
             "CHAT   (Vee is just talking: how they feel, news about their day, thanks, small talk)\n" +
             "ANSWER   (a general question to answer from knowledge, not about Vee's phone or day)\n" +
             "WRITE   (Vee wants something written: a message, wish, poem, caption…)\n\n" +
@@ -401,6 +401,7 @@ object JarvisBrain {
             "\n\nWhat's true right now:\n$world\n" +
             "Rules: Vee speaks with an accent and types fast, so words are often misheard or misspelt (\"page slip\" is payslip, \"clocked up\" is clocked out, \"barrel\" may be month): work out what was meant. " +
             "Use the conversation for \"this\", \"that\", \"it\", \"and with…\", \"so altogether\". Use what's true right now: if Vee is clocked in today, \"I've clocked in/up/off\" means clocking out. " +
+            "Keep Vee's own day, week or month in the command (\"next week\" stays next week; \"only\" or \"just\" means that stretch alone). " +
             "Several requests in one sentence become several DO lines, in order. Never invent names, dates, times or numbers that aren't in the request, the conversation or what's true now. " +
             "If unsure between commands, pick the most likely; if none fits, CHAT or ANSWER."
         val recent = JarvisChat.recent(context, 6).joinToString("\n")

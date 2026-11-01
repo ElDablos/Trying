@@ -886,7 +886,7 @@ object JarvisParser {
         // Payday, and pay details from your payslip.
         if ((Regex("\\b(next )?pay ?day\\b|when (do|will) i (get )?paid|when am i paid|next pay(slip| packet| cheque| check)?\\b|how much (will|do|am|should|shall) i (be )?(supposed to |going to |gonna |meant to )?(get|be getting|be paid|get paid|receive|take home)\\b|what (will|do|am) i (get|be getting) paid|how much is my (next )?(pay|wage|wages|payslip|paycheck|paycheque)\\b|what's my next (pay|wage)").containsMatchIn(t) ||
                 (has("paid", "pay", "get") && Regex("\\b(on )?(friday|the 6th|6th|this friday|next friday)\\b").containsMatchIn(t) && has("how much", "what"))) &&
-            !has("log", "this month", "last month", "last week", "hourly")) return Command.Payday
+            !has("log", "this month", "last month", "last week", "next week", "this week", "hourly")) return Command.Payday
         Regex("\\bbasic (?:pay|rate|hourly rate|wage)?(?: is| of)? (?:£)?(\\d{1,3}(?:\\.\\d{1,2})?)").find(t)?.let { return Command.SetPay("basic", it.groupValues[1].toDouble(), null) }
         Regex("\\b(?:tronc|tips?)(?: is| are| comes to| of)? (?:about |around )?(?:£)?(\\d{1,2}(?:\\.\\d{1,2})?)(?: (?:an|per|a|1) (?:hour|hr))?").find(t)?.takeIf { !has("how much", "what") }?.let { return Command.SetPay("tronc", it.groupValues[1].toDouble(), null) }
         Regex("\\btax code(?: is)? ([a-z]?\\d{2,4} ?[a-z]{1,2}|br|d0|d1|nt)\\b").find(t)?.let { return Command.SetPay("code", null, it.groupValues[1].replace(" ", "")) }

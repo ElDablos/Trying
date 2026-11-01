@@ -121,6 +121,16 @@ object Pay {
         return start to start.plusDays(len - 1)
     }
 
+    /**
+     * The pay period whose payday is next (today counts): the one that just ended until its Friday, then the
+     * current one. On Monday 2 Nov that's 19 Oct–1 Nov, paid Friday 6 Nov, not the period that's just begun.
+     */
+    fun nextPaid(today: LocalDate, s: Setup): Pair<LocalDate, LocalDate> {
+        val cur = periodOf(today, s)
+        val prev = periodOf(cur.first.minusDays(1), s)
+        return if (!payday(prev.second).isBefore(today)) prev else cur
+    }
+
     /** Paid the Friday after a period ends (it ended Sunday 18 Oct, paid Friday 23 Oct). */
     fun payday(periodEnd: LocalDate): LocalDate = periodEnd.plusDays(5)
 

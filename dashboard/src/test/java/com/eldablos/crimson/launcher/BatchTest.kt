@@ -189,4 +189,15 @@ class BatchTest {
         assertEquals(JarvisParser.Command.Hours("nextweek", true), JarvisParser.parse("how much will i earn next week"))
         assertEquals(JarvisParser.Command.Payday, JarvisParser.parse("how much will i get paid"))
     }
+
+    @Test
+    fun nextPaydayAfterAPeriodEnds() {
+        val setup = Pay.Setup(12.71, 5.29, "918L", 5.0, true, 26, LocalDate.of(2026, 10, 5))
+        // Monday 2 Nov: 19 Oct–1 Nov has ended but isn't paid until Friday 6 Nov, so that's the next payday.
+        assertEquals(LocalDate.of(2026, 10, 19) to LocalDate.of(2026, 11, 1), Pay.nextPaid(LocalDate.of(2026, 11, 2), setup))
+        assertEquals(LocalDate.of(2026, 10, 19) to LocalDate.of(2026, 11, 1), Pay.nextPaid(LocalDate.of(2026, 11, 6), setup))
+        // Saturday 7 Nov: paid, so the next is the period you're in, paid Fri 20 Nov.
+        assertEquals(LocalDate.of(2026, 11, 2) to LocalDate.of(2026, 11, 15), Pay.nextPaid(LocalDate.of(2026, 11, 7), setup))
+        assertEquals(LocalDate.of(2026, 11, 20), Pay.payday(Pay.nextPaid(LocalDate.of(2026, 11, 7), setup).second))
+    }
 }

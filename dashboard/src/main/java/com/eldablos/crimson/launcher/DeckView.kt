@@ -341,6 +341,15 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             setOnFocusChangeListener { _, _ -> wake() }
         }
         addView(input, LayoutParams((262 * u).toInt(), (40 * u).toInt()))
+        // The keyboard and the navigation bar: the Ask bar sits above them; the header below the status bar.
+        setOnApplyWindowInsetsListener { _, insets ->
+            val ime = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+            val nav = insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
+            bottomInset = maxOf(ime, nav).toFloat()
+            topInset = insets.getInsets(android.view.WindowInsets.Type.statusBars()).top.toFloat()
+            board.invalidate()
+            insets
+        }
         clipChildren = true
     }
 
@@ -352,7 +361,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         coinId = null
         deckTab = 0
         sheetDay = null
-        board.dropCaches()
+        board.resetDeck()
+        requestApplyInsets()
         board.scrollTo(0f)
         board.forget()
         board.freshIntel()
@@ -459,7 +469,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     /** Back: out of a coin page or customising first; true if it handled it. */
     fun back(): Boolean {
         if (dismissKeyboard()) return true
-        if (sheetDay != null) {
+        if (sheetDay != null || board.closeSheets()) {
             sheetDay = null
             board.invalidate()
             return true
@@ -470,6 +480,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         }
         if (coinId != null) {
             coinId = null
+            board.scrollTo(coinReturn)
             board.invalidate()
             return true
         }
@@ -556,6 +567,13 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     }
 
     /** Samples bytes in and out, at most once a second, for the network card's live speeds. */
+    private var trafficCount = 0
+    private var coinReturn = 0f
+
+    /** Space taken by the keyboard / navigation bar at the bottom and the status bar at the top. */
+    private var bottomInset = 0f
+    private var topInset = 0f
+
     private fun sampleTraffic() {
         val t = SystemClock.elapsedRealtime()
         val last = lastTraffic
@@ -570,7 +588,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             while (upRates.size > 40) upRates.removeFirst()
         }
         lastTraffic = Triple(rx, tx, t)
-        if (downRates.size % 5 == 0) net = DeckData.network(context)
+        if (++trafficCount % 5 == 0) net = DeckData.network(context)
     }
 
     /** Reads the shifts, then brings the calendar up to date with them in the background. */
@@ -624,6 +642,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     private fun setShift(date: LocalDate, shift: Shifts.Shift?) {
         Shifts.set(context, date, shift)
         loadShifts()
+        board.dropCaches()
         board.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
     }
 
@@ -687,6 +706,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
     private fun openCoin(id: String) {
         coinId = id
         range = Markets.Range.DAY
+        coinReturn = board.currentScroll()
         board.scrollTo(0f)
         loadChart()
     }
@@ -732,12 +752,17 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private val chartRect = RectF()
         private var scrubX = -1f
 
+        fun currentScroll() = scroll
+
         fun scrollTo(y: Float) {
             scroller.forceFinished(true)
             scroll = y
         }
 
         private fun maxScroll() = (contentH - height).coerceAtLeast(0f)
+
+        /** The one redraw timer (a new one replaces the last, so redraws never pile up). */
+        private val tick = Runnable { invalidate() }
 
         private fun hit(r: RectF, action: () -> Unit) {
             // Scrolled up under the deck's header: not tappable there.
@@ -746,6 +771,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         }
 
         private fun hold(r: RectF, action: () -> Unit) {
+            if (clipTop > 0f && r.bottom + oy < clipTop) return
             holds += RectF(r.left, r.top + oy, r.right, r.bottom + oy) to action
         }
 
@@ -763,9 +789,10 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     input.translationX = fieldLeft
                     input.translationY = fieldTop
                 }
-                input.visibility = if (sheetDay != null) INVISIBLE else VISIBLE
+                input.visibility = if (sheetDay != null || actionsOpen) INVISIBLE else VISIBLE
                 val live = now - touchedAt < LIVE_MS || now - openedAt < 1600 || speaking
-                if (live) postInvalidateDelayed(33) else postInvalidateDelayed(1000 - System.currentTimeMillis() % 1000)
+                removeCallbacks(tick)
+                postDelayed(tick, if (live) 33L else 1000L - System.currentTimeMillis() % 1000)
                 return
             }
             backdrop(canvas)
@@ -831,7 +858,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
             // Animate while opening or touched lately; otherwise only the clock ticks.
             val live = now - touchedAt < LIVE_MS || now - openedAt < 1600 || speaking
-            if (live) postInvalidateDelayed(33) else postInvalidateDelayed(1000 - System.currentTimeMillis() % 1000)
+            removeCallbacks(tick)
+            postDelayed(tick, if (live) 33L else 1000L - System.currentTimeMillis() % 1000)
         }
 
         private fun backdrop(canvas: Canvas) {
@@ -4086,7 +4114,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             if (ms - cacheAt < 60_000) return
             cacheAt = ms
             actualCache = Shifts.actual(context)
-            val setup = Pay.setup(context)
+            val setup = paySetup()
             val mon = Shifts.monday(LocalDate.now())
             weekNets = (-2..1).map { k ->
                 val m = mon.plusWeeks(k.toLong())
@@ -4094,16 +4122,99 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             }
         }
 
-        fun dropCaches() { cacheAt = 0L }
+        fun dropCaches() { cacheAt = 0L; snapAt = 0L }
+
+        // --- What the deck shows, read at most once a second (and the System tab's checks every few seconds),
+        // never every frame: storage, permissions, the alarm and the log all ask other parts of the system.
+        private var snapAt = 0L
+        private var statusAt = 0L
+        private var snapSetupV: Pay.Setup? = null
+        private fun paySetup(): Pay.Setup = snapSetupV ?: Pay.setup(context).also { snapSetupV = it }
+        private val uniCache = HashMap<LocalDate, Uni.Session?>()
+        private fun uniOn(d: LocalDate): Uni.Session? = if (uniCache.containsKey(d)) uniCache[d] else Uni.on(context, d).also { uniCache[d] = it }
+        private var snapClocked: LocalDateTime? = null
+        private var snapAlarm: Long? = null
+        private var snapCanWrite = false
+        private var snapReminder = true
+        private var snapTemplates: List<Shifts.Shift> = emptyList()
+        private var snapSpend: List<Spending.Item> = emptyList()
+        private var snapUpcoming: List<Up> = emptyList()
+        private var snapPay: Pair<LocalDate, LocalDate>? = null
+        private var snapSlip: Pay.Slip? = null
+        private var snapDone = 0.0
+        private var snapTotal = 0.0
+        private var snapThermalCode: Int? = null
+        private var snapBattery: String? = null
+        private var snapListeners = ""
+        private var snapBrain = false
+        private var snapBrainName: String? = null
+        private var snapHandsOn = false
+        private var snapWake = false
+        private var snapFiles = false
+        private var snapUsage = false
+        private var snapLog: List<SysLog.Entry> = emptyList()
+        private var snapWakeLog: String? = null
+        private var snapVersion = "?"
+
+        private fun snapshot() {
+            val ms = SystemClock.uptimeMillis()
+            if (ms - snapAt < 1000) return
+            snapAt = ms
+            val today = LocalDate.now()
+            snapSetupV = Pay.setup(context)
+            uniCache.clear()
+            snapClocked = Shifts.clockedIn(context)
+            snapAlarm = context.getSystemService(android.app.AlarmManager::class.java)?.nextAlarmClock?.triggerTime
+            snapCanWrite = Shifts.canWrite(context)
+            snapReminder = Shifts.reminder(context)
+            snapTemplates = Shifts.templates(context)
+            snapSpend = runCatching { Spending.between(context, Shifts.monday(today), today) }.getOrDefault(emptyList())
+            val setup = paySetup()
+            val (pa, pb) = Pay.nextPaid(today, setup)
+            snapPay = pa to pb
+            snapSlip = runCatching { Pay.slipFor(context, pa, pb, setup) }.getOrNull()
+            val zone = ZoneId.systemDefault()
+            val now = System.currentTimeMillis()
+            val worked = (shifts + actualCache).filterKeys { !it.isBefore(pa) && !it.isAfter(pb) }
+            snapTotal = worked.values.sumOf { it.minutes } / 60.0
+            snapDone = worked.filter { (d, s) -> s.finish(d, zone) <= now }.values.sumOf { it.minutes } / 60.0
+            snapUpcoming = upcoming(7)
+            snapBattery = batteryEstimate()
+            if (deckTab == 4 && ms - statusAt >= 5000) {
+                statusAt = ms
+                snapThermalCode = try { context.getSystemService(android.os.PowerManager::class.java)?.currentThermalStatus } catch (e: Exception) { null }
+                snapListeners = try { Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners").orEmpty() } catch (e: Exception) { "" }
+                snapBrain = JarvisBrain.installed(context)
+                snapBrainName = if (snapBrain) JarvisBrain.installedName(context) else null
+                snapHandsOn = JarvisHands.enabled(context)
+                snapWake = JarvisEar.wakeEnabled(context)
+                snapFiles = Files.fullAccess()
+                snapUsage = DeckData.hasUsageAccess(context)
+                snapLog = SysLog.all(context)
+                snapWakeLog = JarvisEar.wakeLog(context)
+                snapVersion = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?" } catch (e: Exception) { "?" }
+            }
+        }
+
+        /** Back to a fresh deck: Now, no sheets, the highlight on Now, every tab at the top. */
+        fun resetDeck() {
+            actionsOpen = false
+            logOpen = false
+            tabPos = 0f
+            tabScroll.fill(0f)
+            statusAt = 0L
+            dropCaches()
+        }
 
         fun deck(canvas: Canvas, now: Long) {
             refreshCaches()
+            snapshot()
             // The room: near-black, a soft glow of the theme's colour from the top.
             canvas.drawColor(0xFF07080B.toInt())
             canvas.drawCircle(width * .5f, -60 * u, 380 * u, Paint().apply {
                 shader = android.graphics.RadialGradient(width * .5f, -60 * u, 380 * u, Hud.alpha(Hud.RED, .30f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             })
-            val top0 = 40 * u
+            val top0 = maxOf(40 * u, topInset + 12 * u)
             contentTop = top0 + 60 * u + 64 * u
             // Content, scrolling under the header.
             oy = -scroll
@@ -4120,7 +4231,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 3 -> lifeTab(canvas, y, now)
                 else -> systemTab(canvas, y, now)
             }
-            contentH = y + 120 * u
+            contentH = y + 120 * u + bottomInset
             canvas.restore()
             clipTop = 0f
             scroll = scroll.coerceIn(0f, maxScroll())
@@ -4134,11 +4245,12 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             tabs(canvas, top0 + 62 * u)
             askBar(canvas)
             sheetDay?.let { daySheet(canvas, it) }
+            if (actionsOpen) actionsSheet(canvas)
         }
 
         private fun header(canvas: Canvas, y: Float) {
             val today = LocalDate.now()
-            val (pa, pb) = Pay.periodOf(today, Pay.setup(context))
+            val (pa, pb) = Pay.periodOf(today, paySetup())
             val dm = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
             val small = when (deckTab) {
                 0 -> today.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))
@@ -4190,6 +4302,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             scroller.forceFinished(true)
             tabScroll[deckTab] = scroll
             deckTab = i.coerceIn(0, TITLES.size - 1)
+            if (deckTab == 4) { statusAt = 0L; snapAt = 0L }
             sheetDay = null
             scroll = tabScroll[deckTab]
             cardIndex = 0
@@ -4199,7 +4312,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         }
 
         private fun askBar(canvas: Canvas) {
-            val r = RectF(12 * u, height - 22 * u - 64 * u, width - 12 * u, height - 22 * u)
+            val bottom = height - maxOf(22 * u, bottomInset + 8 * u)
+            val r = RectF(12 * u, bottom - 64 * u, width - 12 * u, bottom)
             canvas.drawRoundRect(r, 24 * u, 24 * u, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.argb(240, 20, 22, 27)
                 setShadowLayer(18 * u, 0f, 8 * u, Color.argb(140, 0, 0, 0))
@@ -4248,10 +4362,10 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val zone = ZoneId.systemDefault()
             val ms = System.currentTimeMillis()
             val today = LocalDate.now()
-            val setup = Pay.setup(context)
+            val setup = paySetup()
             val cur = Shifts.current(shifts, ms, zone)
             val next = Shifts.next(shifts, ms, zone)
-            val clocked = Shifts.clockedIn(context)
+            val clocked = snapClocked
             val facts = ArrayList<Fact>()
             val label: String
             val tag: String
@@ -4282,7 +4396,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     tag = "● " + if (d == today) "Today" else "Tomorrow"
                     big = s.start.format(DateTimeFormatter.ofPattern("HH:mm"))
                     bigSmall = "  – ${s.end.format(DateTimeFormatter.ofPattern("HH:mm"))} · in ${span(start - ms)}"
-                    val alarm = context.getSystemService(android.app.AlarmManager::class.java)?.nextAlarmClock?.triggerTime
+                    val alarm = snapAlarm
                     if (alarm != null && alarm in ms..start) facts += Fact("⏰", "Alarm at ${hm(alarm)}", GOOD)
                     else facts += Fact("⏰", "No alarm before it", warn())
                     travel?.takeIf { it.day == d }?.let { r ->
@@ -4406,14 +4520,13 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             }
             for (k in 0..days) {
                 val d = today.plusDays(k.toLong())
-                Uni.on(context, d)?.let { s -> out += Up(d, d.atTime(s.start).atZone(zone).toInstant().toEpochMilli(), "Uni", s.times(), UNI_BLUE) }
+                uniOn(d)?.let { s -> out += Up(d, d.atTime(s.start).atZone(zone).toInstant().toEpochMilli(), "Uni", s.times(), UNI_BLUE) }
             }
-            val setup = Pay.setup(context)
-            val (_, pb) = Pay.periodOf(today, setup)
-            val payday = Pay.payday(pb).let { if (it.isBefore(today)) Pay.payday(pb.plusWeeks(2)) else it }
+            // The next payday: the period just ended until its Friday, then the current one.
+            val (_, pb) = snapPay ?: Pay.nextPaid(today, paySetup())
+            val payday = Pay.payday(pb)
             if (!payday.isAfter(today.plusDays(days.toLong()))) {
-                val (a, b) = Pay.periodOf(payday.minusDays(5), setup)
-                val net = runCatching { Pay.slipFor(context, a, b, setup).net }.getOrNull()
+                val net = snapSlip?.net
                 out += Up(payday, payday.atStartOfDay(zone).toInstant().toEpochMilli(), "Payday", net?.let { "About ${Pay.money(it).substringBefore('.')}" } ?: "", GOOD)
             }
             countdowns.filter { !it.date.isBefore(today) && !it.date.isAfter(today.plusDays(days.toLong())) }.forEach { c ->
@@ -4447,7 +4560,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         }
 
         private fun comingUp(canvas: Canvas, top: Float, now: Long): Float =
-            listCard(canvas, top, now, "Coming up", null, upcoming(7).take(3), "Nothing in the next week")
+            listCard(canvas, top, now, "Coming up", null, snapUpcoming.take(3), "Nothing in the next week")
 
         private fun glance(canvas: Canvas, top: Float, now: Long): Float {
             val gap = 10 * u
@@ -4499,6 +4612,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
         // --- Plan: the month ---
 
+        /** Where the month grid is on screen this frame (a swipe on it changes the month, not the tab). */
+        val monthRect = RectF()
+
         private fun planMonthTab(canvas: Canvas, top: Float, now: Long): Float {
             var y = monthCard(canvas, top, now) + 12 * u
             y = dayCard(canvas, y, now, calDay) + 12 * u
@@ -4533,6 +4649,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 listOf("M", "T", "W", "T", "F", "S", "S").forEachIndexed { i, d ->
                     canvas.drawText(d, x0 + i * (cw + gap) + cw / 2, y0 + 10 * u, t(12f, if (i >= 5) FAINT else MUTED, Hud.MEDIUM, Paint.Align.CENTER))
                 }
+                monthRect.set(r.left, y0 + 18 * u + oy, r.right, r.bottom - 30 * u + oy)
                 val save = canvas.save()
                 canvas.clipRect(r.left + 2 * u, y0 + 18 * u, r.right - 2 * u, r.bottom - 30 * u)
                 canvas.translate(calSlide * r.width() * .35f, 0f)
@@ -4559,7 +4676,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         val mY = cy + 40 * u
                         if (s != null) canvas.drawRoundRect(RectF(cell.left + 7 * u, mY - 2 * u, cell.right - 7 * u, mY + 2 * u), 2 * u, 2 * u, Hud.fill(if (d.isBefore(today)) Hud.alpha(Hud.HOT, .55f) else Hud.HOT))
                         val dots = ArrayList<Int>()
-                        if (Uni.on(context, d) != null) dots += UNI_BLUE
+                        if (uniOn(d) != null) dots += UNI_BLUE
                         monthEvents[d].orEmpty().filter { it.id !in shiftEvents }.take(3).forEach { _ -> dots += Color.argb(200, 255, 255, 255) }
                         if (countdowns.any { it.date == d }) dots += warn()
                         val dw = 7 * u
@@ -4589,7 +4706,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val zone = ZoneId.systemDefault()
             val s = shifts[d]
             val worked = actualCache[d]
-            val uni = Uni.on(context, d)
+            val uni = uniOn(d)
             val events = monthEvents[d].orEmpty().filter { it.id !in shiftEvents }
             val cds = countdowns.filter { it.date == d }
             val rows = ArrayList<Triple<String, String, Int>>() // left, right, colour of the marker
@@ -4645,7 +4762,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             val days = (0..6).map { shiftWeek.plusDays(it.toLong()) }
             val colH = 124 * u
             val h = 16 * u + 46 * u + 44 * u + 54 * u + colH + 22 * u + 30 * u + 74 * u + 16 * u
-            val setup = Pay.setup(context)
+            val setup = paySetup()
             card(canvas, now, top, h) {
                 val r = RectF(16 * u, top, width - 16 * u, top + h)
                 glass(canvas, r, 26 * u)
@@ -4661,7 +4778,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 if (shiftWeek != Shifts.monday(today)) tap(RectF(prev.right + 8 * u, top + 14 * u, next.left - 8 * u, top + 60 * u)) { shiftWeek = Shifts.monday(today); loadShifts() }
                 // Where the shifts go.
                 val (syncText, syncColor, syncAct) = when {
-                    !Shifts.canWrite(context) -> Triple("Allow calendar access to save your shifts", warn(), { askCalendarAccess() })
+                    !snapCanWrite -> Triple("Allow calendar access to save your shifts", warn(), { askCalendarAccess() })
                     shiftPending.isNotEmpty() -> Triple("Saving ${shiftPending.size} to ${shiftCalendar ?: "your calendar"}…", warn(), { loadShifts() })
                     else -> Triple("✓ Shifts saved to ${shiftCalendar ?: "your calendar"}", GOOD, { pickCalendar() })
                 }
@@ -4696,14 +4813,14 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                         })
                         if (past && actualCache[d] != null) canvas.drawText("✓", blk.centerX(), blk.top + 15 * u, t(11f, Theme.on(Hud.RED), Hud.SANS, Paint.Align.CENTER))
                     }
-                    Uni.on(context, d)?.let { us ->
+                    uniOn(d)?.let { us ->
                         val a = col.top + 4 * u + (col.height() - 8 * u) * frac(us.start)
                         val b = col.top + 4 * u + (col.height() - 8 * u) * frac(us.end)
                         canvas.drawRoundRect(RectF(col.left + 4 * u, a, col.right - 4 * u, maxOf(b, a + 12 * u)), 8 * u, 8 * u, Hud.fill(Hud.alpha(UNI_BLUE, if (s != null) .75f else 1f)))
                     }
                     val under = when {
                         s != null -> if (s.name.isNotBlank() && s.name.length <= 7 && s.start.hour == 9 && s.end.hour == 17) s.name.lowercase().replaceFirstChar { it.uppercase() } else "${short(s.start)}–${short(s.end)}"
-                        Uni.on(context, d) != null -> "Uni"
+                        uniOn(d) != null -> "Uni"
                         past -> "Off"
                         else -> "＋"
                     }
@@ -4735,7 +4852,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private fun daySheet(canvas: Canvas, d: LocalDate) {
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Hud.fill(Color.argb(150, 0, 0, 0)))
             hit(RectF(0f, 0f, width.toFloat(), height.toFloat())) { sheetDay = null }
-            val templates = Shifts.templates(context)
+            val templates = snapTemplates.take(((height * .8f - 300 * u) / (62 * u)).toInt().coerceAtLeast(2))
             val s = shifts[d]
             val worked = actualCache[d]
             val rowH = 62 * u
@@ -4773,8 +4890,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 tap(row) { val day = d; sheetDay = null; pickTimes("WORKED") { sh -> Shifts.setActual(context, day, sh); dropCaches(); invalidate() } }
                 y += rowH
             }
-            val ok = Shifts.canWrite(context)
-            canvas.drawText(if (ok) "✓ Saved to ${shiftCalendar ?: "your calendar"}${if (Shifts.reminder(context)) " · reminder before each shift" else ""}" else "Allow calendar access in Calendar to save shifts there",
+            val ok = snapCanWrite
+            canvas.drawText(if (ok) "✓ Saved to ${shiftCalendar ?: "your calendar"}${if (snapReminder) " · reminder before each shift" else ""}" else "Allow calendar access in Calendar to save shifts there",
                 width / 2f, y + 18 * u, t(13f, if (ok) GOOD else warn(), Hud.SANS, Paint.Align.CENTER))
         }
 
@@ -4785,9 +4902,16 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             // Your shifts, where they turn into pay: set a day and the payslip above follows.
             y = shiftWeekCard(canvas, y, now) + 12 * u
             val bw = (width - 32 * u - 16 * u) / 3
-            listOf("Copy last week" to { val days = (0..6).map { shiftWeek.plusDays(it.toLong()) }; days.forEach { d -> Shifts.set(context, d, shifts[d.minusWeeks(1)]) }; loadShifts(); dropCaches() },
+            listOf("Copy last week" to {
+                    confirm("Copy last week's shifts onto ${shiftWeek.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))}'s week? It replaces what's there.") {
+                        val days = (0..6).map { shiftWeek.plusDays(it.toLong()) }
+                        days.forEach { d -> Shifts.set(context, d, shifts[d.minusWeeks(1)]) }
+                        loadShifts()
+                        dropCaches()
+                    }
+                },
                 "Shift types" to { addTemplate() },
-                "Calendar" to { if (Shifts.canWrite(context)) pickCalendar() else askCalendarAccess() }).forEachIndexed { i, (lab, act) ->
+                "Calendar" to { if (snapCanWrite) pickCalendar() else askCalendarAccess() }).forEachIndexed { i, (lab, act) ->
                 pill(canvas, RectF(16 * u + i * (bw + 8 * u), y, 16 * u + i * (bw + 8 * u) + bw, y + 50 * u), lab, size = 14f) { act() }
             }
             y += 62 * u
@@ -4798,15 +4922,11 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         }
 
         private fun payslipCard(canvas: Canvas, top: Float, now: Long): Float {
-            val setup = Pay.setup(context)
-            val today = LocalDate.now()
-            val (pa, pb) = Pay.periodOf(today, setup)
-            val slip = runCatching { Pay.slipFor(context, pa, pb, setup) }.getOrNull()
-            val worked = (shifts + actualCache).filterKeys { !it.isBefore(pa) && !it.isAfter(pb) }
-            val ms = System.currentTimeMillis()
-            val zone = ZoneId.systemDefault()
-            val total = worked.values.sumOf { it.minutes } / 60.0
-            val done = worked.filter { (d, s) -> s.finish(d, zone) <= ms }.values.sumOf { it.minutes } / 60.0
+            val setup = paySetup()
+            val (_, pb) = snapPay ?: Pay.nextPaid(LocalDate.now(), setup)
+            val slip = snapSlip
+            val total = snapTotal
+            val done = snapDone
             val rows = if (slip == null) emptyList() else listOf(
                 "Basic · ${"%.1f".format(Locale.ROOT, slip.hours)}h" to Pay.money(slip.basic),
                 "TRONC (estimate)" to Pay.money(slip.tronc),
@@ -4815,7 +4935,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 "National Insurance" to "−" + Pay.money(slip.ni),
                 "Pension" to "−" + Pay.money(slip.pension),
             )
-            val h = 44 * u + 176 * u + rows.size * 40 * u + 16 * u
+            val h = 44 * u + 192 * u + rows.size * 40 * u + 16 * u
             card(canvas, now, top, h) {
                 val r = RectF(16 * u, top, width - 16 * u, top + h)
                 glass(canvas, r, 26 * u)
@@ -4837,7 +4957,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 canvas.drawText(net, cx, cy + 12 * u, Hud.fit(net, t(32f, Color.WHITE, Hud.LIGHT, Paint.Align.CENTER), rr * 1.6f))
                 fun h1(v: Double) = if (v % 1.0 == 0.0) "${v.toInt()}" else "%.1f".format(Locale.ROOT, v)
                 canvas.drawText("${h1(done)} of ${h1(total)}h", cx, cy + 34 * u, t(12.5f, MUTED, Hud.SANS, Paint.Align.CENTER))
-                var y = top + 44 * u + 180 * u
+                var y = top + 44 * u + 196 * u
                 rows.forEach { (k, v) ->
                     canvas.drawLine(r.left + 16 * u, y - 26 * u, r.right - 16 * u, y - 26 * u, Hud.stroke(Color.argb(14, 255, 255, 255), u))
                     canvas.drawText(k, r.left + 16 * u, y, t(15f, MUTED))
@@ -4875,14 +4995,14 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
         private fun spendCard(canvas: Canvas, top: Float, now: Long): Float {
             val mon = Shifts.monday(LocalDate.now())
-            val items = runCatching { Spending.between(context, mon, LocalDate.now()) }.getOrDefault(emptyList())
+            val items = snapSpend
             val kinds = Spending.byKind(items).take(4)
             val h = 44 * u + (if (kinds.isEmpty()) 44 * u else kinds.size * 40 * u) + 10 * u
             card(canvas, now, top, h) {
                 val r = RectF(16 * u, top, width - 16 * u, top + h)
                 glass(canvas, r)
                 caption(canvas, r, top + 28 * u, "Spent this week", if (items.isEmpty()) null else Pay.money(items.sumOf { it.amount }))
-                if (kinds.isEmpty()) canvas.drawText("Nothing logged — say \"I spent £12 on lunch\"", r.left + 16 * u, top + 70 * u, Hud.fit("Nothing", t(14.5f, MUTED), r.width() - 32 * u))
+                if (kinds.isEmpty()) { val msg = "Nothing logged — say \"I spent £12 on lunch\""; canvas.drawText(msg, r.left + 16 * u, top + 70 * u, Hud.fit(msg, t(14.5f, MUTED), r.width() - 32 * u)) }
                 kinds.forEachIndexed { i, (k, v) ->
                     val y = top + 70 * u + i * 40 * u
                     canvas.drawText(k.replaceFirstChar { it.uppercase() }, r.left + 16 * u, y, t(15f, MUTED))
@@ -4901,7 +5021,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 caption(canvas, r, top + 28 * u, "Markets", null)
                 list.forEachIndexed { i, c ->
                     val y = top + 44 * u + i * 52 * u
-                    canvas.drawText(c.name, r.left + 16 * u, y + 30 * u, t(15.5f, Color.WHITE, Hud.MEDIUM))
+                    canvas.drawText(Hud.ellipsize(c.name, t(15.5f, Color.WHITE, Hud.MEDIUM), r.width() - 230 * u), r.left + 16 * u, y + 30 * u, t(15.5f, Color.WHITE, Hud.MEDIUM))
                     canvas.drawText(Markets.money(c.price), r.right - 100 * u, y + 30 * u, t(15f, Color.WHITE, Hud.SANS, Paint.Align.RIGHT))
                     val up = c.changePct >= 0
                     val chg = "${if (up) "▲" else "▼"} ${"%.1f".format(Locale.ROOT, abs(c.changePct))}%"
@@ -4940,7 +5060,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     val box = RectF(r.left + 16 * u, y + 8 * u, r.left + 64 * u, y + 56 * u)
                     if (done) canvas.drawRoundRect(box, 15 * u, 15 * u, Hud.fill(GOOD))
                     else canvas.drawRoundRect(box, 15 * u, 15 * u, Hud.stroke(Color.argb(50, 255, 255, 255), 2 * u))
-                    if (done) canvas.drawText("✓", box.centerX(), box.centerY() + 8 * u, t(22f, 0xFF06301E.toInt(), Hud.BOLD, Paint.Align.CENTER))
+                    if (done) canvas.drawText("✓", box.centerX(), box.centerY() + 8 * u, t(22f, Theme.INK, Hud.BOLD, Paint.Align.CENTER))
                     canvas.drawText(Hud.ellipsize(hb.name, t(16f, Color.WHITE, Hud.MEDIUM), r.right - box.right - 32 * u), box.right + 14 * u, y + 28 * u, t(16f, Color.WHITE, Hud.MEDIUM))
                     for (k in 0..6) {
                         val d = today.minusDays((6 - k).toLong())
@@ -4979,7 +5099,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     canvas.drawText(Hud.ellipsize(text, p, r.width() - 90 * u), r.left + 16 * u, y + 31 * u, p)
                     val box = RectF(r.right - 52 * u, y + 10 * u, r.right - 16 * u, y + 46 * u)
                     if (done) canvas.drawRoundRect(box, 11 * u, 11 * u, Hud.fill(GOOD)) else canvas.drawRoundRect(box, 11 * u, 11 * u, Hud.stroke(Color.argb(50, 255, 255, 255), 2 * u))
-                    if (done) canvas.drawText("✓", box.centerX(), box.centerY() + 6 * u, t(16f, 0xFF06301E.toInt(), Hud.BOLD, Paint.Align.CENTER))
+                    if (done) canvas.drawText("✓", box.centerX(), box.centerY() + 6 * u, t(16f, Theme.INK, Hud.BOLD, Paint.Align.CENTER))
                     tap(RectF(r.left, y, r.right, y + rowH)) { toggleNote(line) }
                 }
                 val half = (r.width() - 32 * u - 8 * u) / 2
@@ -5051,7 +5171,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val r = RectF(16 * u, top, width - 16 * u, top + h)
                 glass(canvas, r)
                 caption(canvas, r, top + 28 * u, "Quick actions", "Change ›")
-                tap(RectF(r.centerX(), top, r.right, top + 40 * u)) { customizing = true; scrollTo(0f); invalidate() }
+                tap(RectF(r.centerX(), top, r.right, top + 40 * u)) { actionsOpen = true; invalidate() }
                 val cw = (r.width() - 32 * u) / perRow
                 list.forEachIndexed { i, a ->
                     val cx = r.left + 16 * u + (i % perRow) * cw + cw / 2
@@ -5160,8 +5280,6 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private fun systemTab(canvas: Canvas, top: Float, now: Long): Float {
             sampleTraffic()
             sampleCpu()
-            // Keeps the live readings moving while you're here.
-            touchedAt = SystemClock.uptimeMillis()
             var y = top
             y = perfCard(canvas, y, now) + 12 * u
             y = netCard(canvas, y, now) + 12 * u
@@ -5179,15 +5297,16 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val r = RectF(16 * u, top, width - 16 * u, top + h)
                 glass(canvas, r, 26 * u)
                 val thermal = try {
-                    when (context.getSystemService(android.os.PowerManager::class.java)?.currentThermalStatus) {
+                    when (snapThermalCode) {
                         0 -> "Cool"; 1 -> "Warm"; 2 -> "Warm"; 3 -> "Hot"; 4, 5, 6 -> "Very hot"; else -> null
                     }
                 } catch (e: Exception) { null }
                 caption(canvas, r, top + 28 * u, "Performance", thermal, if (thermal == "Cool" || thermal == null) GOOD else warn())
                 val c = cpu
                 canvas.drawText(c?.let { "%.2f GHz".format(Locale.ROOT, it.first) } ?: "—", r.left + 16 * u, top + 78 * u, t(32f, Color.WHITE, Hud.LIGHT))
-                canvas.drawText(c?.let { "CPU average · fastest core %.2f GHz".format(Locale.ROOT, it.second) } ?: "CPU speed isn't readable on this phone", r.left + 16 * u, top + 100 * u, t(13f, MUTED))
-                graph(canvas, RectF(r.left + 180 * u, top + 46 * u, r.right - 16 * u, top + 96 * u), cpuHistory.toList(), Hud.HOT)
+                val cpuSub = c?.let { "CPU average · top core %.2f GHz".format(Locale.ROOT, it.second) } ?: "CPU speed isn't readable on this phone"
+                canvas.drawText(cpuSub, r.left + 16 * u, top + 104 * u, Hud.fit(cpuSub, t(13f, MUTED), r.width() - 32 * u))
+                graph(canvas, RectF(r.left + 190 * u, top + 46 * u, r.right - 16 * u, top + 84 * u), cpuHistory.toList(), Hud.HOT)
                 var yy = top + 44 * u + 96 * u
                 if (s != null) {
                     yy = meter(canvas, r, yy, "Memory", 1f - s.ramFree.toFloat() / s.ramTotal, "${gb(s.ramTotal - s.ramFree)} of ${gb(s.ramTotal)}")
@@ -5233,7 +5352,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 glass(canvas, r, 26 * u)
                 caption(canvas, r, top + 28 * u, "Battery", tel?.let { "${it.battery}%${if (it.charging) " · charging" else ""}" })
                 var yy = top + 44 * u
-                yy = row(canvas, r, yy, "Time left", batteryEstimate()?.lowercase()?.replaceFirstChar { it.uppercase() } ?: if (tel?.charging == true) "Charging" else "Working it out")
+                yy = row(canvas, r, yy, "Time left", snapBattery?.lowercase()?.replaceFirstChar { it.uppercase() } ?: if (tel?.charging == true) "Charging" else "Working it out")
                 yy = row(canvas, r, yy, "Temperature", p?.let { "%.1f °C".format(Locale.ROOT, it.tempC) } ?: "—", if ((p?.tempC ?: 0f) >= 40f) warn() else Color.WHITE)
                 yy = row(canvas, r, yy, "Health", p?.health?.lowercase()?.replaceFirstChar { it.uppercase() } ?: "—", if (p?.health == "GOOD") GOOD else warn())
                 row(canvas, r, yy, "Voltage · type", p?.let { "%.2f V · %s".format(Locale.ROOT, it.voltage, it.tech) } ?: "—")
@@ -5244,21 +5363,21 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         /** What Jarvis and the deck depend on, each with a tap to fix it. */
         private fun statusCard(canvas: Canvas, top: Float, now: Long): Float {
             val pkg = context.packageName
-            val listeners = try { Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners").orEmpty() } catch (e: Exception) { "" }
+            val listeners = snapListeners
             val items = listOf(
-                Triple("Brain (Gemma)", if (JarvisBrain.installed(context)) (JarvisBrain.installedName(context) ?: "ready") to true else "Not downloaded" to false) { onJarvis?.invoke() },
-                Triple("Hands", when { JarvisHands.instance != null -> "Connected" to true; JarvisHands.enabled(context) -> "On but not answering" to false; else -> "Off" to false }) {
+                Triple("Brain (Gemma)", if (snapBrain) (snapBrainName ?: "ready") to true else "Not downloaded" to false) { onJarvis?.invoke() },
+                Triple("Hands", when { JarvisHands.instance != null -> "Connected" to true; snapHandsOn -> "On but not answering" to false; else -> "Off" to false }) {
                     try { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
                 },
-                Triple("Hey Jarvis", when { !JarvisEar.wakeEnabled(context) -> "Off" to false; JarvisEar.instance != null -> "Listening" to true; else -> "On, not running" to false }) { onJarvis?.invoke() },
+                Triple("Hey Jarvis", when { !snapWake -> "Off" to false; JarvisEar.instance != null -> "Listening" to true; else -> "On, not running" to false }) { onJarvis?.invoke() },
                 Triple("Notifications", if (listeners.contains(pkg)) "Allowed" to true else "Not allowed" to false) {
                     try { context.startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
                 },
-                Triple("Calendar", if (Shifts.canWrite(context)) "Allowed" to true else "Not allowed" to false) { askCalendarAccess() },
-                Triple("All files", if (Files.fullAccess()) "Allowed" to true else "Photos and media only" to false) {
+                Triple("Calendar", if (snapCanWrite) "Allowed" to true else "Not allowed" to false) { askCalendarAccess() },
+                Triple("All files", if (snapFiles) "Allowed" to true else "Photos and media only" to false) {
                     try { context.startActivity(Files.accessIntent(context)) } catch (e: Exception) {}
                 },
-                Triple("Usage access", if (DeckData.hasUsageAccess(context)) "Allowed" to true else "Not allowed" to false) {
+                Triple("Usage access", if (snapUsage) "Allowed" to true else "Not allowed" to false) {
                     try { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
                 },
             )
@@ -5274,7 +5393,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     val ok = state.second
                     canvas.drawCircle(r.left + 22 * u, y + 23 * u, 4.5f * u, Hud.fill(if (ok) GOOD else warn()))
                     canvas.drawText(k, r.left + 36 * u, y + 28 * u, t(15f, Color.WHITE))
-                    canvas.drawText(state.first + if (ok) "" else "  ›", r.right - 16 * u, y + 28 * u, Hud.fit(state.first, t(14f, if (ok) MUTED else warn(), Hud.SANS, Paint.Align.RIGHT), r.width() * .5f))
+                    val st = state.first + if (ok) "" else "  ›"
+                    canvas.drawText(st, r.right - 16 * u, y + 28 * u, Hud.fit(st, t(14f, if (ok) MUTED else warn(), Hud.SANS, Paint.Align.RIGHT), r.width() * .5f))
                     if (!ok) tap(RectF(r.left, y, r.right, y + 46 * u)) { fix() }
                 }
             }
@@ -5284,9 +5404,9 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
         private var logOpen = false
 
         private fun logCard(canvas: Canvas, top: Float, now: Long): Float {
-            val entries = SysLog.all(context)
+            val entries = snapLog
             val shown = entries.take(if (logOpen) 40 else 8)
-            val wake = JarvisEar.wakeLog(context)?.lines()?.filter { it.isNotBlank() }?.takeLast(if (logOpen) 10 else 3)?.reversed().orEmpty()
+            val wake = snapWakeLog?.lines()?.filter { it.isNotBlank() }?.takeLast(if (logOpen) 10 else 3)?.reversed().orEmpty()
             val rowH = 54 * u
             val h = 44 * u + shown.size.coerceAtLeast(1) * rowH + (if (wake.isNotEmpty()) 34 * u + wake.size * 24 * u else 0f) + 62 * u
             card(canvas, now, top, h) {
@@ -5322,13 +5442,13 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                     context.getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Crimson log", text))
                     Toast.makeText(context, "Log copied", Toast.LENGTH_SHORT).show()
                 }
-                pill(canvas, RectF(r.left + 32 * u + 2 * bw, by, r.right - 16 * u, by + 46 * u), "Clear", size = 14f) { confirm("Clear the log?") { SysLog.clear(context); invalidate() } }
+                pill(canvas, RectF(r.left + 32 * u + 2 * bw, by, r.right - 16 * u, by + 46 * u), "Clear", size = 14f) { confirm("Clear the log?") { SysLog.clear(context); statusAt = 0L; snapAt = 0L; invalidate() } }
             }
             return top + h
         }
 
         private fun deviceCard(canvas: Canvas, top: Float, now: Long): Float {
-            val version = try { context.packageManager.getPackageInfo(context.packageName, 0).versionName } catch (e: Exception) { "?" }
+            val version = snapVersion
             val chip = if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.takeIf { it.isNotBlank() && it != "unknown" } else null
             val h = 44 * u + 42 * u * 4 + 8 * u
             card(canvas, now, top, h) {
@@ -5342,6 +5462,45 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 row(canvas, r, yy, "Crimson", "v$version")
             }
             return top + h
+        }
+
+        /** Choosing the quick actions: tap to add or remove (up to eight), in the order you pick them. */
+        private var actionsOpen = false
+
+        /** Closes the quick-actions sheet; true if it was open. */
+        fun closeSheets(): Boolean = actionsOpen.also { actionsOpen = false }
+
+        private fun actionsSheet(canvas: Canvas) {
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Hud.fill(Color.argb(150, 0, 0, 0)))
+            hit(RectF(0f, 0f, width.toFloat(), height.toFloat())) { actionsOpen = false }
+            val all = Action.entries
+            val perRow = 4
+            val cw = (width - 32f * u) / perRow
+            val rows = (all.size + perRow - 1) / perRow
+            val h = 28 * u + 70 * u + rows * 88 * u + 74 * u
+            val r = RectF(0f, height - h, width.toFloat(), height.toFloat() + 30 * u)
+            canvas.drawRoundRect(r, 28 * u, 28 * u, Hud.fill(SHEET))
+            canvas.drawRoundRect(r, 28 * u, 28 * u, Hud.stroke(Color.argb(22, 255, 255, 255), u))
+            hit(r) {}
+            canvas.drawRoundRect(RectF(r.centerX() - 20 * u, r.top + 10 * u, r.centerX() + 20 * u, r.top + 15 * u), 3 * u, 3 * u, Hud.fill(Color.argb(50, 255, 255, 255)))
+            canvas.drawText("Quick actions", 18 * u, r.top + 48 * u, t(21f, Color.WHITE, Hud.MEDIUM))
+            canvas.drawText("Tap to add or remove · ${actionList.size} of 8", 18 * u, r.top + 70 * u, t(13.5f, MUTED))
+            all.forEachIndexed { i, a ->
+                val cx = 16 * u + (i % perRow) * cw + cw / 2
+                val cy = r.top + 98 * u + (i / perRow) * 88 * u + 28 * u
+                val on = a in actionList
+                val c = RectF(cx - 28 * u, cy - 28 * u, cx + 28 * u, cy + 28 * u)
+                if (on) canvas.drawOval(c, Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = LinearGradient(c.left, c.top, c.right, c.bottom, Hud.HOT, Hud.RED, Shader.TileMode.CLAMP) })
+                else canvas.drawOval(c, Hud.fill(Color.argb(18, 255, 255, 255)))
+                canvas.drawText(a.glyph, cx, cy + 7 * u, t(19f, if (on) Theme.on(Hud.RED) else Color.WHITE, Hud.SANS, Paint.Align.CENTER))
+                val lab = a.label.lowercase().replaceFirstChar { it.uppercase() }.replace("Dnd", "Do not disturb")
+                canvas.drawText(lab, cx, cy + 46 * u, Hud.fit(lab, t(12f, if (on) Color.WHITE else MUTED, Hud.SANS, Paint.Align.CENTER), cw - 6 * u))
+                tap(RectF(cx - cw / 2, cy - 32 * u, cx + cw / 2, cy + 54 * u)) {
+                    actionList = if (on) actionList - a else if (actionList.size < 8) actionList + a else actionList
+                    DeckStore.setActions(context, actionList)
+                }
+            }
+            pill(canvas, RectF(16 * u, height - 70 * u, width - 16 * u, height - 22 * u), "Done", light = true) { actionsOpen = false }
         }
 
         private fun openAlarms() {
@@ -5376,6 +5535,11 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             }
 
             override fun onLongPress(e: MotionEvent) {
+                // Not through an open sheet, the header, the tab bar or the Ask bar.
+                if (coinId == null && !customizing && !shiftsOpen) {
+                    if (sheetDay != null || actionsOpen) return
+                    if (e.y < contentTop - 4 * u || e.y > height - maxOf(22 * u, bottomInset + 8 * u) - 64 * u) return
+                }
                 holds.lastOrNull { it.first.contains(e.x, e.y) }?.let {
                     performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     it.second()
@@ -5396,7 +5560,12 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 val dx = e2.x - start.x
                 // The deck's tabs: swipe left for the next one, right for the one before (from Now, right closes).
                 if (coinId == null && !customizing && !shiftsOpen && abs(dx) > 90 * u && abs(vx) > abs(vy)) {
-                    if (sheetDay != null) {
+                    if (deckTab == 1 && sheetDay == null && !actionsOpen && monthRect.contains(start.x, start.y)) {
+                        shiftMonth(if (dx < 0) 1 else -1)
+                        return true
+                    }
+                    if (sheetDay != null || actionsOpen) {
+                        actionsOpen = false
                         sheetDay = null
                         invalidate()
                         return true

@@ -27,7 +27,7 @@ object Uni {
     private const val NONE = "none"
 
     /** Weekly sessions by weekday. */
-    fun weekly(context: Context): Map<DayOfWeek, Session> = prefs(context).getString("weekly", null).orEmpty().split(';').mapNotNull { part ->
+    fun weekly(context: Context): Map<DayOfWeek, Session> = prefs(context).getString("weekly", null).orEmpty().split(';').filter { it.isNotBlank() }.mapNotNull { part ->
         runCatching {
             val (d, t) = part.split('=')
             DayOfWeek.valueOf(d) to session(t)!!
@@ -35,7 +35,7 @@ object Uni {
     }.toMap()
 
     /** One-off days: a session, or null for "no uni that day" (a weekly one cancelled). */
-    private fun days(context: Context): Map<LocalDate, Session?> = prefs(context).getString("days", null).orEmpty().split(';').mapNotNull { part ->
+    private fun days(context: Context): Map<LocalDate, Session?> = prefs(context).getString("days", null).orEmpty().split(';').filter { it.isNotBlank() }.mapNotNull { part ->
         runCatching {
             val (d, t) = part.split('=')
             LocalDate.parse(d) to (if (t == NONE) null else session(t))

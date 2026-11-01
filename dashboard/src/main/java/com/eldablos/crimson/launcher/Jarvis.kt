@@ -221,14 +221,19 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
      * himself, he says he can't do that yet and asks you to put it another way, which he then learns.
      */
     private fun fresh(said: String, r: Reply): Reply {
-        if (r.say.isBlank() || r.silent) return r
+        // Placeholders ("Searching your files…") and failures aren't answers to compare.
+        if (r.say.isBlank() || r.silent || r.more || r.failed) return r
         val norm = { s: String -> s.lowercase().replace(Regex("[^a-z0-9 ]"), "").trim() }
         // Asking the same thing again ("how's the tube now?") rightly gets the same answer: only a different question counts.
         val words = { s: String -> norm(s).split(' ').filter { it.length > 2 }.toSet() }
         val a = words(said)
         val b = words(sameFor.orEmpty())
         val overlap = if (a.isEmpty() || b.isEmpty()) 0.0 else (a intersect b).size.toDouble() / minOf(a.size, b.size)
-        val repeatAsked = JarvisParser.parse(said).let { it == Command.Repeat } || overlap >= .5
+        // The same kind of request reworded ("when do I work tomorrow" / "what time do I start tomorrow") is a repeat too.
+        val now = JarvisParser.parse(said)
+        val before = JarvisParser.parse(sameFor.orEmpty())
+        val sameKind = now !is Command.Unknown && now::class == before::class
+        val repeatAsked = now == Command.Repeat || overlap >= .5 || sameKind
         val same = sameSay != null && norm(r.say) == norm(sameSay!!) && !repeatAsked && r.say.length > 25
         if (!same) {
             sameSay = r.say
@@ -874,7 +879,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val m = Regex("^(?:no,? |nah,? )?(?:it'?s|it is|it should be|should be|it was|it'?ll be|its|try|only|just|i want|i mean|i meant)? ?(?:a |an |the |in |from )?(pdf|word|word doc|word document|document|doc|excel|spreadsheet|photo|picture|image|screenshot|video|recording|text file|zip|today|yesterday|this week|last week|this month|last month)(?: one| file| version)?$").find(t) ?: return null
         val extra = m.groupValues[1]
         // Without the kind it had before, so "it should be a pdf" replaces "document" rather than adding to it.
-        val base = q.replace(Regex("\\b(pdfs?|word|docs?|documents?|excel|spreadsheets?|photos?|pictures?|images?|screenshots?|videos?|recordings?|files?)\\b"), " ").replace(Regex("\\s+"), " ").trim()
+        var base = q.replace(Regex("\\b(pdfs?|word|docs?|documents?|excel|spreadsheets?|photos?|pictures?|images?|screenshots?|videos?|recordings?|files?)\\b"), " ")
+        // A new date replaces the old one ("from last week", then "it was yesterday").
+        if (Regex("^(today|yesterday|this week|last week|this month|last month)$").matches(extra))
+            base = base.replace(Regex("\\b(from |in )?(today|yesterday|this week|last week|this month|last month)\\b"), " ")
+        base = base.replace(Regex("\\s+"), " ").trim()
         return findFiles("$base $extra".trim())
     }
 
@@ -2242,7 +2251,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val word = when {
             span <= 1 -> dayWord(day).removePrefix("on ")
             date.dayOfWeek == java.time.DayOfWeek.SATURDAY && span <= 2 -> if (day < 7) "this weekend" else "that weekend"
-            date.dayOfWeek == java.time.DayOfWeek.MONDAY && span == 7 && day > 0 -> "next week"
+            date.dayOfWeek == java.time.DayOfWeek.MONDAY && span == 7 && day in 1..7 -> "next week"
             day == 0 -> "this week"
             else -> "from ${date.format(DateTimeFormatter.ofPattern("EEE d MMM", java.util.Locale.UK))}"
         }
@@ -2473,7 +2482,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val t = text.lowercase()
         return when (c) {
             is Command.MakeDoc -> Regex("\\b(make|create|write|turn|put|generate|export|build|draft|convert|produce|save (?:it |that |them )?as|as an? (?:pdf|word|excel|spreadsheet|document))\\b").containsMatchIn(t)
-            is Command.OpenApp -> Regex("\\b(open|launch|start|load|go to|take me to)\\b").containsMatchIn(t) &&
+            is Command.OpenApp -> c.name.isNotBlank() && Regex("\\b(open|launch|start|load|go to|take me to)\\b").containsMatchIn(t) &&
                 AppCatalog.apps().any { it.label.equals(c.name, true) || it.label.contains(c.name, true) }
             else -> true
         }
@@ -2672,11 +2681,13 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
                 ?: JarvisParser.split(text)?.let { several(it) }
                 ?: creative(text)
                 ?: habitSaid(text)?.let { h -> finish(text, Command.Habit(h.name), null, false) }
-                ?: if (guess !is Command.Unknown) finish(text, guess, null, false) else if (remark(text, guess)) converse(text) else freeAnswer(text)
+                // "I had a long day" read as a habit you haven't got: a chat, not a command.
+                ?: if (remark(text, guess)) converse(text) else if (guess !is Command.Unknown) finish(text, guess, null, false) else freeAnswer(text)
         }
         if (r == null) return fallback()
         return when (r.kind) {
-            JarvisBrain.Route.Kind.KEEP -> fallback()
+            // Gemma agrees with the rules' reading: do exactly that (the follow-up rules don't get to take it over).
+            JarvisBrain.Route.Kind.KEEP -> if (guess !is Command.Unknown && !remark(text, guess)) finish(text, guess, null, false) else fallback()
             JarvisBrain.Route.Kind.CHAT -> converse(text)
             JarvisBrain.Route.Kind.ANSWER -> freeAnswer(text)
             JarvisBrain.Route.Kind.WRITE -> creative(text, force = true) ?: freeAnswer(text)
@@ -2723,6 +2734,11 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun keepWhen(text: String, line: String): String {
         val whenRx = Regex("\\b(next week|this week|last week|next month|this month|last month|this weekend|next weekend|tomorrow|tonight|today|yesterday|(?:on |this |next )?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\\b")
         val said = whenRx.findAll(text.lowercase()).map { it.value }.lastOrNull() ?: return line
+        // Only for commands about a time; never added into the words of a note or a message.
+        when (JarvisParser.parse(line)) {
+            is Command.Hours, is Command.Shift, is Command.ShiftWeek, is Command.Weather, is Command.WeatherWeek, is Command.Agenda, is Command.Travel, Command.Payday, is Command.Unknown -> {}
+            else -> return line
+        }
         return if (whenRx.containsMatchIn(line.lowercase())) line else "$line $said"
     }
 
@@ -2744,8 +2760,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         append("Devices: light \"Vee Room\" in Tapo; heater \"Bedroom\" in Air+\n")
         lastPay?.takeIf { System.currentTimeMillis() - lastPayAt < 10 * 60_000L }?.let { (a, b, l) -> append("Last pay sum shown: $l (${a} to ${b})\n") }
         lastDoc?.takeIf { System.currentTimeMillis() - lastDocAt < 30 * 60_000L }?.let { append("Last document made: ${it.title}\n") }
-        val (pa, pb) = Pay.periodOf(today, Pay.setup(context))
-        append("Pay is fortnightly: this period ${pa} to ${pb}, paid ${Pay.payday(pb)}\n")
+        val ps = Pay.setup(context)
+        val (pa, pb) = Pay.periodOf(today, ps)
+        val (na, nb) = Pay.nextPaid(today, ps)
+        append("Pay is fortnightly: this period ${pa} to ${pb}, paid ${Pay.payday(pb)}" + (if (na != pa) "; the last period (${na} to ${nb}) is paid ${Pay.payday(nb)}, the next payday" else "") + "\n")
     }
 
     /** The question handed to Claude. */
@@ -2901,13 +2919,17 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         // period, like next week from a Sunday), alongside whatever else was asked.
         val (ca, cb) = Pay.periodOf(today, setup)
         val later = from.isAfter(cb)
-        val (pa, pb) = if (later) Pay.periodOf(from, setup) else ca to cb
+        // All before the current period ("last week" on a Monday): the payslip those shifts are on.
+        val earlier = to.isBefore(ca)
+        val (pa, pb) = if (later || earlier) Pay.periodOf(from, setup) else Pay.nextPaid(today, setup)
         val period = Pay.slipFor(context, pa, pb, setup)
         val dm = DateTimeFormatter.ofPattern("d MMM")
-        val paidOn = Pay.payday(pb).format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))
+        val payDate = Pay.payday(pb)
+        val paidOn = payDate.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()))
         val periodSaid = when {
             from == pa && to == pb -> ""
             later -> " It counts towards the pay period ${pa.format(dm)} to ${pb.format(dm)}, paid on $paidOn; with the shifts on your rota that payslip comes to about ${money(period.net)}."
+            earlier -> " Those shifts are on the payslip for ${pa.format(dm)} to ${pb.format(dm)}, ${if (payDate.isBefore(today)) "paid" else "paid on"} $paidOn: about ${money(period.net)} take-home."
             else -> " Your next payslip, for ${pa.format(dm)} to ${pb.format(dm)}, comes to about ${money(period.net)} on $paidOn."
         }
         return Reply("You've $hoursSaid$paySaid$periodSaid",
@@ -2928,6 +2950,10 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         val (from, to, label) = lastPay ?: return null
         if (System.currentTimeMillis() - lastPayAt > 10 * 60_000L) return null
         val t = text.lowercase().trim().trimEnd('.', '?', '!')
+        // Only for pay: "what about the weather tomorrow" or "so set an alarm for tomorrow" aren't pay sums.
+        val reading = JarvisParser.parse(text)
+        val payish = Regex("\\b(pay|paid|earn|earned|earnings|money|wage|wages|£|take home|take-home|altogether|all together|in total|total|combined|overall)\\b").containsMatchIn(t)
+        if (!payish && reading !is Command.Unknown && reading !is Command.FollowUp && reading !is Command.Hours && reading != Command.Payday && reading !is Command.PayWith) return null
         // "Only for next week", "just this week", "next week on its own": that stretch alone, not added on.
         if (Regex("\\b(only|just|on its own|by itself|alone|separately)\\b").containsMatchIn(t) && t.split(Regex("\\s+")).size <= 8) {
             when {
@@ -3165,8 +3191,9 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     /** The fortnight you're in, as a payslip: when it's paid and what comes home. */
     private fun payday(): Reply {
         val setup = Pay.setup(context)
-        val (a, b) = Pay.periodOf(LocalDate.now(), setup)
-        lastPay = Triple(a, b, "this pay period")
+        // The next payday: the period just ended until it's paid, then the one you're in.
+        val (a, b) = Pay.nextPaid(LocalDate.now(), setup)
+        lastPay = Triple(a, b, if (a == Pay.periodOf(LocalDate.now(), setup).first) "this pay period" else "the last pay period")
         lastPayAt = System.currentTimeMillis()
         val slip = Pay.slipFor(context, a, b, setup)
         val day = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault())

@@ -51,6 +51,23 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
+- **1.74** (includes 1.73) — Full check before a long gap, from an independent code review of 1.69–1.73:
+  Ask bar sits above the keyboard and the navigation bar, header below the status bar (window insets; the app
+  draws edge to edge so adjustResize does nothing). Deck reads storage/permissions/alarm/log at most once a
+  second (`snapshot()`; System checks every 5 s) instead of every frame; one redraw timer (`tick`) so redraws
+  can't stack; network re-read every 5 samples; Uni parsing no longer throws on empty data. Long-press can't
+  fire through sheets, the header or the bars; swiping on the month grid changes month; swiping/back closes
+  the quick-actions sheet (new-style picker replaces the old customise page for actions); opening the deck
+  resets tabs/sheets/scroll; coin page returns to where you were; Copy last week asks first; shift edits
+  refresh the pay; day sheet caps its rows to the screen. Payday: `Pay.nextPaid()` — between a period ending
+  and its Friday the next payday is that period (it showed 20 Nov instead of 6 Nov), used by Jarvis's payday,
+  his world, pay sums and the deck; "last week" on a Monday names the payslip those shifts are on. Jarvis:
+  `fresh()` ignores placeholders/failures and same-kind requests (it could hijack the next search or file
+  follow-up and set a wrong Teach); pay follow-ups only for pay-ish requests; Gemma KEEP with a known reading
+  runs it directly; `keepWhen` only adds time words to time commands (never into a note); a file follow-up's
+  new date replaces the old; "I had a long day" is chat even when Gemma agrees with the rules. Layout: payslip
+  rows clear the ring, CPU caption and graph don't overlap, status/markets text fits, tick marks readable on
+  every theme (`Theme.INK`).
 - **1.73** — Deck System tab (5th tab): Performance (CPU GHz from /sys cpufreq with a live graph, thermal
   status, memory, storage, launcher memory, cores, uptime), Network (live down/up with graphs, connection,
   signal, VPN, data today), Battery (time left, temperature, health, voltage), Jarvis & access (brain, hands,

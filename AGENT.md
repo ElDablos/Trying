@@ -51,12 +51,17 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
-- **1.69 (in progress, not pushed)** — Chat keeps up with the strip: `JarvisChat.watcher` hands every
+- **1.69** — Command Deck visual redesign ("Stark HUD"): hero ring clock (seconds arc, gold day arc, tap → alarms)
+  with date, mode and status chips (battery, network, VPN, DND, unread, next alarm); four quick tiles (next shift,
+  sky, next payslip net + payday, habits) that open their card and scroll to it (`reveal`, `jumpTo`, `sectionTop`);
+  Ask Claude always right under the tiles, never folded; "TODAY" (briefing + open cards) and "MODULES" (folded
+  cards as a 2-column grid of tiles with live `summary`); glass `panel` (gradient edge), hex `glyph` badges in
+  `title`, honeycomb backdrop from one cached tile (BitmapShader). Strips removed.
+  Chat keeps up with the strip: `JarvisChat.watcher` hands every
   line to the open panel as it's said, so a "Hey Jarvis" exchange over the panel appears in the chat at once
   (before, it only showed on reopening). `JarvisChat.heard()` shows your words the moment they're heard, before
   the brain answers, and the stored line keeps that time so reopening never duplicates it. Command Deck visual
-  redesign mocked up ("Stark HUD": ring-clock hero, quick tiles, glass TODAY cards, MODULES grid) and waiting
-  for the owner's OK.
+  redesign mocked up first (scratchpad mock/deck.html) and approved.
   Tube: tomorrow/future days always said "can't reach TfL" because `/Line/Mode/{modes}/Status/{from}/{to}` isn't
   a TfL route; future days now use `/Line/{all ids}/Status/{from}/to/{to}` (`Travel.url`), with each status's
   validity period shown ("Sat 7 – Sun 8 Nov"). "This week", "next week", "this weekend" = a span (corrected

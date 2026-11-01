@@ -749,18 +749,44 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 shiftsOpen -> y = shiftPage(canvas, y, now)
                 customizing -> y = customize(canvas, y, now)
                 else -> {
+                    // The hero (ring clock, status) and the four quick tiles; Ask Claude right under them, never folded;
+                    // then today's open cards, the briefing first; and the folded ones as a grid of modules.
+                    sectionTop.clear()
                     y = header(canvas, y, now)
-                    order.filter { it !in hidden }.forEach { s ->
+                    val shownSections = order.filter { it !in hidden }
+                    if (Section.CLAUDE in shownSections) {
+                        sectionTop[Section.CLAUDE] = y
+                        y = claude(canvas, y + 14 * u, now)
+                    }
+                    y = label(canvas, "TODAY", y + 24 * u)
+                    y = briefingCard(canvas, y + 4 * u, now)
+                    shownSections.filter { it != Section.CLAUDE && it !in folded }.forEach { s ->
                         val before = y
-                        y = if (s in folded && s != Section.CLAUDE) strip(canvas, s, y + 10 * u, now) else section(canvas, s, y + 12 * u, now)
+                        sectionTop[s] = y
+                        y = section(canvas, s, y + 12 * u, now)
                         if (y < before + 10 * u) y = before
                     }
-                    canvas.drawText("▸ TAP A STRIP TO OPEN · HOLD A TITLE TO FOLD · ✎ REARRANGE", width / 2f, y + 30 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .16f, Paint.Align.CENTER))
+                    val mods = shownSections.filter { it != Section.CLAUDE && it in folded }
+                    if (mods.isNotEmpty()) {
+                        y = label(canvas, "MODULES", y + 24 * u)
+                        y = modules(canvas, mods, y + 4 * u, now)
+                    }
+                    canvas.drawText("TAP A MODULE TO OPEN · HOLD A TITLE TO FOLD · ✎ REARRANGE", width / 2f, y + 30 * u, Hud.text(7.5f * u, Hud.DUST, Hud.MONO, .16f, Paint.Align.CENTER))
                 }
             }
             contentH = y + 56 * u
             canvas.restore()
             scroll = scroll.coerceIn(0f, maxScroll())
+            // A tile or module just opened a card: glide to it.
+            jumpTo?.let { s ->
+                jumpTo = null
+                sectionTop[s]?.let { target ->
+                    val to = (target - 8 * u).coerceIn(0f, maxScroll())
+                    scroller.forceFinished(true)
+                    scroller.startScroll(0, scroll.toInt(), 0, (to - scroll).toInt(), 420)
+                    postInvalidateOnAnimation()
+                }
+            }
 
             // Keep the text box sitting in the Claude card as it scrolls.
             val fy = fieldTop + oy
@@ -783,13 +809,112 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
             canvas.drawCircle(0f, height * .62f, 300 * u, Paint().apply {
                 shader = android.graphics.RadialGradient(0f, height * .62f, 300 * u, Hud.alpha(Hud.BLOOD, .45f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             })
-            val grid = Hud.stroke(Hud.alpha(Hud.CRIMSON, .045f), u)
-            val step = 24 * u
-            val shift = -(scroll * .3f) % step
-            var gx = 0f
-            while (gx < width) { canvas.drawLine(gx, 0f, gx, height.toFloat(), grid); gx += step }
-            var gy = shift
-            while (gy < height) { canvas.drawLine(0f, gy, width.toFloat(), gy, grid); gy += step }
+            // A faint honeycomb, drifting slower than the cards (one tile drawn once, repeated).
+            val paint = hexPaint ?: run {
+                val w = (28 * u).toInt().coerceAtLeast(8)
+                val h = (48 * u).toInt().coerceAtLeast(14)
+                val tile = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val c = Canvas(tile)
+                val line = Hud.stroke(Hud.alpha(Hud.CRIMSON, .07f), u)
+                val p = Path().apply {
+                    moveTo(w / 2f, 0f); lineTo(w.toFloat(), h / 6f); lineTo(w.toFloat(), h / 2f); lineTo(w / 2f, h * 2 / 3f)
+                    lineTo(0f, h / 2f); lineTo(0f, h / 6f); close()
+                    moveTo(w / 2f, h * 2 / 3f); lineTo(w / 2f, h.toFloat())
+                }
+                c.drawPath(p, line)
+                Paint().apply { shader = android.graphics.BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT) }.also { hexPaint = it; hexTint = Hud.CRIMSON }
+            }
+            paint.shader.setLocalMatrix(android.graphics.Matrix().apply { setTranslate(0f, -(scroll * .3f)) })
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+            if (hexTint != Hud.CRIMSON) hexPaint = null
+        }
+
+        private var hexPaint: Paint? = null
+        private var hexTint = 0
+
+        /** Where each card was drawn this frame, so a tile can scroll to the card it opens. */
+        private val sectionTop = HashMap<Section, Float>()
+        private var jumpTo: Section? = null
+
+        /** Opens [s] (unfolding it, and opening it up where it can) and scrolls to it. */
+        private fun reveal(s: Section, open: Boolean = true) {
+            if (s in folded) fold(s, false)
+            if (open && s.expandable && s !in expanded) toggle(s)
+            jumpTo = s
+            invalidate()
+        }
+
+        /** "TODAY ———" between groups of cards. */
+        private fun label(canvas: Canvas, text: String, y: Float): Float {
+            val p = Hud.text(8 * u, Hud.DUST, Hud.MONO, .24f)
+            canvas.drawText(text, 18 * u, y, p)
+            val x = 18 * u + p.measureText(text) + 10 * u
+            canvas.drawLine(x, y - 3 * u, width - 16 * u, y - 3 * u, Paint().apply {
+                strokeWidth = u
+                shader = LinearGradient(x, 0f, width - 16 * u, 0f, Hud.alpha(Hud.CRIMSON, .45f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            })
+            return y + 2 * u
+        }
+
+        /** The card's sign, in its hex badge. */
+        private fun glyph(s: Section) = when (s) {
+            Section.CLAUDE -> "✳"; Section.AGENDA -> "◷"; Section.CALENDAR -> "▦"; Section.NOTES -> "✎"; Section.COMMS -> "✉"
+            Section.VITALS -> "♥"; Section.AUDIO -> "♪"; Section.ACTIONS -> "⚡"; Section.FOCUS -> "◎"; Section.SKY -> "☁"
+            Section.WEEK -> "☀"; Section.HABITS -> "✓"; Section.COUNTDOWNS -> "★"; Section.CLOCKS -> "◴"; Section.LINKS -> "↗"
+            Section.MARKETS -> "◈"; Section.MOST_USED -> "▤"; Section.BUDS -> "◖"; Section.POWER -> "⌁"; Section.DATA -> "⇅"
+            Section.TIME -> "⌛"; Section.SYSTEMS -> "⚙"
+        }
+
+        /** A small hexagon with [glyph] in it, centred on ([cx], [cy]). */
+        private fun hexBadge(canvas: Canvas, cx: Float, cy: Float, r: Float, glyph: String, color: Int = Hud.HOT) {
+            val p = Path()
+            for (k in 0 until 6) {
+                val a = Math.toRadians(60.0 * k)
+                val x = cx + r * kotlin.math.cos(a).toFloat()
+                val y = cy + r * kotlin.math.sin(a).toFloat()
+                if (k == 0) p.moveTo(x, y) else p.lineTo(x, y)
+            }
+            p.close()
+            canvas.drawPath(p, Hud.fill(Hud.alpha(color, .16f)))
+            canvas.drawPath(p, Hud.stroke(Hud.alpha(color, .55f), u))
+            canvas.drawText(glyph, cx, cy + r * .38f, Hud.glow(Hud.text(r * 1.05f, color, Hud.SANS, align = Paint.Align.CENTER), 4 * u))
+        }
+
+        /**
+         * The folded cards: a two-column grid of compact modules, each its sign, name and a live summary. Tapped,
+         * one opens into the full card.
+         */
+        private fun modules(canvas: Canvas, list: List<Section>, top: Float, now: Long): Float {
+            val gap = 8 * u
+            val w = (width - 28 * u - gap) / 2
+            val h = 60 * u
+            list.forEachIndexed { i, s ->
+                val col = i % 2
+                val y = top + (i / 2) * (h + gap)
+                val r = RectF(14 * u + col * (w + gap), y, 14 * u + col * (w + gap) + w, y + h)
+                card(canvas, now, y, h) {
+                    val c = 9 * u
+                    canvas.drawPath(Hud.cut(r, c, path), Hud.fill(Hud.alpha(Hud.tint(0xFF120508.toInt()), .82f)))
+                    canvas.drawPath(Hud.cut(r, c, path), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        shader = LinearGradient(r.left, r.top, r.right, r.bottom, Hud.alpha(Hud.CRIMSON, .10f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+                    })
+                    canvas.drawPath(Hud.cut(r, c, path), Hud.stroke(Hud.alpha(Hud.CRIMSON, .30f), u))
+                    // A soft pulse along the bottom edge, each module at its own pace.
+                    val px = r.left + r.width() * (((now + s.ordinal * 530) % 5000) / 5000f)
+                    canvas.drawLine(maxOf(r.left, px - 30 * u), r.bottom - .5f * u, px, r.bottom - .5f * u, Paint().apply {
+                        strokeWidth = 1.4f * u
+                        shader = LinearGradient(px - 30 * u, 0f, px, 0f, Color.TRANSPARENT, Hud.alpha(Hud.HOT, .8f), Shader.TileMode.CLAMP)
+                    })
+                    hexBadge(canvas, r.left + 20 * u, r.top + 19 * u, 9 * u, glyph(s))
+                    val tp = Hud.text(7.5f * u, Hud.CRIMSON, Hud.MONO, .18f)
+                    canvas.drawText(s.title, r.left + 34 * u, r.top + 22 * u, Hud.fit(s.title, tp, r.width() - 56 * u))
+                    canvas.drawText("▾", r.right - 12 * u, r.top + 22 * u, Hud.glow(Hud.text(10 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER), 4 * u))
+                    val sum = summary(s)
+                    canvas.drawText(Hud.ellipsize(sum, Hud.text(11 * u, Color.WHITE, Hud.SANS), r.width() - 24 * u), r.left + 12 * u, r.top + 46 * u, Hud.text(11 * u, Color.WHITE, Hud.SANS))
+                    tap(r) { reveal(s) }
+                }
+            }
+            return top + ((list.size + 1) / 2) * (h + gap) - gap
         }
 
         private fun section(canvas: Canvas, s: Section, top: Float, now: Long): Float = when (s) {
@@ -819,38 +944,7 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
         // --- Folded cards ---
 
-        /**
-         * A folded card: one sleek line, its number and name, a live summary, a pulse and a chevron. Tapped, it
-         * opens into the full card.
-         */
-        private fun strip(canvas: Canvas, s: Section, top: Float, now: Long): Float {
-            val h = 44 * u
-            val r = RectF(14 * u, top, width - 14 * u, top + h)
-            card(canvas, now, top, h) {
-                val c = 9 * u
-                canvas.drawPath(Hud.cut(r, c, path), Hud.fill(Hud.alpha(Hud.tint(0xFF120507.toInt()), .78f)))
-                canvas.drawPath(Hud.cut(r, c, path), Hud.stroke(Hud.alpha(Hud.CRIMSON, .38f), u))
-                // A soft pulse travelling along the bottom edge.
-                val px = r.left + r.width() * (((now + s.ordinal * 400) % 4000) / 4000f)
-                canvas.drawLine(px - 40 * u, r.bottom - .5f * u, px, r.bottom - .5f * u, Paint().apply {
-                    strokeWidth = 1.5f * u
-                    shader = LinearGradient(px - 40 * u, 0f, px, 0f, Color.TRANSPARENT, Hud.HOT, Shader.TileMode.CLAMP)
-                })
-                canvas.drawRect(r.left + 3 * u, r.top + 12 * u, r.left + 5 * u, r.bottom - 12 * u, Hud.glow(Hud.fill(Hud.HOT), 4 * u))
-                val shown = order.filter { it !in hidden }.indexOf(s)
-                val label = "%02d // %s".format(if (shown >= 0) shown + 1 else 0, s.title)
-                canvas.drawText(label, r.left + 14 * u, r.centerY() + 3.2f * u, Hud.text(8.5f * u, Hud.CRIMSON, Hud.MONO, .2f))
-                val lw = Hud.text(8.5f * u, Hud.CRIMSON, Hud.MONO, .2f).measureText(label)
-                val sum = summary(s)
-                val sp = Hud.fit(sum, Hud.text(10 * u, Hud.BONE, Hud.SANS, align = Paint.Align.RIGHT), r.width() - lw - 60 * u)
-                canvas.drawText(sum, r.right - 34 * u, r.centerY() + 3.5f * u, sp)
-                canvas.drawText("▾", r.right - 16 * u, r.centerY() + 4 * u, Hud.glow(Hud.text(11 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER), 5 * u))
-                tap(r) { fold(s, false) }
-            }
-            return top + h
-        }
-
-        /** One line of what a card holds right now, for its folded strip. */
+        /** One line of what a card holds right now, for its module tile. */
         private fun summary(s: Section): String = try {
             val today = LocalDate.now()
             val nowMs = System.currentTimeMillis()
@@ -899,14 +993,18 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 shader = LinearGradient(0f, r.top, 0f, r.top + minOf(r.height(), 70 * u), Hud.alpha(accent, if (strong) .15f else .08f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             })
             canvas.drawLine(r.left + c + 2 * u, r.top + 1.5f * u, r.right - 2 * u, r.top + 1.5f * u, Hud.stroke(Hud.alpha(Color.WHITE, .05f), u))
-            canvas.drawPath(Hud.cut(r, c, path), Hud.stroke(Hud.alpha(accent, if (strong) .72f else .32f), u))
-            val br = Hud.glow(Hud.stroke(Hud.alpha(accent, .95f), 1.6f * u), 5 * u)
-            val k = 14 * u
-            canvas.drawLine(r.left + c, r.top, r.left + c + k, r.top, br)
-            canvas.drawLine(r.left, r.top + c, r.left, r.top + c + k, br)
-            canvas.drawLine(r.right - c - k, r.bottom, r.right - c, r.bottom, br)
-            canvas.drawLine(r.right, r.bottom - c - k, r.right, r.bottom - c, br)
-            for (i in 0 until 3) canvas.drawLine(r.right - 4 * u, r.top + 10 * u + i * 4 * u, r.right - 1 * u, r.top + 10 * u + i * 4 * u, Hud.stroke(Hud.alpha(accent, .5f), u))
+            // Glass: an edge that's bright at the top-left corner and fades across, lifting again at the far corner.
+            canvas.drawPath(Hud.cut(r, c, path), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = u
+                shader = LinearGradient(r.left, r.top, r.right, r.bottom,
+                    intArrayOf(Hud.alpha(accent, if (strong) .9f else .7f), Hud.alpha(accent, .08f), Hud.alpha(accent, if (strong) .5f else .3f)),
+                    floatArrayOf(0f, .5f, 1f), Shader.TileMode.CLAMP)
+                if (strong) setShadowLayer(8 * u, 0f, 0f, Hud.alpha(accent, .35f))
+            })
+            // One small bright corner, top left.
+            val br = Hud.glow(Hud.stroke(Hud.alpha(accent, .95f), 1.4f * u), 4 * u)
+            canvas.drawLine(r.left + c, r.top, r.left + c + 18 * u, r.top, br)
         }
 
         /**
@@ -915,10 +1013,8 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
          */
         private fun title(canvas: Canvas, r: RectF, s: Section, right: String? = null, rightColor: Int = Hud.DUST, onRight: (() -> Unit)? = null) {
             val p = Hud.text(8.5f * u, Hud.CRIMSON, Hud.MONO, .2f)
-            // Numbered by place on the deck, not by draw order, so off-screen cards don't shift the count.
-            val shown = order.filter { it !in hidden }.indexOf(s)
-            val n = if (shown >= 0) shown + 1 else ++number
-            canvas.drawText("◆ %02d // %s".format(n, s.title), r.left + 14 * u, r.top + 20 * u, p)
+            hexBadge(canvas, r.left + 24 * u, r.top + 17 * u, 9.5f * u, glyph(s))
+            canvas.drawText(s.title, r.left + 40 * u, r.top + 20 * u, p)
             // Hold the title to fold the card away to a strip.
             if (s != Section.CLAUDE) hold(RectF(r.left, r.top, r.right, r.top + 30 * u)) {
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -1028,30 +1124,82 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
 
         // --- Header ---
 
+        /**
+         * The hero: a ring clock (the seconds sweeping round, a gold arc for how far through the day it is) with the
+         * date, mode and status chips beside it; edit and settings top right; then the four quick tiles.
+         */
         private fun header(canvas: Canvas, y: Float, now: Long): Float {
             val t = rise(now)
             val time = LocalDateTime.now()
             canvas.drawText("◆ COMMAND DECK", 18 * u, y + 10 * u, Hud.text(9 * u, Hud.CRIMSON, Hud.MONO, .24f))
-            val clock = Hud.glow(Hud.text(50 * u, Color.WHITE, Hud.LIGHT), 18 * u, Hud.alpha(Hud.CRIMSON, .7f))
-            clock.alpha = (255 * t).toInt()
-            val hm = time.format(DateTimeFormatter.ofPattern("HH:mm"))
-            canvas.drawText(hm, 16 * u, y + 62 * u, clock)
-            canvas.drawText(":%02d".format(time.second), 16 * u + clock.measureText(hm) + 4 * u, y + 34 * u, Hud.text(10 * u, Hud.HOT, Hud.MONO))
-            canvas.drawText(time.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())).uppercase() + " · " + modeLabel, 18 * u, y + 82 * u, Hud.text(9 * u, Hud.DUST, Hud.MONO, .2f))
             // Rearrange and settings, top right.
-            val gear = RectF(width - 58 * u, y - 6 * u, width - 16 * u, y + 34 * u)
+            val gear = RectF(width - 54 * u, y - 8 * u, width - 16 * u, y + 30 * u)
             panel(canvas, gear, Hud.HOT, strong = true)
-            canvas.drawText("⚙", gear.centerX(), gear.centerY() + 7 * u, Hud.glow(Hud.text(18 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER), 6 * u))
+            canvas.drawText("⚙", gear.centerX(), gear.centerY() + 6 * u, Hud.glow(Hud.text(17 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER), 6 * u))
             tap(gear) { onSettings?.invoke() }
-            val edit = RectF(gear.left - 48 * u, gear.top, gear.left - 6 * u, gear.bottom)
+            val edit = RectF(gear.left - 44 * u, gear.top, gear.left - 6 * u, gear.bottom)
             panel(canvas, edit, Hud.HOT, strong = true)
-            canvas.drawText("✎", edit.centerX(), edit.centerY() + 6 * u, Hud.glow(Hud.text(16 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER), 6 * u))
+            canvas.drawText("✎", edit.centerX(), edit.centerY() + 6 * u, Hud.glow(Hud.text(15 * u, Hud.HOT, Hud.SANS, align = Paint.Align.CENTER), 6 * u))
             tap(edit) {
                 dismissKeyboard()
                 customizing = true
                 scrollTo(0f)
                 invalidate()
             }
+
+            // The ring clock.
+            val rr = 70 * u
+            val cx = 18 * u + rr + 6 * u
+            val cy = y + 44 * u + rr
+            val box = RectF(cx - rr, cy - rr, cx + rr, cy + rr)
+            canvas.drawCircle(cx, cy, rr + 10 * u, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = android.graphics.RadialGradient(cx, cy, rr + 10 * u, Hud.alpha(Hud.BLOOD, .55f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            })
+            canvas.drawCircle(cx, cy, rr, Hud.stroke(Hud.alpha(Hud.CRIMSON, .16f), 3 * u))
+            for (k in 0 until 60) {
+                val a = Math.toRadians(k * 6.0 - 90.0)
+                val big = k % 5 == 0
+                val i0 = rr + 6 * u
+                val i1 = rr + (if (big) 12f else 9f) * u
+                val ca = kotlin.math.cos(a).toFloat()
+                val sa = kotlin.math.sin(a).toFloat()
+                canvas.drawLine(cx + i0 * ca, cy + i0 * sa, cx + i1 * ca, cy + i1 * sa, Hud.stroke(Hud.alpha(Hud.CRIMSON, if (big) .55f else .2f), u))
+            }
+            val ms = System.currentTimeMillis()
+            val secFrac = ((ms / 1000) % 60 + (ms % 1000) / 1000f) / 60f
+            canvas.drawArc(box, -90f, 360f * secFrac * t, false, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 3.5f * u
+                strokeCap = Paint.Cap.ROUND
+                shader = SweepGradient(cx, cy, intArrayOf(Hud.alpha(Hud.HOT, .15f), Hud.HOT), floatArrayOf(0f, secFrac.coerceAtLeast(.01f))).also {
+                    it.setLocalMatrix(android.graphics.Matrix().apply { setRotate(-90f, cx, cy) })
+                }
+                setShadowLayer(8 * u, 0f, 0f, Hud.HOT)
+            })
+            val ha = Math.toRadians(-90.0 + 360.0 * secFrac * t)
+            canvas.drawCircle(cx + rr * kotlin.math.cos(ha).toFloat(), cy + rr * kotlin.math.sin(ha).toFloat(), 3.5f * u, Hud.glow(Hud.fill(Color.WHITE), 6 * u, Hud.HOT))
+            val day = (time.hour * 60 + time.minute) / 1440f
+            val inner = RectF(box.left + 11 * u, box.top + 11 * u, box.right - 11 * u, box.bottom - 11 * u)
+            canvas.drawArc(inner, -90f, 360f, false, Hud.stroke(Hud.alpha(Hud.GOLD, .1f), 1.6f * u))
+            canvas.drawArc(inner, -90f, 360f * day * t, false, Hud.glow(Hud.stroke(Hud.alpha(Hud.GOLD, .85f), 1.8f * u), 5 * u, Hud.alpha(Hud.GOLD, .6f)))
+            val clock = Hud.glow(Hud.text(40 * u, Color.WHITE, Hud.LIGHT, align = Paint.Align.CENTER), 16 * u, Hud.alpha(Hud.CRIMSON, .75f))
+            clock.alpha = (255 * t).toInt()
+            canvas.drawText(time.format(DateTimeFormatter.ofPattern("HH:mm")), cx, cy + 10 * u, clock)
+            canvas.drawText(":%02d · %s".format(time.second, time.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())).uppercase()), cx, cy + 30 * u,
+                Hud.text(8.5f * u, Hud.HOT, Hud.MONO, .2f, Paint.Align.CENTER))
+            tap(box) {
+                try {
+                    context.startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (e: Exception) {
+                    // No clock app to show.
+                }
+            }
+
+            // Beside it: date, mode and status.
+            val sx = cx + rr + 22 * u
+            val sw = width - 16 * u - sx
+            canvas.drawText(time.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault())).uppercase(), sx, cy - 34 * u, Hud.text(10.5f * u, Hud.BONE, Hud.MONO, .18f))
+            canvas.drawText("◆ " + modeLabel.uppercase(), sx, cy - 18 * u, Hud.fit("◆ " + modeLabel.uppercase(), Hud.text(8.5f * u, Hud.CRIMSON, Hud.MONO, .2f), sw))
             val tel = telemetry
             val chips = listOfNotNull(
                 tel?.let { (if (it.charging) "⚡ " else "") + "${it.battery}%" },
@@ -1059,27 +1207,83 @@ class DeckView(context: Context, private val u: Float) : FrameLayout(context) {
                 if (tel?.vpn == true) "VPN" else null,
                 if (dnd) "DND" else null,
                 groups.sumOf { it.count }.takeIf { it > 0 }?.let { "$it UNREAD" },
+                (context.getSystemService(android.app.AlarmManager::class.java)?.nextAlarmClock?.triggerTime)?.takeIf { it - ms < 24 * 3_600_000L }?.let {
+                    "⏰ " + Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"))
+                },
             )
-            var x = width - 18 * u
             val chipP = Hud.text(7.5f * u, Hud.SOFT, Hud.MONO, .12f, Paint.Align.CENTER)
-            chips.reversed().forEach { c ->
+            var x = sx
+            var cyRow = cy - 4 * u
+            chips.forEach { c ->
                 val w = chipP.measureText(c) + 14 * u
-                val r = RectF(x - w, y + 64 * u, x, y + 82 * u)
-                val gold = c == "VPN"
-                canvas.drawRect(r, Hud.stroke(Hud.alpha(if (gold) Hud.GOLD else Hud.CRIMSON, .55f), u))
+                if (x + w > width - 16 * u && x > sx) { x = sx; cyRow += 24 * u }
+                val r = RectF(x, cyRow, x + w, cyRow + 18 * u)
+                val gold = c == "VPN" || c.startsWith("⏰")
+                canvas.drawRect(r, Hud.fill(Hud.alpha(if (gold) Hud.GOLD else Hud.CRIMSON, .08f)))
+                canvas.drawRect(r, Hud.stroke(Hud.alpha(if (gold) Hud.GOLD else Hud.CRIMSON, .5f), u))
                 chipP.color = if (gold) Hud.GOLD else Theme.readable(Hud.SOFT)
                 canvas.drawText(c, r.centerX(), r.centerY() + 3 * u, chipP)
-                x -= w + 5 * u
+                x += w + 5 * u
             }
-            val railY = y + 96 * u
-            canvas.drawLine(16 * u, railY, width - 16 * u, railY, Hud.stroke(Hud.alpha(Hud.CRIMSON, .25f), u))
-            for (k in 0..20) canvas.drawLine(16 * u + k * (width - 32 * u) / 20, railY - 2 * u, 16 * u + k * (width - 32 * u) / 20, railY + 2 * u, Hud.stroke(Hud.alpha(Hud.CRIMSON, .35f), u))
-            val lx = 16 * u + (width - 32 * u) * ((now % 5000) / 5000f)
-            canvas.drawLine(lx - 30 * u, railY, lx, railY, Paint().apply {
-                strokeWidth = 2 * u
-                shader = LinearGradient(lx - 30 * u, 0f, lx, 0f, Color.TRANSPARENT, Hud.HOT, Shader.TileMode.CLAMP)
-            })
-            return briefingCard(canvas, y + 108 * u, now)
+            return tiles(canvas, cy + rr + 24 * u, now)
+        }
+
+        /** The payslip coming next (net, and when it's paid), worked out once a minute. */
+        private var slipCache: Pair<Long, Pair<Double, LocalDate>?>? = null
+
+        private fun nextSlip(): Pair<Double, LocalDate>? {
+            val ms = System.currentTimeMillis()
+            slipCache?.let { (at, v) -> if (ms - at < 60_000) return v }
+            val v = try {
+                val setup = Pay.setup(context)
+                val (a, b) = Pay.periodOf(LocalDate.now(), setup)
+                Pay.slipFor(context, a, b, setup).net to Pay.payday(b)
+            } catch (e: Exception) {
+                null
+            }
+            slipCache = ms to v
+            return v
+        }
+
+        /** Four quick tiles: next shift, the sky, the next payslip, today's habits. Each opens its card. */
+        private fun tiles(canvas: Canvas, top: Float, now: Long): Float {
+            val gap = 7 * u
+            val w = (width - 28 * u - 3 * gap) / 4
+            val h = 62 * u
+            val zone = ZoneId.systemDefault()
+            val today = LocalDate.now()
+            val fmtDay = { d: LocalDate -> when (d) { today -> "TODAY"; today.plusDays(1) -> "TOMORROW"; else -> d.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).uppercase() } }
+            val next = Shifts.next(shifts, System.currentTimeMillis(), zone)
+            val slip = nextSlip()
+            val f = forecast
+            val items = listOf(
+                Triple("NEXT SHIFT", next?.second?.start?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: "—", next?.first?.let(fmtDay) ?: "NONE SET"),
+                Triple("SKY", f?.let { "${it.temp}°" } ?: "—", f?.days?.firstOrNull()?.let { "RAIN ${it.rain}%" } ?: "NO DATA"),
+                Triple("PAYSLIP", slip?.let { Pay.money(it.first).substringBefore('.') } ?: "—", slip?.second?.let { "PAID " + it.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault())).uppercase() } ?: "SET UP PAY"),
+                Triple("HABITS", if (habits.isEmpty()) "—" else "${habits.count { today in it.done }}/${habits.size}", if (habits.isEmpty()) "NONE YET" else "TODAY"),
+            )
+            items.forEachIndexed { i, (label, value, sub) ->
+                val r = RectF(14 * u + i * (w + gap), top, 14 * u + i * (w + gap) + w, top + h)
+                card(canvas, now, top, h) {
+                    val c = 7 * u
+                    canvas.drawPath(Hud.cut(r, c, path), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        shader = LinearGradient(0f, r.top, 0f, r.bottom, Hud.alpha(Hud.CRIMSON, .12f), Hud.alpha(Hud.tint(0xFF140609.toInt()), .8f), Shader.TileMode.CLAMP)
+                    })
+                    canvas.drawPath(Hud.cut(r, c, path), Hud.stroke(Hud.alpha(Hud.CRIMSON, .3f), u))
+                    canvas.drawRect(r.left, r.top + 11 * u, r.left + 2 * u, r.bottom - 11 * u, Hud.glow(Hud.fill(Hud.HOT), 5 * u))
+                    canvas.drawText(label, r.left + 9 * u, r.top + 15 * u, Hud.fit(label, Hud.text(6.8f * u, Hud.DUST, Hud.MONO, .14f), r.width() - 14 * u))
+                    canvas.drawText(value, r.left + 9 * u, r.top + 38 * u, Hud.fit(value, Hud.text(17 * u, Color.WHITE, Hud.LIGHT), r.width() - 14 * u))
+                    canvas.drawText(sub, r.left + 9 * u, r.top + 52 * u, Hud.fit(sub, Hud.text(7 * u, Hud.HOT, Hud.MONO, .1f), r.width() - 14 * u))
+                    tap(r) {
+                        when (i) {
+                            0, 2 -> { shiftWeek = Shifts.monday(LocalDate.now()); shiftsOpen = true; scrollTo(0f); invalidate() }
+                            1 -> reveal(Section.SKY)
+                            else -> reveal(Section.HABITS)
+                        }
+                    }
+                }
+            }
+            return top + h
         }
 
         /** What the briefing is about: the rest of today, or tomorrow once it's evening. */

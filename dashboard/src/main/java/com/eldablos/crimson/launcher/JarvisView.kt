@@ -1494,9 +1494,54 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
             var h = pad + 16 * u
             if (card.big != null) h += 40 * u
             subLayout?.let { h += it.height + 6 * u }
-            if (card.rows.isNotEmpty()) h += 6 * u + card.rows.size * 22 * u
+            if (card.rows.isNotEmpty()) h += 6 * u + card.rows.sumOf { rowH(it).toDouble() }.toFloat()
             h += pad
             setMeasuredDimension(w, h.toInt())
+        }
+
+        /** Rows you can press are taller, so a thumb lands on the right one. */
+        private fun rowH(row: Jarvis.Row) = if (row.tap != null) 32 * u else 22 * u
+
+        /** Where the rows start (set while drawing) and which one is held down. */
+        private var rowsTop = 0f
+        private var pressed = -1
+
+        private fun rowAt(y: Float): Int {
+            var top = rowsTop
+            card.rows.forEachIndexed { i, row ->
+                val h = rowH(row)
+                if (y in top..top + h) return if (row.tap != null) i else -1
+                top += h
+            }
+            return -1
+        }
+
+        @android.annotation.SuppressLint("ClickableViewAccessibility")
+        override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+            if (card.rows.none { it.tap != null }) return false
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    pressed = rowAt(event.y)
+                    if (pressed < 0) return false
+                    invalidate()
+                    return true
+                }
+                android.view.MotionEvent.ACTION_UP -> {
+                    val i = pressed
+                    pressed = -1
+                    invalidate()
+                    if (i >= 0 && rowAt(event.y) == i) {
+                        performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                        card.rows[i].tap?.invoke()
+                    }
+                    return true
+                }
+                android.view.MotionEvent.ACTION_CANCEL -> {
+                    pressed = -1
+                    invalidate()
+                }
+            }
+            return pressed >= 0
         }
 
         override fun onDraw(canvas: Canvas) {
@@ -1531,20 +1576,30 @@ class JarvisView(context: Context, private val u: Float, host: Jarvis.Host) : Fr
                 y += 6 * u
                 val label = Hud.text(9.5f * u, Hud.SOFT, Hud.MONO, .06f)
                 val value = Hud.text(11f * u, Color.WHITE, Hud.MEDIUM, align = Paint.Align.RIGHT)
+                rowsTop = y
+                var ry = y
                 card.rows.forEachIndexed { i, row ->
+                    val rowTop = ry
+                    val h = rowH(row)
+                    ry += h
                     // Rows land one after another.
                     val rt = ((t * (card.rows.size + 2) - i) / 2f).coerceIn(0f, 1f)
                     if (rt <= 0f) return@forEachIndexed
-                    val ry = y + i * 22 * u
-                    canvas.drawLine(pad, ry, r.right - pad, ry, Hud.stroke(Hud.alpha(tone, .12f * rt), u))
+                    canvas.drawLine(pad, rowTop, r.right - pad, rowTop, Hud.stroke(Hud.alpha(tone, .12f * rt), u))
+                    if (row.tap != null) {
+                        if (i == pressed) canvas.drawRect(pad - 4 * u, rowTop + u, r.right - pad + 4 * u, rowTop + h - u, Hud.fill(Hud.alpha(tone, .18f)))
+                        canvas.drawText("›", r.right - pad, rowTop + h / 2 + 5 * u, Hud.text(14f * u, Hud.alpha(tone, rt), Hud.SANS, align = Paint.Align.RIGHT))
+                    }
+                    val textY = rowTop + h / 2 + 4 * u
+                    val rightEdge = r.right - pad - (if (row.tap != null) 16 * u else 0f)
                     val tickW = if (row.ok != null) 16 * u else 0f
-                    row.ok?.let { ok -> canvas.drawText(if (ok) "✓" else "✕", pad, ry + 15 * u, Hud.text(10f * u, Hud.alpha(if (ok) green else Hud.HOT, rt), Hud.MONO_BOLD)) }
+                    row.ok?.let { ok -> canvas.drawText(if (ok) "✓" else "✕", pad, textY, Hud.text(10f * u, Hud.alpha(if (ok) green else Hud.HOT, rt), Hud.MONO_BOLD)) }
                     label.alpha = (255 * rt).toInt()
                     value.alpha = (255 * rt).toInt()
-                    val avail = r.width() - pad * 2 - tickW
-                    val vw = if (row.value.isEmpty()) 0f else minOf(value.measureText(row.value), avail * .58f)
-                    canvas.drawText(Hud.ellipsize(row.label, label, avail - vw - 10 * u), pad + tickW + (1 - rt) * 12 * u, ry + 15 * u, label)
-                    if (row.value.isNotEmpty()) canvas.drawText(Hud.ellipsize(row.value, value, vw + 1), r.right - pad, ry + 15 * u, value)
+                    val avail = rightEdge - pad - tickW
+                    val vw = if (row.value.isEmpty()) 0f else minOf(value.measureText(row.value), avail * .62f)
+                    canvas.drawText(Hud.ellipsize(row.label, label, avail - vw - 10 * u), pad + tickW + (1 - rt) * 12 * u, textY, label)
+                    if (row.value.isNotEmpty()) canvas.drawText(Hud.ellipsize(row.value, value, vw + 1), rightEdge, textY, value)
                 }
             }
             // The scan line that sweeps down as it lands.

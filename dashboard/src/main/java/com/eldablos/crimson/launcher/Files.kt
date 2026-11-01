@@ -97,7 +97,8 @@ object Files {
             Regex("\\blast week\\b").containsMatchIn(t) -> Shifts.monday(today).minusWeeks(1)..Shifts.monday(today).minusDays(1)
             Regex("\\bthis month\\b").containsMatchIn(t) -> today.withDayOfMonth(1)..today
             Regex("\\blast month\\b").containsMatchIn(t) -> today.minusMonths(1).let { it.withDayOfMonth(1)..it.withDayOfMonth(it.lengthOfMonth()) }
-            Regex("\\b(recent|recently|latest|lately|new)\\b").containsMatchIn(t) -> today.minusDays(14)..today
+            // "Recent" narrows it to the last fortnight; "latest" / "last" just puts the newest first.
+            Regex("\\b(recent|recently|lately)\\b").containsMatchIn(t) -> today.minusDays(14)..today
             else -> months.indexOfFirst { Regex("\\b$it\\b").containsMatchIn(t) }.takeIf { it >= 0 }?.let { m ->
                 var d = today.withMonth(m + 1).withDayOfMonth(1)
                 if (d.isAfter(today)) d = d.minusYears(1)
@@ -137,7 +138,9 @@ object Files {
         val words = words(query)
         val kinds = kinds(query)
         val range = dates(query)
-        val pool = all(context).filter { f -> (kinds.isEmpty() || f.kind in kinds) && (range == null || f.date in range) }
+        // His own memory backups only when you're after them.
+        val backups = Regex("\\b(backup|backups|memory)\\b").containsMatchIn(query.lowercase())
+        val pool = all(context).filter { f -> (kinds.isEmpty() || f.kind in kinds) && (range == null || f.date in range) && (backups || !f.name.startsWith("Jarvis memory")) }
         if (words.isEmpty()) return pool.take(max)
         fun stem(w: String) = w.removeSuffix("s").removeSuffix("ing").removeSuffix("ed")
         val scored = pool.map { f ->

@@ -51,6 +51,14 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
+- **1.70** — Found files open by tapping their name: `Row.tap` makes a card line a button (taller, › chevron,
+  press highlight in `JarvisView.CardPanel`); the FILES card lists every match (up to 8), newest first among
+  equals, "Your latest is …" for last/latest. Backups ("Jarvis memory…json") left out unless asked for.
+  "Latest" no longer limits to 14 days (only "recent" does). "Find my last payslip (I downloaded) on my phone"
+  is a file search. "It should be a pdf" / "the photo one" / "from last week" narrow the last search
+  (`fileFollowUp`, 5 min). The brain's DO lines are checked with `asked()`: no MakeDoc unless you asked to
+  make/convert/save as, no OpenApp unless you said open and the app exists (it had chained find + make a PDF +
+  "open payslip" app). Lesson: never `open(p,'w').write(open(p).read())` in patch scripts — it empties the file.
 - **1.69** — Command Deck visual redesign ("Stark HUD"): hero ring clock (seconds arc, gold day arc, tap → alarms)
   with date, mode and status chips (battery, network, VPN, DND, unread, next alarm); four quick tiles (next shift,
   sky, next payslip net + payday, habits) that open their card and scroll to it (`reveal`, `jumpTo`, `sectionTop`);

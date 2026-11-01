@@ -172,4 +172,14 @@ class BatchTest {
         assertTrue(Travel.url(today.plusDays(1), 7, today).endsWith("/Status/2026-11-02T00:00:00/to/2026-11-08T23:59:59"))
         assertTrue(Travel.url(today, 1, today).endsWith("/Line/Mode/tube,elizabeth-line,overground,dlr,tram/Status"))
     }
+
+    @Test
+    fun findingDownloadedFiles() {
+        assertEquals(JarvisParser.Command.FindFiles("last payslip"), JarvisParser.parse("Can you find my last payslip i downloaded on my phone?"))
+        assertEquals(JarvisParser.Command.FindFiles("last payslip"), JarvisParser.parse("Find my last payslip on my phone"))
+        assertTrue(JarvisParser.parse("find my payslip pdf") is JarvisParser.Command.FindFiles)
+        // "Latest" puts the newest first without hiding older ones; "recent" means the last fortnight.
+        assertNull(Files.dates("my latest payslip", LocalDate.of(2026, 11, 1)))
+        assertEquals(LocalDate.of(2026, 10, 18), Files.dates("recent payslips", LocalDate.of(2026, 11, 1))!!.start)
+    }
 }

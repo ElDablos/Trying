@@ -68,7 +68,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     enum class Tone { GOLD, HOT, GREEN, BLUE }
 
     /** A line on a card: a label, its value, and a tick or cross when it's a step. */
-    class Row(val label: String, val value: String = "", val ok: Boolean? = null)
+    /** A line on a card; with [tap], the line itself is a button (a found file opens when you press its name). */
+    class Row(val label: String, val value: String = "", val ok: Boolean? = null, val tap: (() -> Unit)? = null)
 
     /** What an answer looks like on screen: a big figure, a line under it, and rows. */
     class Card(val icon: String, val title: String, val big: String? = null, val sub: String? = null, val rows: List<Row> = emptyList(), val tone: Tone = Tone.GOLD)
@@ -370,6 +371,8 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
         // "No, I meant…", "that's wrong": he puts it right, and learns.
         if (!inRoutine) correction(text)?.let { return it }
         if (!inRoutine) JarvisRoutines.match(JarvisRoutines.all(context), text)?.let { return styled(runRoutine(it)).also { r -> lastReply = r } }
+        // Straight after a file search: "it should be a PDF", "the photo one", "from last week" narrow it down.
+        if (!inRoutine) fileFollowUp(text)?.let { return styled(it).also { r -> lastReply = r; lastAt = System.currentTimeMillis() } }
         // Something you've said before that he learnt the meaning of.
         val meant = if (inRoutine) null else JarvisMemory.meaning(context, text)
         // Several at once: "close the app and lock my phone".
@@ -855,7 +858,24 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private var lastFiles: List<Files.Found> = emptyList()
 
     /** Your files, found by name, kind, date and what's in them; the best few on a card, each to open. */
+    private var lastFileQuery: String? = null
+    private var lastFileAt = 0L
+
+    /** "It should be a pdf", "it's a photo", "the Word one", "from last week": the last search again, narrowed. */
+    private fun fileFollowUp(text: String): Reply? {
+        val q = lastFileQuery ?: return null
+        if (System.currentTimeMillis() - lastFileAt > 5 * 60_000L) return null
+        val t = text.lowercase().trim().trimEnd('.', '!', '?')
+        val m = Regex("^(?:no,? |nah,? )?(?:it'?s|it is|it should be|should be|it was|it'?ll be|its|try|only|just|i want|i mean|i meant)? ?(?:a |an |the |in |from )?(pdf|word|word doc|word document|document|doc|excel|spreadsheet|photo|picture|image|screenshot|video|recording|text file|zip|today|yesterday|this week|last week|this month|last month)(?: one| file| version)?$").find(t) ?: return null
+        val extra = m.groupValues[1]
+        // Without the kind it had before, so "it should be a pdf" replaces "document" rather than adding to it.
+        val base = q.replace(Regex("\\b(pdfs?|word|docs?|documents?|excel|spreadsheets?|photos?|pictures?|images?|screenshots?|videos?|recordings?|files?)\\b"), " ").replace(Regex("\\s+"), " ").trim()
+        return findFiles("$base $extra".trim())
+    }
+
     private fun findFiles(query: String): Reply {
+        lastFileQuery = query
+        lastFileAt = System.currentTimeMillis()
         val full = Files.fullAccess()
         Thread {
             val found = runCatching { Files.search(context, query) }.getOrDefault(emptyList())
@@ -863,10 +883,16 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             val df = DateTimeFormatter.ofPattern("d MMM")
             val r = if (found.isEmpty()) Reply("I couldn't find anything like that${sir()}." + if (!full) " I can only see your photos, videos and music so far: allow All files access and I'll search your documents too." else "",
                 failed = true, actions = if (!full) listOf(Action("ALLOW ACCESS", primary = true, run = { start(Files.accessIntent(context)) })) else emptyList())
-            else Reply("${if (found.size == 1) "Found it" else "Found ${found.size}"}${sir()}: ${found.first().name}${if (found.size > 1) ", and the others on the card" else ""}.",
-                card = Card("⌕", "FILES", "${found.size}", query.take(60), found.take(6).mapIndexed { i, f -> Row("${i + 1} · ${f.kind.uppercase()}", "${f.name.take(36)} · ${f.date.format(df)}") }, Tone.BLUE),
-                actions = found.take(3).mapIndexed { i, f -> Action(if (i == 0) "OPEN" else "OPEN ${i + 1}", primary = i == 0, run = { Files.open(context, f) }) } +
-                    listOf(Action("SHARE", run = { Files.share(context, found.first()) })) +
+            else Reply(when {
+                    found.size == 1 -> "Found it${sir()}: ${found.first().name}."
+                    Regex("\\b(last|latest|newest|recent|most recent)\\b").containsMatchIn(query.lowercase()) ->
+                        "Your latest is ${found.first().name}, from ${found.first().date.format(df)}${sir()}. The ${found.size - 1} older ones are on the card; tap any to open it."
+                    else -> "Found ${found.size}${sir()}. The best match is ${found.first().name}; tap any of them to open it."
+                },
+                card = Card("⌕", "FILES", "${found.size}", query.take(60) + " · tap one to open", found.mapIndexed { i, f ->
+                    Row("${i + 1} · ${f.kind.uppercase()} · ${f.date.format(df).uppercase()}", f.name, tap = { Files.open(context, f) })
+                }, Tone.BLUE),
+                actions = listOf(Action("OPEN", primary = true, run = { Files.open(context, found.first()) }), Action("SHARE", run = { Files.share(context, found.first()) })) +
                     (if (!full) listOf(Action("SEARCH EVERYTHING", run = { start(Files.accessIntent(context)) })) else emptyList()))
             main.post { host.later(styled(r)) }
         }.start()
@@ -2433,6 +2459,21 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
     private fun examplesNow(): List<String> = (DeckStore.habits(context).map { "Tick off ${it.name} (the user's own habit)" } + EXAMPLES + JarvisMemory.suggestions(context)).distinct()
 
     /** A command that makes sense here: a habit it names really is one of yours. */
+    /**
+     * Whether you actually asked for [c] in [text]: his brain may add a step you never wanted ("find my payslip"
+     * became find + make a PDF + open an app called payslip). Making a document needs you to ask for one, and
+     * opening an app needs the word, and the app on the phone.
+     */
+    private fun asked(text: String, c: Command): Boolean {
+        val t = text.lowercase()
+        return when (c) {
+            is Command.MakeDoc -> Regex("\\b(make|create|write|turn|put|generate|export|build|draft|convert|produce|save (?:it |that |them )?as|as an? (?:pdf|word|excel|spreadsheet|document))\\b").containsMatchIn(t)
+            is Command.OpenApp -> Regex("\\b(open|launch|start|load|go to|take me to)\\b").containsMatchIn(t) &&
+                AppCatalog.apps().any { it.label.equals(c.name, true) || it.label.contains(c.name, true) }
+            else -> true
+        }
+    }
+
     private fun sensible(c: Command): Boolean = when (c) {
         is Command.Lights -> (c.name?.split(' ')?.size ?: 0) <= 3
         is Command.Habit -> findHabit(c.name) != null
@@ -2626,7 +2667,7 @@ class Jarvis private constructor(private val context: Context, var host: Host) {
             JarvisBrain.Route.Kind.DO -> {
                 // Each command checked by his own rules before it's done: nothing made up gets through.
                 val cmds = r.lines.map { it.replace(Regex("\\s*\\([^)]*\\)\\s*$"), "").trim() }.map { it to JarvisParser.parse(it) }
-                    .filter { (_, c) -> c !is Command.Unknown && c !is Command.WebSearch && c !is Command.AskClaude && sensible(c) }
+                    .filter { (_, c) -> c !is Command.Unknown && c !is Command.WebSearch && c !is Command.AskClaude && sensible(c) && asked(text, c) }
                 when {
                     cmds.isEmpty() -> fallback()
                     cmds.size == 1 -> {

@@ -51,6 +51,22 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
+- **1.72** — Command Deck rebuilt from scratch (`DeckView.Board.deck()` and the tab functions after it; the old
+  card drawing is only used by the coin page and ✎ customise now). Four tabs, Now · Plan · Money · Life
+  (`deckTab`; tap or swipe left/right; back returns to Now; swipe right on Now closes). Fixed header (date line +
+  title + ⚙) and tab bar; content scrolls under them (`clipTop` stops taps under the header); Ask bar fixed at
+  the bottom: Jarvis orb (`onJarvis`), the Ask Claude text box (`input`), mic (`onVoice`).
+  Now: a hero that changes with the day — on shift (elapsed, earned so far, clock in/out), next shift within
+  24 h (countdown, alarm ✓ or "no alarm", your line's tube status, rain at the start; Set my alarms / Route),
+  otherwise today (weather, next shift, next event); Light and Heater tiles that send commands to Jarvis
+  (`onCommand` → `JarvisView.submit`); briefing with play; Coming up (events, uni, payday, countdowns); glance
+  tiles; recent Claude questions. Plan: the week as day columns with shifts drawn by time (uni blue), ‹ ›
+  weeks, calendar sync chip, tap a day → bottom sheet (shift types, custom times, day off, clocked times), week
+  hours / before tax / payday, Copy last week, Shift types, Calendar; calendar list; countdowns. Money: next
+  payslip ring (hours done of planned) with the full breakdown, week-by-week take-home, spending, markets.
+  Life: habits (big ticks, 7-day dots), notes, focus, now playing, quick actions, steps/battery/screen time.
+  Look: near-black, the theme's colour as one accent (`Hud.HOT/RED` through `Theme`; text on accents uses
+  `Theme.on`), rounded glass, sentence-case type 12.5–46 sp, touch targets ≥ 44–50 dp.
 - **1.71** — "How much will I get paid for next week?" went to Payday (whole period + tomorrow, from the last pay
   answer): the Payday rule now steps aside when a week is named, so it's `Hours("nextweek")`. "Only / just for
   next week" after a pay answer is that week alone (`payFollowUp`), not stretched. A week after the current pay

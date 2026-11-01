@@ -191,6 +191,13 @@ class LauncherActivity : Activity(), HomeView.Host, Comms.Listener {
             onLaunch = { component -> AppCatalog.launch(this@LauncherActivity, component) }
             onVoice = { askByVoice() }
             onJarvis = { openJarvisChat() }
+            onCommand = { text ->
+                if (jarvis.visibility != View.VISIBLE) {
+                    backdrop(true)
+                    jarvis.show(listen = false, greet = false)
+                }
+                jarvis.submit(text)
+            }
         }
         root.addView(deck)
         jarvis = JarvisView(this, u, jarvisHost).apply {

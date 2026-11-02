@@ -254,13 +254,17 @@ class JarvisEar : Service() {
             val hey = first != null && first.optString("word") in setOf("hey", "ok", "okay", "hi", "hello")
             val nameConf = name.optDouble("conf", 0.0)
             val pace = if (first != null) name.optDouble("end") - first.optDouble("start") else 0.0
+            // Both words heard perfectly: any natural pace counts (said quickly, or with a pause, it had been
+            // ignored as "wrong pace" at 1.00 / 1.00).
+            val heyConf = first?.optDouble("conf", 0.0) ?: 0.0
+            val paceOk = if (hey && heyConf >= .95 && nameConf >= .95) pace in .08..4.0 else pace in .2..2.6
             val reason = when {
                 // Said with "hey" (or "ok"): the usual way.
-                hey && first!!.optDouble("conf", 0.0) >= bar - .15 && nameConf >= bar && pace in .25..2.2 -> null
+                hey && heyConf >= bar - .15 && nameConf >= bar && paceOk -> null
                 // The name on its own, said clearly (only the real name, never a sound-alike).
-                !hey && name.optString("word") == "jarvis" && nameConf >= maxOf(bar + .12, .88) && list.size <= 2 -> null
+                !hey && name.optString("word") == "jarvis" && nameConf >= maxOf(bar + .12, .85) && list.size <= 2 -> null
                 !hey && name.optString("word") != "jarvis" -> "sound-alike without hey"
-                hey && pace !in .25..2.2 -> "wrong pace"
+                hey && !paceOk -> "wrong pace ${"%.2f".format(java.util.Locale.ROOT, pace)}s"
                 else -> "unsure"
             }
             val confs = list.joinToString(" ") { "${it.optString("word")}:${"%.2f".format(java.util.Locale.ROOT, it.optDouble("conf", 0.0))}" }

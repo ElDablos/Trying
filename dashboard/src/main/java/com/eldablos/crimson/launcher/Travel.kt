@@ -125,10 +125,13 @@ object Travel {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
-    private fun get(url: String): String? = try {
+    /** One TfL request, with a second try after a timeout (its planned-works answers can be slow). */
+    private fun get(url: String): String? = fetch(url, 12_000, 20_000) ?: fetch(url, 15_000, 30_000)
+
+    private fun fetch(url: String, connect: Int, read: Int): String? = try {
         val conn = URL(url).openConnection() as HttpURLConnection
-        conn.connectTimeout = 8000
-        conn.readTimeout = 10000
+        conn.connectTimeout = connect
+        conn.readTimeout = read
         conn.setRequestProperty("Accept", "application/json")
         try {
             if (conn.responseCode == 200) conn.inputStream.bufferedReader().use { it.readText() } else {
@@ -139,7 +142,7 @@ object Travel {
             conn.disconnect()
         }
     } catch (e: Exception) {
-        SysLog.warn("TfL", "Couldn't reach TfL: ${e.javaClass.simpleName}")
+        SysLog.warn("TfL", "Couldn't reach TfL (${read / 1000}s): ${e.javaClass.simpleName}")
         null
     }
 

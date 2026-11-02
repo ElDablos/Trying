@@ -51,6 +51,21 @@ NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
 ## Release log (newest first)
+- **1.75** — Pop-outs everywhere on the deck (`Detail`/`DRow`, `pop()`, `drawDetail()`: a bottom sheet with a
+  title, sub line, big figure, scrolling rows — `scrollDetail` takes the scroll — tappable rows and buttons;
+  back, swipe, ✕ or a tap outside closes). Briefing card → the whole briefing (every line, each opening what
+  it's about; Read it to me / Ask Jarvis). Now hero → the shift in full (length, pay, clocked, leave-by,
+  alarm, each commute line with TfL's reason, other lines, hourly weather around the start, which payslip).
+  Coming up / calendar day rows → event (when, length, where → maps, calendar, open in calendar,
+  directions), uni, payday (every shift in the period, each opening, then the payslip lines), countdown
+  (weeks, weekends left, remove). Money: payslip card → payslip; week bars → that week's shifts and pay;
+  spending card/rows → items. Life: habit names → history (streak, 4 weeks, tick/untick, remove; the box
+  still ticks); steps (7 days), battery (health, temperature, 2-hourly levels), screen time (top apps, tap to
+  open). System: log rows → full entry with Copy.
+  From the owner's log: "Hey Jarvis" heard at hey 1.00 / jarvis 1.00 was ignored as "wrong pace" (said quickly
+  or with a pause) — with both ≥ .95 any pace 0.08–4 s counts (otherwise 0.2–2.6 s), and the log shows the
+  pace; "jarvis" alone needs max(bar + .12, .85) (0.87 had just missed). TfL timed out at 10 s (planned works
+  are slow): 12/20 s, then one retry at 15/30 s.
 - **1.74** (includes 1.73) — Full check before a long gap, from an independent code review of 1.69–1.73:
   Ask bar sits above the keyboard and the navigation bar, header below the status bar (window insets; the app
   draws edge to edge so adjustResize does nothing). Deck reads storage/permissions/alarm/log at most once a

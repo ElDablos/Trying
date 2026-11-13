@@ -105,6 +105,28 @@ object Alarms {
         e.apply()
     }
 
+    /**
+     * With no sound chosen yet: the phone's "Galaxy Bells" alarm sound if it has one (what the owner's Samsung
+     * alarms use), so Crimson's alarms sound the same from the start. Chosen once; the Sound setting changes it.
+     */
+    fun pickDefaultSound(c: Context) {
+        if (store(c).contains("sound") || store(c).getBoolean("sound_auto_done", false)) return
+        try {
+            val rm = android.media.RingtoneManager(c).apply { setType(android.media.RingtoneManager.TYPE_ALARM) }
+            rm.cursor.use { cur ->
+                while (cur.moveToNext()) {
+                    val title = cur.getString(android.media.RingtoneManager.TITLE_COLUMN_INDEX).orEmpty()
+                    if (title.equals("Galaxy Bells", ignoreCase = true)) {
+                        val uri = rm.getRingtoneUri(cur.position)
+                        store(c).edit().putString("sound", uri.toString()).putString("sound_name", title).apply()
+                        break
+                    }
+                }
+            }
+        } catch (e: Exception) {}
+        store(c).edit().putBoolean("sound_auto_done", true).apply()
+    }
+
     /** Your routine, copied here so a restart before unlock still knows it: minutes before the start, how many, minutes apart. */
     fun routine(c: Context): Triple<Int, Int, Int> = Triple(store(c).getInt("lead", 120), store(c).getInt("count", 6), store(c).getInt("gap", 5))
 
@@ -246,6 +268,7 @@ object Alarms {
         try {
             // Your routine as Jarvis knows it, copied where a restart can read it.
             runCatching { setRoutine(c, com.eldablos.crimson.core.Memory.alarmLead(c), com.eldablos.crimson.core.Memory.alarmCount(c), com.eldablos.crimson.core.Memory.alarmGap(c)) }
+            pickDefaultSound(c)
             val (lead, count, gap) = routine(c)
             val skip = skipped(c)
             val want = wanted(c)

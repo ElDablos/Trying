@@ -140,6 +140,18 @@
             android:taskAffinity="com.eldablos.crimson.money"
             android:theme="@style/SheetTheme" />
 
+        <!-- Work nudges: the evening before a shift, clocking in and out; set again after a restart. -->
+        <receiver
+            android:name=".assistant.NudgeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Reminders: rings them, handles Done and Snooze, and sets them again after a restart or an update. -->
         <receiver
             android:name=".assistant.ReminderReceiver"

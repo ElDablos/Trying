@@ -35,7 +35,7 @@ class AskWidget : AppWidgetProvider() {
 
     companion object {
         /** The quick questions on the taller size: what's shown, and what's asked. */
-        val QUICK = listOf("My pay" to "What's my next payslip?", "Work alarms" to "Set my alarms for work", "This week" to "What's on this week: shifts, calendar and reminders?")
+        val QUICK = listOf("MY PAY" to "What's my next payslip?", "ROTA" to "", "THIS WEEK" to "What's on this week: shifts, calendar and reminders?")
 
         fun refresh(context: Context) {
             val manager = AppWidgetManager.getInstance(context) ?: return
@@ -71,7 +71,8 @@ class AskWidget : AppWidgetProvider() {
                 views.setOnClickPendingIntent(R.id.ask_attach, open("attach") { putExtra(AssistantActivity.EXTRA_ATTACH, true) })
                 views.setOnClickPendingIntent(R.id.ask_mic, open("voice") { putExtra(AssistantActivity.EXTRA_VOICE, true) })
                 if (tall) listOf(R.id.ask_q0, R.id.ask_q1, R.id.ask_q2).forEachIndexed { i, view ->
-                    views.setOnClickPendingIntent(view, open("quick$i") { putExtra(AssistantActivity.EXTRA_ASK, QUICK[i].second) })
+                    // The rota one picks a screenshot; the others ask straight away.
+                    views.setOnClickPendingIntent(view, open("quick$i") { if (QUICK[i].second.isEmpty()) putExtra(AssistantActivity.EXTRA_ROTA, true) else putExtra(AssistantActivity.EXTRA_ASK, QUICK[i].second) })
                 }
                 manager.updateAppWidget(id, views)
             } catch (e: Exception) {
@@ -79,30 +80,60 @@ class AskWidget : AppWidgetProvider() {
             }
         }
 
+        /** What the bar says under its name when there's nothing to ask: the next shift and the next payday. */
+        fun status(context: Context): String {
+            val zone = java.time.ZoneId.systemDefault()
+            val today = java.time.LocalDate.now()
+            val bits = ArrayList<String>()
+            val shifts = com.eldablos.crimson.core.Shifts.all(context)
+            val now = System.currentTimeMillis()
+            com.eldablos.crimson.core.Shifts.current(shifts, now, zone)?.let { (_, s) -> bits += "On shift till ${s.end}" }
+                ?: com.eldablos.crimson.core.Shifts.next(shifts, now, zone)?.let { (d, s) ->
+                    val day = when (d) { today -> "Today"; today.plusDays(1) -> "Tomorrow"; else -> d.format(java.time.format.DateTimeFormatter.ofPattern("EEE", java.util.Locale.UK)) }
+                    bits += "$day ${com.eldablos.crimson.core.Work.short(s)}"
+                }
+            runCatching {
+                val setup = com.eldablos.crimson.core.Pay.setup(context)
+                val (a, b) = com.eldablos.crimson.core.Pay.nextPaid(today, setup)
+                val net = com.eldablos.crimson.core.Pay.period(context, a, b, setup).net
+                val payday = com.eldablos.crimson.core.Pay.payday(b)
+                if (net > 0) bits += "${com.eldablos.crimson.core.Pay.money(Math.round(net).toDouble())} ${payday.format(java.time.format.DateTimeFormatter.ofPattern("EEE d", java.util.Locale.UK))}"
+            }
+            return if (bits.isEmpty()) "Ask ${Agent.assistantName(context)} anything…" else bits.joinToString("  ·  ")
+        }
+
         /** The bar is the top 100% (short) or 56% (tall); the tap areas in the layouts use the same split. */
         private fun draw(context: Context, c: Canvas, w: Float, h: Float, u: Float, tall: Boolean) {
-            val radius = minOf(26 * u, h / 2)
-            val panel = RectF(0f, 0f, w, h)
-            c.drawRoundRect(panel, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(236, 16, 17, 22) })
-            c.drawRoundRect(RectF(u / 2, u / 2, w - u / 2, h - u / 2), radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = u; color = Color.argb(30, 255, 255, 255) })
+            val K = com.eldablos.crimson.core.HudKit
+            K.frame(c, w, h, u, glowX = 30 * u, glowY = h * .4f, notch = false)
             val barH = if (tall) h * .56f else h
             val k = (barH / (64 * u)).coerceIn(.6f, 1.15f)
             val cy = barH / 2
-            // The orb.
-            val ox = 14 * u + 19 * u * k
-            c.drawCircle(ox, cy, 19 * u * k, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = RadialGradient(ox - 5 * u * k, cy - 6 * u * k, 23 * u * k, intArrayOf(Color.WHITE, Hud.HOT, Hud.DEEP), floatArrayOf(0f, .42f, 1f), Shader.TileMode.CLAMP)
+            // The arc reactor, in target-lock brackets.
+            val r = 15 * u * k
+            val ox = 16 * u + r + 4 * u
+            c.drawCircle(ox, cy, r * 1.6f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = RadialGradient(ox, cy, r * 1.6f, K.a(K.HOT, .35f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             })
-            c.drawText("Ask ${Agent.assistantName(context)}…", ox + 30 * u * k, cy + 5.5f * u * k, tp(15.5f * u * k, 0xFF9AA0AA.toInt()))
-            // Paperclip and microphone, in the right-hand sixths.
+            K.reactor(c, ox, cy, r, u)
+            K.brackets(c, RectF(ox - r - 5 * u, cy - r - 5 * u, ox + r + 5 * u, cy + r + 5 * u), 5 * u, K.GOLD, u, 1.2f)
+            // Name and what's next.
             val cell = w / 6
+            val tx = ox + r + 14 * u
+            val room = w - 2 * cell - tx - 6 * u
+            K.label(c, tx, cy - 5 * u * k, Agent.assistantName(context).uppercase(java.util.Locale.UK), "ONLINE", 8 * u * k.coerceAtLeast(.85f))
+            val line = status(context)
+            c.drawText(com.eldablos.crimson.core.Hud.ellipsize(line, tp(14 * u * k, K.BONE), room), tx, cy + 15 * u * k, tp(14 * u * k, K.BONE))
+            // Paperclip and microphone, in the right-hand sixths.
             fun key(i: Int, glyph: String, solid: Boolean) {
                 val cx = w - cell * i - cell / 2
-                val r = RectF(cx - 21 * u * k, cy - 21 * u * k, cx + 21 * u * k, cy + 21 * u * k)
-                c.drawRoundRect(r, 14 * u * k, 14 * u * k, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    if (solid) shader = LinearGradient(r.left, r.top, r.right, r.bottom, Hud.HOT, Hud.RED, Shader.TileMode.CLAMP) else color = Color.argb(22, 255, 255, 255)
-                })
-                c.drawText(glyph, cx, cy + 6 * u * k, tp(17 * u * k, if (solid) Theme.on(Hud.RED) else Color.WHITE, Hud.SANS, Paint.Align.CENTER))
+                val b = RectF(cx - 22 * u * k, cy - 19 * u * k, cx + 22 * u * k, cy + 19 * u * k)
+                val path = K.slantPath(b, 8 * u * k)
+                if (solid) {
+                    c.drawPath(path, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = K.CRIMSON; maskFilter = android.graphics.BlurMaskFilter(8 * u, android.graphics.BlurMaskFilter.Blur.OUTER) })
+                    K.gradientBox(c, path, b, K.DARK, K.CRIMSON, K.HOT, u)
+                } else K.box(c, path, K.a(K.CRIMSON, .1f), K.a(K.CRIMSON, .55f), u)
+                c.drawText(glyph, cx, cy + 6 * u * k, tp(16 * u * k, Color.WHITE, Hud.SANS, Paint.Align.CENTER))
             }
             key(1, "📎", false)
             key(0, "🎙", true)
@@ -114,10 +145,7 @@ class AskWidget : AppWidgetProvider() {
                 val gap = 8 * u
                 val cw = (w - 2 * pad - 2 * gap) / 3
                 QUICK.forEachIndexed { i, (label, _) ->
-                    val r = RectF(pad + i * (cw + gap), top + 2 * u, pad + i * (cw + gap) + cw, h - 10 * u * k2)
-                    c.drawRoundRect(r, 13 * u * k2, 13 * u * k2, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(18, 255, 255, 255) })
-                    c.drawRoundRect(r, 13 * u * k2, 13 * u * k2, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = u; color = Color.argb(24, 255, 255, 255) })
-                    c.drawText(label, r.centerX(), r.centerY() + 4.5f * u * k2, tp(13 * u * k2, 0xFFDADDE3.toInt(), Hud.MEDIUM, Paint.Align.CENTER))
+                    K.ghost(c, RectF(pad + i * (cw + gap), top + 2 * u, pad + i * (cw + gap) + cw, h - 10 * u * k2), label, u)
                 }
             }
         }

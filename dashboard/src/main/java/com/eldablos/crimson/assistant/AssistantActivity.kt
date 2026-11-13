@@ -42,6 +42,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.eldablos.crimson.Forecast
+import com.eldablos.crimson.HudDrawable
 import com.eldablos.crimson.Weather
 import com.eldablos.crimson.core.DocText
 import com.eldablos.crimson.core.Files
@@ -97,6 +98,23 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
     private var liveHadAvatar = false
 
     private fun dp(v: Int) = Ui.dp(this, v)
+
+    /** The HUD look (cut corners, crimson edges), and the same with a press ripple. */
+    private fun hud(kind: HudDrawable.Kind) = HudDrawable(kind, resources.displayMetrics.density)
+    private fun hudPress(kind: HudDrawable.Kind) = android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(Color.argb(50, 255, 255, 255)), hud(kind), null)
+
+    /** "◆ TITLE // SUB" in spaced monospaced capitals, as on the widgets. */
+    private fun hudLabel(title: String, sub: String? = null, size: Float = 11f): TextView {
+        val t = SpannableStringBuilder("◆ ${title.uppercase(Locale.UK)}")
+        t.setSpan(ForegroundColorSpan(Theme.readable(Hud.BONE)), 0, t.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        t.setSpan(StyleSpan(Typeface.BOLD), 0, t.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (sub != null) {
+            val st = t.length
+            t.append("  // ${sub.uppercase(Locale.UK)}")
+            t.setSpan(ForegroundColorSpan(Theme.readable(Hud.HOT)), st, t.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return Ui.text(this, t, size, Ui.TEXT, Typeface.MONOSPACE).apply { letterSpacing = .14f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+    }
     private val screenW get() = resources.displayMetrics.widthPixels
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -158,6 +176,10 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         if (intent.getBooleanExtra(EXTRA_VOICE, false)) {
             intent.removeExtra(EXTRA_VOICE)
             main.postDelayed({ if (!busy) listen() }, 250)
+        }
+        if (intent.getBooleanExtra(EXTRA_ROTA, false)) {
+            intent.removeExtra(EXTRA_ROTA)
+            main.postDelayed({ pickRota() }, 250)
         }
         if (intent.getBooleanExtra(EXTRA_ATTACH, false)) {
             intent.removeExtra(EXTRA_ATTACH)
@@ -223,10 +245,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
     // --- The screen ---
 
     private fun build() {
-        val root = FrameLayout(this).apply { setBackgroundColor(Ui.BG) }
-        root.addView(View(this).apply {
-            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Hud.alpha(Hud.RED, .30f), Color.TRANSPARENT))
-        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260)))
+        val root = FrameLayout(this).apply { background = hud(HudDrawable.Kind.BACKDROP) }
         val col = Ui.column(this)
         root.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
@@ -239,7 +258,10 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         header.addView(orb, LinearLayout.LayoutParams(dp(50), dp(50)))
         val names = Ui.column(this)
         title = Ui.text(this, Agent.assistantName(this), 19f, Ui.TEXT, Hud.MEDIUM)
-        status = Ui.text(this, "", 12.5f, Ui.GOOD).apply {
+        status = Ui.text(this, "", 10.5f, Ui.GOOD, Typeface.MONOSPACE).apply {
+            letterSpacing = .1f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
             // Tap the status line to switch between Fast and Smart.
             setOnClickListener {
                 if (busy) return@setOnClickListener
@@ -274,8 +296,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.BOTTOM
-            background = Ui.rounded(0xF516181D.toInt(), dp(24).toFloat(), Ui.EDGE, dp(1).toFloat())
-            elevation = dp(8).toFloat()
+            background = hud(HudDrawable.Kind.INPUT)
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }
         bar.addView(square("＋") { fileMenu() }, LinearLayout.LayoutParams(dp(44), dp(44)))
@@ -325,13 +346,13 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
 
     private fun round(glyph: String, onClick: () -> Unit) = Ui.text(this, glyph, 16f, Ui.TEXT).apply {
         gravity = Gravity.CENTER
-        background = Ui.pressable(GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Ui.SURFACE_HI); setStroke(dp(1), Ui.EDGE) })
+        background = hudPress(HudDrawable.Kind.OUTLINE)
         setOnClickListener { onClick() }
     }
 
     private fun square(glyph: String, onClick: () -> Unit) = Ui.text(this, glyph, 18f, Ui.TEXT).apply {
         gravity = Gravity.CENTER
-        background = Ui.pressable(Ui.rounded(Ui.SURFACE_HI, dp(14).toFloat()))
+        background = hudPress(HudDrawable.Kind.OUTLINE)
         setOnClickListener { onClick() }
     }
 
@@ -342,8 +363,8 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             else -> "➤" to false
         }
         sendButton.text = glyph
-        sendButton.setTextColor(if (light) 0xFF111317.toInt() else Theme.on(Hud.RED))
-        sendButton.background = Ui.pressable(if (light) Ui.rounded(0xFFF4F5F7.toInt(), dp(14).toFloat()) else Ui.accentFill(dp(14).toFloat()))
+        sendButton.setTextColor(Color.WHITE)
+        sendButton.background = hudPress(if (light) HudDrawable.Kind.OUTLINE else HudDrawable.Kind.PRIMARY)
     }
 
     private fun refreshStatus() {
@@ -352,10 +373,10 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         orb.working = busy
         val mode = if (Gemini.mode(this) == "smart") "Smart" else if (Gemini.mode(this) == "lite") "Lite" else "Fast"
         val (text, color) = when {
-            busy -> "● Working on it…" to Ui.WARN
-            Gemini.key(this) != null -> "● ${Gemini.lastModel ?: "Gemini"} · $mode  ⇄" to Ui.GOOD
-            LocalBrain.installed(this) -> "● On-phone only · add a Gemini key in ⚙" to Ui.WARN
-            else -> "● Needs a free Gemini key · tap ⚙" to Ui.WARN
+            busy -> "● WORKING ON IT…" to Ui.WARN
+            Gemini.key(this) != null -> "● ONLINE // ${(Gemini.lastModel?.let { Gemini.pretty(it) } ?: "Gemini").uppercase(Locale.UK)} · ${mode.uppercase(Locale.UK)} ⇄" to Ui.GOOD
+            LocalBrain.installed(this) -> "● ON-PHONE ONLY // ADD A KEY IN ⚙" to Ui.WARN
+            else -> "● NEEDS A FREE GEMINI KEY // TAP ⚙" to Ui.WARN
         }
         status.text = text
         status.setTextColor(color)
@@ -423,18 +444,16 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         } ?: Triple("Next shift", "None", "add on Money" to Ui.MUTED)
         val setup = Pay.setup(this)
         val (pa, pb) = Pay.nextPaid(LocalDate.now(), setup)
-        val net = runCatching { Pay.slipFor(this, pa, pb, setup).net }.getOrDefault(0.0)
+        val net = runCatching { Pay.period(this, pa, pb, setup).net }.getOrDefault(0.0)
         val payday = Pay.payday(pb)
         val days = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), payday)
         val reminders = Reminders.all(this).filter { it.repeat != "rung" }
         val glance = Ui.column(this).apply {
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Hud.alpha(Hud.HOT, .22f), Color.argb(10, 255, 255, 255))).apply {
-                cornerRadius = dp(22).toFloat(); setStroke(dp(1), Hud.alpha(Hud.HOT, .32f))
-            }
+            background = hud(HudDrawable.Kind.CARD)
             setPadding(dp(14), dp(12), dp(14), dp(14))
         }
         val gh = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        gh.addView(Ui.text(this, "Today at a glance", 12.5f, Ui.MUTED, Hud.MEDIUM), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        gh.addView(hudLabel("Today", "at a glance", 10.5f), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         gh.addView(Ui.text(this, when (days) { 0L -> "Payday today"; 1L -> "Pay tomorrow"; else -> "Pay in $days days" }, 12.5f, Theme.readable(Hud.HOT), Hud.MEDIUM))
         glance.addView(gh)
         val cells = listOf(
@@ -445,7 +464,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         cells.forEachIndexed { i, (k, value, sub) ->
             val c = Ui.column(this).apply {
-                background = Ui.rounded(Color.argb(60, 0, 0, 0), dp(14).toFloat())
+                background = hud(HudDrawable.Kind.INPUT)
                 setPadding(dp(10), dp(9), dp(8), dp(10))
             }
             c.addView(Ui.text(this, k, 11.5f, Ui.MUTED))
@@ -459,20 +478,20 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         // Shortcuts.
         val nextLabel = next?.let { (d, sh) -> "For ${d.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault()))} ${sh.start}" } ?: "For your next shift"
         val tiles = listOf(
-            Triple("⏰", "Set work alarms", nextLabel) to { send("Set my alarms for work") },
+            Triple("🗓", "Rota screenshot", "Shifts and clock-ins") to { pickRota() },
+            Triple("🧾", "Add a payslip", "The PDF, read for you") to { pickPayslip() },
             Triple("£", "My pay", "This payslip, in full") to { send("What's my next payslip? Show it in full.") },
-            Triple("🗓", "Add shifts", "\"Sat 7–6, Mon 8–5\"") to { prefill("I'm working ") },
+            Triple("💷", "Left till payday", "A day's worth") to { prefill("I've got £") },
             Triple("🔔", "Remind me", "A notification later") to { prefill("Remind me to ") },
-            Triple("📄", "Find a file", "Payslips, PDFs, photos") to { prefill("Find ") },
-            Triple("🚇", "Tube & weather", "For your next shift") to { send("How are the tube and the weather looking for my next shift?") },
+            Triple("🚇", "Tube & weather", nextLabel) to { send("How are the tube and the weather looking for my next shift?") },
         )
-        val tints = listOf(Hud.HOT, Ui.GOOD, 0xFF7C8CFF.toInt(), Ui.WARN, Color.WHITE, 0xFF5FC8FF.toInt())
+        val tints = listOf(0xFF7C8CFF.toInt(), Ui.GOOD, Hud.HOT, Ui.WARN, Color.WHITE, 0xFF5FC8FF.toInt())
         tiles.chunked(2).forEachIndexed { r, pair ->
             val tr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             pair.forEachIndexed { i, (t, act) ->
                 val (glyph, name, sub) = t
                 val tile = Ui.column(this).apply {
-                    background = Ui.pressable(Ui.rounded(Ui.SURFACE, dp(18).toFloat(), Ui.EDGE, dp(1).toFloat()))
+                    background = hudPress(HudDrawable.Kind.INPUT)
                     setPadding(dp(12), dp(12), dp(12), dp(12))
                     isClickable = true
                     setOnClickListener { act() }
@@ -492,11 +511,11 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         val past = Chat.past(this)
         if (past.isNotEmpty()) {
             val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            head.addView(Ui.text(this, "Recent chats", 12.5f, Ui.MUTED, Hud.MEDIUM), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            head.addView(hudLabel("Recent", "chats", 10.5f), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             head.addView(Ui.text(this, "See all ›", 12.5f, Theme.readable(Hud.HOT), Hud.MEDIUM).apply { setPadding(dp(8), dp(6), 0, dp(6)); setOnClickListener { history() } })
             v.addView(head, Ui.lp(top = dp(20), start = dp(4)))
             val f = DateTimeFormatter.ofPattern("EEE HH:mm", Locale.getDefault())
-            val box = Ui.column(this).apply { background = Ui.rounded(Ui.SURFACE, dp(18).toFloat(), Ui.EDGE, dp(1).toFloat()) }
+            val box = Ui.column(this).apply { background = hud(HudDrawable.Kind.CARD) }
             past.take(3).forEachIndexed { i, p ->
                 if (i > 0) box.addView(View(this).apply { setBackgroundColor(Color.argb(15, 255, 255, 255)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
                 box.addView(LinearLayout(this).apply {
@@ -529,12 +548,13 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         val tools = t?.optString("tools").orEmpty()
         return when {
             Chat.items.length() == 0 -> emptyArray()
-            "set_shifts" in tools -> arrayOf("Set my alarms for work", "What's my pay now?", "Show my shifts this fortnight")
+            "save_payslip" in tools -> arrayOf("How did it compare to the estimate?", "Show all my payslips", "What's my next payslip?")
+            "set_shifts" in tools -> arrayOf("What's my next payslip?", "Show my shifts this fortnight", "How's the tube tomorrow?")
             "set_work_alarms" in tools -> arrayOf("Remind me to pack my bag at 9", "How's the tube tomorrow?", "Do I need a coat?")
-            "get_pay" in tools -> arrayOf("What if I pick up 8 more hours?", "Show my shifts this fortnight", "Make a PDF of this payslip")
+            "get_pay" in tools -> arrayOf("What if I pick up 8 more hours?", "Show my shifts this fortnight", "Show all my payslips")
             "add_reminder" in tools -> arrayOf("What reminders have I got?", "Set my alarms for work")
             "search_files" in tools -> arrayOf("Open the first one", "Read it and summarise it", "Share it")
-            else -> arrayOf("What's my next payslip?", "Set my alarms for work", "What's on this week?", "What do you know about me?")
+            else -> arrayOf("What's my next payslip?", "What's on this week?", "Show all my payslips", "What do you know about me?")
         }
     }
 
@@ -544,7 +564,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         items.forEachIndexed { i, s ->
             chips.addView(Ui.text(this, s, 13f, 0xFFD9DCE2.toInt()).apply {
                 setPadding(dp(12), dp(9), dp(12), dp(9))
-                background = Ui.pressable(Ui.rounded(Ui.SURFACE_HI, dp(14).toFloat(), Ui.EDGE, dp(1).toFloat()))
+                background = hudPress(HudDrawable.Kind.OUTLINE)
                 setOnClickListener { if (s == OPEN_SETTINGS) startActivity(Intent(context, SettingsActivity::class.java)) else send(s) }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (i > 0) marginStart = dp(8) })
         }
@@ -566,7 +586,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         val past = Chat.past(this)
         val d = Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar)
         val box = Ui.column(this).apply {
-            background = Ui.rounded(Ui.SHEET, dp(24).toFloat(), Ui.EDGE, dp(1).toFloat())
+            background = hud(HudDrawable.Kind.CARD)
             setPadding(dp(18), dp(16), dp(18), dp(14))
         }
         box.addView(Ui.text(this, "Earlier chats", 20f, Ui.TEXT, Hud.MEDIUM))
@@ -577,7 +597,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             inner.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(12), dp(10), dp(12), dp(10))
-                background = Ui.pressable(Ui.rounded(Ui.SURFACE, dp(14).toFloat()))
+                background = hudPress(HudDrawable.Kind.INPUT)
                 addView(Ui.text(context, p.title, 15f, Ui.TEXT).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
                 addView(Ui.text(context, Instant.ofEpochMilli(p.at).atZone(ZoneId.systemDefault()).format(f), 12f, Ui.MUTED), Ui.lp(top = dp(3)))
                 setOnClickListener {
@@ -652,13 +672,12 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
 
     private fun userBubble(text: String, at: Long): View {
         val box = Ui.column(this).apply { gravity = Gravity.END }
-        val b = Ui.text(this, text, 15.5f, Theme.on(Hud.RED)).apply {
+        val b = Ui.text(this, text, 15.5f, Color.WHITE).apply {
             setLineSpacing(0f, 1.25f)
             setPadding(dp(15), dp(11), dp(15), dp(11))
             maxWidth = (screenW * .80f).toInt()
             val r = dp(22).toFloat()
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Hud.HOT, Hud.RED)).apply { cornerRadii = floatArrayOf(r, r, r, r, dp(6).toFloat(), dp(6).toFloat(), r, r) }
-            elevation = dp(3).toFloat()
+            background = hud(HudDrawable.Kind.PRIMARY)
             // Hold your message to copy it, or edit and send it again.
             setOnLongClickListener {
                 android.app.AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert).setItems(arrayOf("Edit and resend", "Copy")) { _, which ->
@@ -746,8 +765,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
 
     private fun cardView(card: Card): View {
         val box = Ui.column(this).apply {
-            background = Ui.rounded(Ui.SURFACE, dp(20).toFloat(), Ui.EDGE, dp(1).toFloat())
-            clipToOutline = true
+            background = hud(HudDrawable.Kind.CARD)
         }
         // The top: the title (green when something was done), and the big figure on the right.
         val top = LinearLayout(this).apply {
@@ -756,7 +774,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             setPadding(dp(14), dp(12), dp(14), dp(12))
             if (card.good) background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Hud.alpha(Ui.GOOD, .16f), Color.TRANSPARENT))
         }
-        top.addView(Ui.text(this, card.title.uppercase(Locale.getDefault()), 11.5f, if (card.good) Ui.GOOD else Ui.MUTED, Hud.MEDIUM).apply { letterSpacing = .06f },
+        top.addView(Ui.text(this, card.title.uppercase(Locale.getDefault()), 10.5f, if (card.good) Ui.GOOD else Theme.readable(Hud.BONE), Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)).apply { letterSpacing = .1f },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         card.big?.let { top.addView(Ui.text(this, it, 24f, Ui.TEXT, Hud.LIGHT), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(10) }) }
         box.addView(top)
@@ -770,7 +788,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
                     l.addView(Ui.text(this, chip, 13.5f, if (first) Ui.WARN else Ui.TEXT).apply {
                         gravity = Gravity.CENTER
                         setPadding(dp(10), dp(6), dp(10), dp(6))
-                        background = Ui.rounded(if (first) Hud.alpha(Ui.WARN, .16f) else Ui.SURFACE_HI, dp(10).toFloat(), if (first) Hud.alpha(Ui.WARN, .45f) else Ui.EDGE, dp(1).toFloat())
+                        background = hud(if (first) HudDrawable.Kind.PILL_WARN else HudDrawable.Kind.PILL_OFF)
                     }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (i > 0) marginStart = dp(6) })
                 }
                 flow.addView(l, Ui.lp(top = if (r > 0) dp(6) else 0))
@@ -1003,7 +1021,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
     private fun sheet(heading: String, vararg options: Triple<String, String, String>, pick: (Int) -> Unit) {
         val d = Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar)
         val box = Ui.column(this).apply {
-            background = Ui.rounded(Ui.SHEET, dp(24).toFloat(), Ui.EDGE, dp(1).toFloat())
+            background = hud(HudDrawable.Kind.CARD)
             setPadding(dp(16), dp(16), dp(16), dp(12))
         }
         box.addView(Ui.text(this, heading, 13f, Ui.MUTED, Hud.MEDIUM), Ui.lp(start = dp(4), bottom = dp(6)))
@@ -1047,6 +1065,20 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         Triple("🖼", "Choose from gallery", "Up to 5 pictures"),
     ) { if (it == 0) takePhoto() else pickPhotos() }
 
+    /** Sent once the files picked for it are attached (the rota and payslip shortcuts). */
+    private var pending: String? = null
+    private var attaching = 0
+
+    private fun pickRota() {
+        pending = "Here's my rota: update my shifts and clock-in times from it."
+        pickPhotos()
+    }
+
+    private fun pickPayslip() {
+        pending = "This is my payslip: save it."
+        pickFile(arrayOf("application/pdf", "image/*"))
+    }
+
     private fun pickFile(types: Array<String>? = null) {
         try {
             val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
@@ -1087,16 +1119,23 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
     }
 
     private fun attach(uri: Uri, type: String?) {
+        attaching++
         Thread {
             val picked = DocText.copy(applicationContext, uri, type)
             main.post {
+                attaching--
                 if (picked == null) Toast.makeText(this, "Couldn't read that file", Toast.LENGTH_SHORT).show()
                 else {
                     attached += picked
                     everAttached += picked
                     showAttached()
-                    focusInput()
                 }
+                // A shortcut's request goes once everything picked for it is in.
+                val ask = pending
+                if (attaching == 0 && ask != null) {
+                    pending = null
+                    if (attached.isNotEmpty()) send(ask)
+                } else if (attaching == 0 && picked != null) focusInput()
             }
         }.start()
     }
@@ -1107,7 +1146,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         attached.forEach { f ->
             attachRow.addView(Ui.text(this, "📎 ${f.name.take(26)}  ✕", 13f, Ui.TEXT).apply {
                 setPadding(dp(12), dp(8), dp(12), dp(8))
-                background = Ui.pressable(Ui.rounded(Ui.SURFACE_HI, dp(12).toFloat(), Ui.EDGE, dp(1).toFloat()))
+                background = hudPress(HudDrawable.Kind.OUTLINE)
                 setOnClickListener { attached.remove(f); showAttached() }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
         }
@@ -1124,7 +1163,10 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             if (resultCode == RESULT_OK) attach(uri, "image/jpeg") else runCatching { contentResolver.delete(uri, null, null) }
             return
         }
-        if (resultCode != RESULT_OK || data == null) return
+        if (resultCode != RESULT_OK || data == null) {
+            pending = null
+            return
+        }
         when (requestCode) {
             REQ_SPEECH -> data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { send(it) }
             REQ_FILE -> {
@@ -1174,7 +1216,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         main.post {
             freezeLive()
             val box = Ui.column(this).apply {
-                background = Ui.rounded(Ui.SURFACE, dp(20).toFloat(), Hud.alpha(Ui.WARN, .5f), dp(1).toFloat())
+                background = hud(HudDrawable.Kind.CARD)
                 setPadding(dp(14), dp(12), dp(14), dp(12))
             }
             box.addView(Ui.text(this, question, 15f, Ui.TEXT).apply { setLineSpacing(0f, 1.25f) })
@@ -1198,6 +1240,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         const val EXTRA_TYPE = "type"
         const val EXTRA_VOICE = "voice"
         const val EXTRA_ATTACH = "attach"
+        const val EXTRA_ROTA = "rota"
         private const val OPEN_SETTINGS = "Open settings"
         private const val REQ_SPEECH = 1
         private const val REQ_FILE = 2

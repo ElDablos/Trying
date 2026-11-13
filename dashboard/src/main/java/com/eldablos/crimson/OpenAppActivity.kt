@@ -76,7 +76,7 @@ class OpenAppActivity : Activity() {
 
     companion object {
         private const val TAG = "CrimsonOpenApp"
-        private const val EXTRA_LABEL = "label"
+        const val EXTRA_LABEL = "label"
         private const val EXTRA_PACKAGES = "packages"
         private const val EXTRA_COMPONENT = "component"
         private const val EXTRA_ARCADE = "arcade"

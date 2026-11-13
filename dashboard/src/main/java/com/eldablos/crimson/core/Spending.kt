@@ -62,4 +62,36 @@ object Spending {
         val pounds = m.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return null
         return pounds + (m.groupValues[2].toIntOrNull() ?: 0) / 100.0
     }
+
+    // --- Money left until payday ---
+
+    /** What you said you had left, and when: what's spent since is taken off. */
+    class Balance(val amount: Double, val at: Long) {
+        val date: LocalDate get() = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).toLocalDate()
+    }
+
+    fun balance(context: Context): Balance? {
+        val p = prefs(context)
+        if (!p.contains("balance")) return null
+        return Balance(p.getFloat("balance", 0f).toDouble(), p.getLong("balance_at", 0L))
+    }
+
+    fun setBalance(context: Context, amount: Double?) {
+        val e = prefs(context).edit()
+        if (amount == null) e.remove("balance").remove("balance_at") else e.putFloat("balance", amount.toFloat()).putLong("balance_at", System.currentTimeMillis())
+        e.apply()
+    }
+
+    /** Money left now: the balance you gave, less what you've logged spending since. Null if none, or it's from before the last payday. */
+    fun left(context: Context, lastPayday: LocalDate?): Double? {
+        val b = balance(context) ?: return null
+        if (lastPayday != null && b.date.isBefore(lastPayday)) return null
+        return b.amount - all(context).filter { it.at > b.at }.sumOf { it.amount }
+    }
+
+    /** A day's share of [left] until [payday] (today counts; payday doesn't). */
+    fun perDay(left: Double, today: LocalDate, payday: LocalDate): Double {
+        val days = java.time.temporal.ChronoUnit.DAYS.between(today, payday).coerceAtLeast(1)
+        return left / days
+    }
 }

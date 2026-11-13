@@ -195,6 +195,18 @@ class SettingsActivity : Activity() {
             line("Basic rate", Pay.money(setup.basicRate)) { ask("Basic pay per hour (£)", "%.2f".format(java.util.Locale.ROOT, setup.basicRate), true) { v -> v.toDoubleOrNull()?.takeIf { it in 5.0..200.0 }?.let { Pay.setBasic(context, it); MoneyWidget.refresh(context) } } }
             line("Tax code", setup.taxCode) { ask("Tax code", setup.taxCode) { if (it.isNotBlank()) { Pay.setTaxCode(context, it); MoneyWidget.refresh(context) } } }
             line("Pension", "%.0f%%".format(setup.pensionPct)) { ask("Pension (%)", "%.0f".format(setup.pensionPct), true) { v -> v.toDoubleOrNull()?.takeIf { it in 0.0..30.0 }?.let { Pay.setPension(context, it); MoneyWidget.refresh(context) } } }
+            // What the payslips taught the estimates.
+            val slips = com.eldablos.crimson.core.Payslips.all(context)
+            line("Real payslips saved", if (slips.isEmpty()) "None yet: share a PDF to me" else "${slips.size} · latest paid ${slips.last().paid.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))}")
+            if (setup.troncLearnt) line("TRONC per hour (from payslips)", Pay.money(setup.troncRate))
+            setup.loan?.let { line("Student loan", "${it.label} (from your payslip)") }
+            line("Evening-before heads-up", if (Nudges.headsOn(context)) "On · ${Nudges.headsAt(context)}" else "Off") {
+                if (!Nudges.headsOn(context)) { Nudges.setHeadsOn(context, true); render() }
+                else android.app.TimePickerDialog(context, { _, h, m -> Nudges.setHeadsAt(context, java.time.LocalTime.of(h, m)); render() }, Nudges.headsAt(context).hour, Nudges.headsAt(context).minute, true).apply {
+                    setButton(android.content.DialogInterface.BUTTON_NEUTRAL, "Turn off") { _, _ -> Nudges.setHeadsOn(context, false); render() }
+                }.show()
+            }
+            line("Clock in/out reminders (Nory)", if (Nudges.clockOn(context)) "On" else "Off") { Nudges.setClockOn(context, !Nudges.clockOn(context)); render() }
             if (Shifts.canWrite(context)) {
                 val cals = Shifts.calendars(context)
                 val current = Shifts.calendarId(context)?.let { id -> cals.firstOrNull { it.id == id }?.name } ?: "none"

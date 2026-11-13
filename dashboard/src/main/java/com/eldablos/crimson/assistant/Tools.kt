@@ -19,6 +19,7 @@ import com.eldablos.crimson.core.Files
 import com.eldablos.crimson.core.Lists
 import com.eldablos.crimson.core.Memory
 import com.eldablos.crimson.core.Pay
+import com.eldablos.crimson.core.Payslips
 import com.eldablos.crimson.core.Shifts
 import com.eldablos.crimson.core.Spending
 import com.eldablos.crimson.core.Travel
@@ -138,12 +139,17 @@ class Tools(private val activity: Activity, private val host: Host) {
         false
     }
 
-    private fun slipJson(s: Pay.Slip) = ok("hours" to Math.round(s.hours * 10) / 10.0, "basic" to s.basic, "tronc_estimate" to s.tronc, "before_tax" to Math.round(s.gross * 100) / 100.0,
-        "tax" to s.tax, "national_insurance" to s.ni, "pension" to s.pension, "take_home" to Math.round(s.net * 100) / 100.0)
+    private fun slipJson(s: Pay.Slip) = ok("from_real_payslip" to s.actual, "hours" to Math.round(s.hours * 10) / 10.0, "basic" to s.basic, (if (s.actual) "tronc" else "tronc_estimate") to s.tronc,
+        "bonus" to s.bonus.takeIf { it > 0 }, "before_tax" to Math.round(s.gross * 100) / 100.0, "tax" to s.tax, "national_insurance" to s.ni, "pension" to s.pension,
+        "student_loan" to s.studentLoan.takeIf { it > 0 }, "advance_and_other_deductions" to s.other.takeIf { it > 0 }, "take_home" to Math.round(s.net * 100) / 100.0)
 
-    private fun slipRows(s: Pay.Slip) = listOf(
-        Card.Row("Basic · ${"%.1f".format(Locale.ROOT, s.hours).removeSuffix(".0")}h", money(s.basic)), Card.Row("TRONC (estimate)", money(s.tronc)),
+    private fun slipRows(s: Pay.Slip) = listOfNotNull(
+        Card.Row("Basic · ${"%.1f".format(Locale.ROOT, s.hours).removeSuffix(".0")}h", money(s.basic)),
+        Card.Row(if (s.actual) "TRONC" else "TRONC (estimate)", money(s.tronc)),
+        s.bonus.takeIf { it > 0 }?.let { Card.Row("Bonus", money(it)) },
         Card.Row("Before tax", money(s.gross)), Card.Row("Tax", "−" + money(s.tax)), Card.Row("National Insurance", "−" + money(s.ni)), Card.Row("Pension", "−" + money(s.pension)),
+        s.studentLoan.takeIf { it > 0 }?.let { Card.Row("Student loan", "−" + money(it)) },
+        s.other.takeIf { it > 0 }?.let { Card.Row("Advance & other", "−" + money(it)) },
     )
 
     // --- The tools ---
@@ -167,23 +173,35 @@ class Tools(private val activity: Activity, private val host: Host) {
             Out(ok("days" to out, "clocked_in_since" to Shifts.clockedIn(activity)?.toString(), "note" to "Days not listed have no shift."))
         },
 
-        Tool("set_shifts", "Adds or changes work shifts (one per day). They show on the Money widget and are saved to the user's calendar. Use for 'I'm working Saturday 7 till 6'.",
-            obj("shifts" to list("The shifts to set", obj("date" to str("YYYY-MM-DD"), "start" to str("HH:MM, 24-hour"), "end" to str("HH:MM, 24-hour"), "name" to str("Optional name like Office"), required = listOf("date", "start", "end"))),
-                required = listOf("shifts"))) { a ->
-            val arr = a.optJSONArray("shifts") ?: return@Tool fail("No shifts given.")
+        Tool("set_shifts", "Adds or changes work shifts (one per day), and the times really worked where known. They show on the Money widget and are saved to the user's calendar. Use for 'I'm working Saturday 7 till 6', and for a rota screenshot (Nory and the like): each shift row's scheduled times go in start/end; a second, smaller time under it with a green tick is when they actually clocked in and out, which goes in worked_start/worked_end. Rows saying 'Day off' go in days_off. Days that aren't on the screenshot are left alone. Send every shift on it in one call.",
+            obj("shifts" to list("The shifts to set", obj("date" to str("YYYY-MM-DD"), "start" to str("Scheduled start, HH:MM 24-hour"), "end" to str("Scheduled end, HH:MM 24-hour"),
+                "worked_start" to str("Actually clocked in, HH:MM (only if shown)"), "worked_end" to str("Actually clocked out, HH:MM (only if shown)"),
+                "name" to str("Optional name like Office"), required = listOf("date", "start", "end"))),
+                "days_off" to list("Dates shown as a day off, YYYY-MM-DD: any shift on them is removed", str("A date")))) { a ->
+            val arr = a.optJSONArray("shifts") ?: JSONArray()
             val set = ArrayList<Pair<LocalDate, Shifts.Shift>>()
+            val worked = HashMap<LocalDate, Shifts.Shift>()
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 val d = date(o.s("date")) ?: return@Tool fail("I couldn't read the date \"${o.s("date")}\".")
                 val st = time(o.s("start")) ?: return@Tool fail("I couldn't read the start time for $d.")
                 val en = time(o.s("end")) ?: return@Tool fail("I couldn't read the end time for $d.")
-                set += d to Shifts.Shift(st, en, (o.s("name") ?: "SHIFT").uppercase().take(20))
+                val name = (o.s("name") ?: "SHIFT").uppercase().take(20)
+                set += d to Shifts.Shift(st, en, name)
+                val ws = time(o.s("worked_start"))
+                val we = time(o.s("worked_end"))
+                if (ws != null && we != null) worked[d] = Shifts.Shift(ws, we, name)
             }
-            if (set.isEmpty()) return@Tool fail("No shifts given.")
+            val off = a.optJSONArray("days_off")?.let { o -> (0 until o.length()).mapNotNull { date(o.optString(it)) } }.orEmpty().filter { d -> set.none { it.first == d } }
+            if (set.isEmpty() && off.isEmpty()) return@Tool fail("No shifts given.")
             val before = Shifts.all(activity)
+            val beforeWorked = Shifts.actual(activity)
             set.forEach { (d, s) -> Shifts.set(activity, d, s) }
+            worked.forEach { (d, s) -> Shifts.setActual(activity, d, s) }
+            off.forEach { Shifts.set(activity, it, null); Shifts.setActual(activity, it, null) }
+            val touched = set.map { it.first } + off
             val undo = undoable {
-                set.forEach { (d, _) -> Shifts.set(activity, d, before[d]) }
+                touched.forEach { d -> Shifts.set(activity, d, before[d]); Shifts.setActual(activity, d, beforeWorked[d]) }
                 Work.changed(activity)
                 "Put your shifts back as they were."
             }
@@ -191,13 +209,35 @@ class Tools(private val activity: Activity, private val host: Host) {
             val calendar = Shifts.canWrite(activity)
             if (!calendar) host.requestPermission(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
             val setup = Pay.setup(activity)
-            val (pa, pb) = Pay.periodOf(set.first().first, setup)
+            val (pa, pb) = Pay.periodOf((set.map { it.first } + off).max(), setup)
             val slip = Pay.slipFor(activity, pa, pb, setup)
-            Out(ok("saved" to set.size, "in_calendar" to calendar, "payslip_for_that_period" to ok("from" to pa.toString(), "to" to pb.toString(), "paid_on" to Pay.payday(pb).toString(), "take_home" to Math.round(slip.net))),
-                Card(if (set.size == 1) "Shift saved" else "${set.size} shifts saved", null, set.sortedBy { it.first }.map { (d, s) -> Card.Row(d.format(dayFmt), "${s.start.format(hm)} – ${s.end.format(hm)} · ${Work.hours(s.minutes)}") } +
-                    Card.Row(if (calendar) "✓ In your calendar" else "Not in your calendar yet", if (calendar) "" else "allow calendar access"),
-                    listOf(Act("Set my alarms", "say", "Set my work alarms for ${dayName(set.minOf { it.first })}"), undo), good = true),
-                "Saved ${set.size} shift${if (set.size == 1) "" else "s"}.")
+            // What changed: new, moved, clocked, or now off.
+            val rows = ArrayList<Card.Row>()
+            var changed = 0
+            for ((d, s) in set.sortedBy { it.first }) {
+                val was = before[d]
+                val note = when {
+                    was == null -> "new"
+                    was.start != s.start || was.end != s.end -> "was ${Work.short(was)}"
+                    else -> null
+                }
+                if (note != null) changed++
+                val w = worked[d]
+                val right = (w?.let { "✓ ${it.start.format(hm)}–${it.end.format(hm)}" } ?: "${s.start.format(hm)}–${s.end.format(hm)}") + (note?.let { " · $it" } ?: "")
+                rows += Card.Row(d.format(dayFmt), right)
+            }
+            off.sorted().forEach { d -> rows += Card.Row(d.format(dayFmt), if (before[d] != null) "day off · removed ${Work.short(before[d]!!)}" else "day off") }
+            rows += Card.Row(if (calendar) "✓ In your calendar" else "Not in your calendar yet", if (calendar) "" else "allow calendar access")
+            val title = when {
+                worked.isNotEmpty() -> "Rota updated · ${worked.size} clock-in${if (worked.size == 1) "" else "s"}"
+                set.size == 1 && off.isEmpty() -> "Shift saved"
+                else -> "${set.size} shifts saved"
+            }
+            Out(ok("saved" to set.size, "changed_or_new" to changed, "clocked_times_saved" to worked.size, "days_off" to off.size, "in_calendar" to calendar,
+                "payslip_for_that_period" to ok("from" to pa.toString(), "to" to pb.toString(), "paid_on" to Pay.payday(pb).toString(), "take_home" to Math.round(slip.net), "hours" to Math.round(slip.hours * 10) / 10.0)),
+                Card(title, money(Math.round(slip.net).toDouble()), rows, listOf(Act("My pay", "say", "What's my next payslip? Show it in full."), undo), good = true,
+                    note = "Payslip ${pa.format(dayFmt)} – ${pb.format(dayFmt)} · ${"%.1f".format(Locale.ROOT, slip.hours).removeSuffix(".0")}h · paid ${Pay.payday(pb).format(dayFmt)}"),
+                "Saved ${set.size} shift${if (set.size == 1) "" else "s"}${if (worked.isNotEmpty()) " and ${worked.size} clock-in times" else ""}.")
         },
 
         Tool("remove_shifts", "Removes the work shifts on the given dates (days off). Also removes them from the calendar.",
@@ -227,18 +267,82 @@ class Tools(private val activity: Activity, private val host: Host) {
             val to = date(a.s("to"))
             val (pa, pb) = if (from != null && to != null && !to.isBefore(from)) from to to else Pay.nextPaid(today, setup)
             val wholePeriod = Pay.periodOf(pa, setup).let { it.first == pa && it.second == pb }
-            var slip = if (wholePeriod) Pay.slipFor(activity, pa, pb, setup) else Pay.span(activity, pa, pb, setup)
             val extra = a.optDouble("extra_hours", 0.0).takeIf { !it.isNaN() && it > 0 } ?: 0.0
+            // A whole period you've a real payslip for is the payslip (unless it's a what-if).
+            var slip = if (wholePeriod && extra == 0.0) Pay.period(activity, pa, pb, setup) else if (wholePeriod) Pay.slipFor(activity, pa, pb, setup) else Pay.span(activity, pa, pb, setup)
             val without = slip
             if (extra > 0) slip = Pay.slip(slip.basic + extra * setup.basicRate, slip.tronc + extra * setup.troncRate, slip.hours + extra, setup, if (wholePeriod) setup.periods else (364 / (ChronoUnit.DAYS.between(pa, pb) + 1).coerceAtLeast(1)).toInt().coerceIn(1, 52))
             val shifts = Shifts.worked(activity).filterKeys { !it.isBefore(pa) && !it.isAfter(pb) }
             val done = shifts.filter { (d, s) -> s.finish(d, zone) <= System.currentTimeMillis() }.values.sumOf { it.minutes } / 60.0
             val json = ok("from" to pa.toString(), "to" to pb.toString(), "is_whole_pay_period" to wholePeriod, "paid_on" to if (wholePeriod) Pay.payday(pb).toString() else null,
-                "shifts" to shifts.size, "hours_worked_so_far" to Math.round(done * 10) / 10.0, "pay" to slipJson(slip), "hourly" to setup.hourly, "note" to "TRONC varies, so take-home is an estimate.")
+                "shifts" to shifts.size, "hours_worked_so_far" to Math.round(done * 10) / 10.0, "pay" to slipJson(slip), "hourly" to setup.hourly,
+                "note" to if (slip.actual) "These are the real figures from the payslip." else "An estimate: TRONC varies${if (setup.troncLearnt) " (TRONC per hour is from the real payslips)" else ""}.")
             if (extra > 0) json.put("take_home_without_the_extra", Math.round(without.net * 100) / 100.0)
             val title = if (wholePeriod) "Payslip · paid ${Pay.payday(pb).format(dayFmt)}" else "${pa.format(dayFmt)} – ${pb.format(dayFmt)}"
-            Out(json, Card(title + if (extra > 0) " · with ${"%.1f".format(Locale.ROOT, extra).removeSuffix(".0")}h more" else "", money(slip.net), slipRows(slip) + Card.Row("Take-home", money(slip.net)), good = true),
+            Out(json, Card((if (slip.actual) "✓ " else "") + title + if (extra > 0) " · with ${"%.1f".format(Locale.ROOT, extra).removeSuffix(".0")}h more" else "", money(slip.net), slipRows(slip) + Card.Row("Take-home", money(slip.net)), good = true),
                 "About ${money(slip.net)} take-home.")
+        },
+
+        Tool("save_payslip", "Saves one of the user's real payslips (a payslip PDF or photo they've attached), so the Money widget shows what they were really paid and estimates learn from it. Read the figures for THIS PERIOD only (not year to date). Amounts are positive numbers.",
+            obj("from" to str("Period start, YYYY-MM-DD"), "to" to str("Period end, YYYY-MM-DD"), "paid" to str("Payment date, YYYY-MM-DD"),
+                "hours" to num("Basic hours"), "rate" to num("Basic hourly rate"), "basic" to num("Basic pay"), "tronc" to num("TRONC"), "bonus" to num("Bonus"),
+                "gross" to num("Gross"), "tax" to num("PAYE tax"), "ni" to num("National Insurance"), "pension" to num("Pension contribution"),
+                "student_loan" to num("Student loan deduction"), "advance" to num("Advance deduction"), "take_home" to num("Take home pay"),
+                required = listOf("from", "to", "take_home"))) { a ->
+            // The PDF's own words when the phone can read them: exact, whatever was read off the picture.
+            val fromPdf = host.attachments().reversed().filter { it.isPdf }.firstNotNullOfOrNull { f -> DocText.pdfText(f)?.let { Payslips.parse(it) } }
+            fun n(k: String) = a.optDouble(k, 0.0).takeIf { !it.isNaN() } ?: 0.0
+            val p = fromPdf ?: run {
+                val from = date(a.s("from")) ?: return@Tool fail("I couldn't read the pay period's dates.")
+                val to = date(a.s("to")) ?: return@Tool fail("I couldn't read the pay period's dates.")
+                Payslips.Payslip.checked(from, to, date(a.s("paid")) ?: Pay.payday(to), n("hours"), n("rate"), n("basic"), n("tronc"), n("bonus"),
+                    a.optDouble("gross").takeIf { !it.isNaN() && it > 0 }, n("tax"), n("ni"), n("pension"), n("student_loan"), n("advance"), n("take_home"))
+            } ?: return@Tool fail("Those figures don't add up (take-home more than the gross, or the dates the wrong way round). Read the payslip again.")
+            val setup = Pay.setup(activity)
+            val estimate = Pay.slipFor(activity, p.from, p.to, setup)
+            val tracked = estimate.hours
+            val troncBefore = setup.troncRate
+            Payslips.save(activity, p)
+            Work.changed(activity)
+            val after = Pay.setup(activity)
+            val notes = listOfNotNull(
+                "Estimated ${money(estimate.net)} · real ${money(p.takeHome)}".takeIf { estimate.hours > 0 },
+                "TRONC now ${money(after.troncRate)}/h from your payslips (was ${money(troncBefore)})".takeIf { kotlin.math.abs(after.troncRate - troncBefore) > .005 },
+                after.loan?.let { "Student loan: ${it.label}, now in the estimates" }.takeIf { setup.loan == null && after.loan != null },
+                "Hours: payslip ${"%.1f".format(Locale.ROOT, p.hours)}h, your clocked shifts ${"%.1f".format(Locale.ROOT, tracked)}h".takeIf { p.hours > 0 && tracked > 0 && kotlin.math.abs(p.hours - tracked) >= .25 },
+            )
+            Out(ok("saved" to true, "read_from" to if (fromPdf != null) "the PDF's text" else "your reading", "payslip" to p.json(), "estimate_was" to Math.round(estimate.net * 100) / 100.0,
+                "tronc_per_hour_now" to after.troncRate, "student_loan_plan" to after.loan?.label),
+                Card("✓ Payslip saved · paid ${p.paid.format(dayFmt)}", money(p.takeHome), slipRows(p.slip()) + Card.Row("Take-home", money(p.takeHome)), good = true,
+                    note = notes.joinToString(" · ").ifBlank { null }),
+                "Saved your payslip for ${Payslips.label(p)}: ${money(p.takeHome)} take-home.")
+        },
+
+        Tool("get_payslips", "The user's real payslips saved so far (newest first), with take-home and the main lines.", obj()) { _ ->
+            val list = Payslips.all(activity).reversed()
+            if (list.isEmpty()) return@Tool Out(ok("payslips" to JSONArray(), "note" to "None saved yet: they can share a payslip PDF to you."), said = "No payslips saved yet.")
+            Out(ok("payslips" to JSONArray(list.take(12).map { it.json() })),
+                Card("Your payslips", null, list.take(8).map { Card.Row("Paid ${it.paid.format(dayFmt)}", money(it.takeHome)) }), "${list.size} payslips saved.")
+        },
+
+        Tool("set_balance", "Saves how much money the user has left now ('I've got 300 left till payday'), so the Money widget shows what that is a day until payday. Spending they log afterwards comes off it. amount 0 with clear=true removes it.",
+            obj("amount" to num("Money left, in pounds"), "clear" to bool("Remove the balance"), required = listOf("amount"))) { a ->
+            if (a.optBoolean("clear")) {
+                Spending.setBalance(activity, null)
+                com.eldablos.crimson.money.MoneyWidget.refresh(activity)
+                return@Tool Out(ok("cleared" to true), said = "Cleared.")
+            }
+            val amount = a.optDouble("amount").takeIf { !it.isNaN() && it >= 0 } ?: return@Tool fail("I couldn't read the amount.")
+            Spending.setBalance(activity, amount)
+            com.eldablos.crimson.money.MoneyWidget.refresh(activity)
+            val setup = Pay.setup(activity)
+            val payday = Pay.payday(Pay.nextPaid(LocalDate.now(), setup).second)
+            val per = Spending.perDay(amount, LocalDate.now(), payday)
+            val days = ChronoUnit.DAYS.between(LocalDate.now(), payday).coerceAtLeast(1)
+            Out(ok("left" to amount, "payday" to payday.toString(), "days" to days, "per_day" to Math.round(per * 100) / 100.0),
+                Card("Until payday", money(Math.round(per * 100) / 100.0) + "/day", listOf(Card.Row("Left now", money(amount)), Card.Row("Payday", "${payday.format(dayFmt)} · $days day${if (days == 1L) "" else "s"}")),
+                    note = "On the Money widget now. Tell me what you spend and it comes off."),
+                "That's ${money(per)} a day until ${payday.format(dayFmt)}.")
         },
 
         Tool("set_work_alarms", "Sets the user's wake-up alarms for a work shift, using their saved routine (how long before the shift, how many alarms, how far apart). Call it straight away without asking: with no date it takes the next shift.",

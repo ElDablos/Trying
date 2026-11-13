@@ -21,9 +21,17 @@ import kotlin.math.roundToLong
  */
 object Pay {
     /** One stretch's pay, as a payslip would show it. */
-    class Slip(val hours: Double, val basic: Double, val tronc: Double, val tax: Double, val ni: Double, val pension: Double) {
-        val gross: Double get() = basic + tronc
-        val net: Double get() = gross - tax - ni - pension
+    class Slip(
+        val hours: Double, val basic: Double, val tronc: Double, val tax: Double, val ni: Double, val pension: Double,
+        val bonus: Double = 0.0, val studentLoan: Double = 0.0,
+        /** Everything else taken off: an advance paid back, other deductions (real payslips only). */
+        val other: Double = 0.0,
+        /** From a real payslip, not worked out. */
+        val actual: Boolean = false,
+    ) {
+        val gross: Double get() = basic + tronc + bonus
+        val deductions: Double get() = tax + ni + pension + studentLoan + other
+        val net: Double get() = gross - deductions
     }
 
     /** Your pay settings: rates, tax code, pension, and how often you're paid. */
@@ -37,6 +45,10 @@ object Pay {
         val periods: Int,
         /** The first day of one pay period (fortnights run from here). */
         val anchor: LocalDate,
+        /** The student loan plan, once a payslip has shown one. */
+        val loan: Payslips.Plan? = null,
+        /** TRONC per hour came from your payslips. */
+        val troncLearnt: Boolean = false,
     ) {
         val hourly: Double get() = basicRate + troncRate
     }
@@ -54,14 +66,18 @@ object Pay {
         val p = prefs(context)
         val total = Memory.hourlyRate(context) ?: 18.0
         val basic = p.getFloat("basic", 12.71f).toDouble()
+        // TRONC: what your recent payslips paid an hour beats any guess.
+        val learnt = Payslips.troncPerHour(context)
         return Setup(
             basicRate = basic,
-            troncRate = if (p.contains("tronc")) p.getFloat("tronc", 0f).toDouble() else max(0.0, total - basic),
+            troncRate = learnt ?: if (p.contains("tronc")) p.getFloat("tronc", 0f).toDouble() else max(0.0, total - basic),
             taxCode = p.getString("code", "918L") ?: "918L",
             pensionPct = p.getFloat("pension", 5f).toDouble(),
             reliefAtSource = p.getBoolean("ras", true),
             periods = p.getInt("periods", 26),
             anchor = runCatching { LocalDate.parse(p.getString("anchor", null)) }.getOrNull() ?: LocalDate.of(2026, 10, 5),
+            loan = Payslips.loanPlan(context),
+            troncLearnt = learnt != null,
         )
     }
 
@@ -101,10 +117,16 @@ object Pay {
         val qualifying = max(0.0, basic - PENSION_LOWER / periods)
         val full = pennies(qualifying * s.pensionPct / 100)
         val pension = if (s.reliefAtSource) pennies(full * .8) else full
-        return Slip(hours, basic, tronc, tax, ni, pension)
+        // Student loan on the same pay as NI (not TRONC), whole pounds.
+        val loan = s.loan?.take(basic, periods) ?: 0.0
+        return Slip(hours, basic, tronc, tax, ni, pension, studentLoan = loan)
     }
 
     /** Your shifts between two days (both included), costed as one stretch of [periods] a year. */
+    /** A whole pay period: the real payslip when you've added it, otherwise worked out from your shifts. */
+    fun period(context: Context, from: LocalDate, to: LocalDate, s: Setup = setup(context)): Slip =
+        Payslips.forPeriod(context, from)?.slip() ?: slipFor(context, from, to, s)
+
     fun slipFor(context: Context, from: LocalDate, to: LocalDate, s: Setup = setup(context), periods: Int = s.periods): Slip {
         val hours = Shifts.worked(context).filterKeys { !it.isBefore(from) && !it.isAfter(to) }.values.sumOf { it.minutes } / 60.0
         return slip(hours * s.basicRate, hours * s.troncRate, hours, s, periods)
@@ -142,7 +164,8 @@ object Pay {
             parts += slipFor(context, maxOf(d, from), minOf(d.plusDays(6), to), s, s.periods * 2)
             d = d.plusWeeks(1)
         }
-        return Slip(parts.sumOf { it.hours }, parts.sumOf { it.basic }, parts.sumOf { it.tronc }, parts.sumOf { it.tax }, parts.sumOf { it.ni }, parts.sumOf { it.pension })
+        return Slip(parts.sumOf { it.hours }, parts.sumOf { it.basic }, parts.sumOf { it.tronc }, parts.sumOf { it.tax }, parts.sumOf { it.ni }, parts.sumOf { it.pension },
+            studentLoan = parts.sumOf { it.studentLoan })
     }
 
     /** Take-home on one shift: its share of its week's take-home, by pay. */

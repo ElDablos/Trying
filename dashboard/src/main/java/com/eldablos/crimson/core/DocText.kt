@@ -116,6 +116,26 @@ object DocText {
         emptyList()
     }
 
+    /**
+     * A PDF's words, where the phone can pull them out (Android 15 on); null otherwise, or for a scan with
+     * no words in it.
+     */
+    fun pdfText(p: Picked, max: Int = 4): String? {
+        if (!p.isPdf || android.os.Build.VERSION.SDK_INT < 35) return null
+        return try {
+            android.os.ParcelFileDescriptor.open(p.file, android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                android.graphics.pdf.PdfRenderer(fd).use { r ->
+                    (0 until minOf(max, r.pageCount)).joinToString("\n") { i ->
+                        r.openPage(i).use { page -> page.textContents.joinToString("\n") { it.text } }
+                    }
+                }
+            }.takeIf { it.isNotBlank() }
+        } catch (e: Throwable) {
+            // Older PDF support on this phone (no text API), or a damaged file.
+            null
+        }
+    }
+
     fun pageCount(p: Picked): Int = try {
         android.os.ParcelFileDescriptor.open(p.file, android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { fd -> android.graphics.pdf.PdfRenderer(fd).use { it.pageCount } }
     } catch (e: Exception) {

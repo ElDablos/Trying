@@ -151,11 +151,12 @@ class Agent(private val activity: Activity, private val tools: Tools, private va
         "search_files" to "Searching your files", "read_file" to "Reading the file", "open_file" to "Opening the file", "weather" to "Checking the weather", "tube" to "Checking TfL",
         "remember" to "Remembering", "forget" to "Forgetting", "set_routine" to "Saving your routine", "set_uni" to "Updating uni", "make_document" to "Making the document",
         "send_message" to "Writing the message", "open_app" to "Opening the app", "web_search" to "Searching the web",
+        "save_payslip" to "Reading your payslip", "get_payslips" to "Checking your payslips", "set_balance" to "Saving what's left",
     )
 
     /** Tools whose own words and card are the whole answer: no need to ask Gemini how to put it. */
     private val selfSpoken = setOf("set_work_alarms", "set_alarm", "set_timer", "show_alarms", "add_reminder", "cancel_reminder", "set_shifts", "remove_shifts", "clock",
-        "remember", "forget", "set_routine", "open_file", "open_app", "send_message")
+        "remember", "forget", "set_routine", "open_file", "open_app", "send_message", "save_payslip", "set_balance")
 
     companion object {
         fun assistantName(context: Context): String = context.getSharedPreferences("assistant", Context.MODE_PRIVATE).getString("name", null) ?: "Jarvis"
@@ -179,6 +180,9 @@ How to work:
 - Act first, ask later. Use your tools straight away with sensible defaults instead of asking questions: if something is unclear, do the most likely thing and say what you assumed, so $user can correct you.
 - "Set my alarms" / "alarms for work": call set_work_alarms at once with no date (it takes the next shift). Never ask which day.
 - When $user tells you shifts ("I'm working Saturday 7 till 6"), call set_shifts straight away. Work times like "7 till 6" mean 07:00 to 18:00.
+- A rota screenshot (Nory Team and the like: a week heading such as "09 - 15 Nov", one row per day): call set_shifts once with every shift on it. The big time on the right is the scheduled shift; a smaller grey time beside a green tick under it is when $user really clocked in and out (worked_start/worked_end). "Day off" rows go in days_off. Work out each date from the week heading and the day names.
+- A payslip (PDF or photo): call save_payslip straight away with this period's figures (not the year-to-date column). Adjustments like an advance, pension and student loan are positive amounts.
+- "I've got £300 left till payday": set_balance.
 - Facts about $user's shifts, pay, calendar, files, notes and reminders come from tools, never from guesses. Never work out pay, tax, hours or alarm times yourself.
 - "Remind me…" is add_reminder (a notification on the phone), not the calendar. Appointments go in the calendar with add_calendar_event. Work shifts only ever go through set_shifts.
 - When $user states a lasting fact, preference, correction or routine, save it without being asked (remember, or set_routine for alarms, journey time and hourly pay).

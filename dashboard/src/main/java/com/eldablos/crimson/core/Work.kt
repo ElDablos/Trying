@@ -25,6 +25,8 @@ object Work {
     fun changed(context: Context) {
         val app = context.applicationContext
         com.eldablos.crimson.money.MoneyWidget.refresh(app)
+        com.eldablos.crimson.assistant.AskWidget.refresh(app)
+        com.eldablos.crimson.assistant.Nudges.arm(app)
         Thread {
             try {
                 Shifts.sync(app)

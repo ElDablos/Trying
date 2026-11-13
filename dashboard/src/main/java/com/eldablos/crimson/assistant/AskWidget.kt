@@ -49,6 +49,7 @@ class AskWidget : AppWidgetProvider() {
 
         private fun render(context: Context, manager: AppWidgetManager, id: Int) {
             try {
+                SysLog.init(context)
                 Theme.load(context)
                 val u = context.resources.displayMetrics.density
                 val options = manager.getAppWidgetOptions(id)

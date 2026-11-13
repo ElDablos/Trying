@@ -43,7 +43,13 @@ import java.util.Locale
  * up at any size). It only redraws when something changes or the quarter-hourly refresh runs: nothing ticks.
  */
 class MoneyWidget : AppWidgetProvider() {
-    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) = ids.forEach { render(context, manager, it) }
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        ids.forEach { render(context, manager, it) }
+        // The quarter-hourly refresh keeps the countdown, ticks and today's outline moving.
+        com.eldablos.crimson.RefreshJob.schedule(context)
+    }
+
+    override fun onEnabled(context: Context) = com.eldablos.crimson.RefreshJob.schedule(context)
 
     override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, options: Bundle) = render(context, manager, id)
 
@@ -112,6 +118,7 @@ class MoneyWidget : AppWidgetProvider() {
 
         private fun render(context: Context, manager: AppWidgetManager, id: Int) {
             try {
+                com.eldablos.crimson.core.SysLog.init(context)
                 Theme.load(context)
                 val dm = context.resources.displayMetrics
                 val options = manager.getAppWidgetOptions(id)
@@ -235,8 +242,10 @@ class MoneyWidget : AppWidgetProvider() {
                 val done = inPeriod.filter { (d, s) -> s.finish(d, zone) <= now }.values.sumOf { it.minutes } / 60.0
                 val barY = minOf(base + 18 * u * k, head.bottom - 30 * u * k.coerceAtLeast(.8f))
                 val bar = RectF(head.left, barY, head.right, barY + 8 * u * k.coerceAtLeast(.7f))
-                c.drawRoundRect(bar, bar.height() / 2, bar.height() / 2, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(26, 255, 255, 255) })
-                if (total > 0 && done > 0) {
+                // On the smallest size there's no room under the figure: the bar is left out rather than drawn through it.
+                val roomForBar = barY > base + 8 * u * k
+                if (roomForBar) c.drawRoundRect(bar, bar.height() / 2, bar.height() / 2, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(26, 255, 255, 255) })
+                if (roomForBar && total > 0 && done > 0) {
                     val f = (done / total).toFloat().coerceIn(0.02f, 1f)
                     c.drawRoundRect(RectF(bar.left, bar.top, bar.left + bar.width() * f, bar.bottom), bar.height() / 2, bar.height() / 2, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         shader = LinearGradient(bar.left, 0f, bar.right, 0f, Hud.RED, Hud.HOT, Shader.TileMode.CLAMP)
@@ -245,7 +254,7 @@ class MoneyWidget : AppWidgetProvider() {
                 }
                 fun hrs(v: Double) = if (v % 1.0 == 0.0) "${v.toInt()}" else "%.1f".format(Locale.ROOT, v)
                 val ly = bar.bottom + 17 * u * k.coerceAtLeast(.85f)
-                if (ly < head.bottom + 2 * u) {
+                if (roomForBar && ly < head.bottom + 2 * u) {
                     val lp = tp(12 * u * k.coerceAtLeast(.85f), MUTED)
                     c.drawText("${pa.format(DateTimeFormatter.ofPattern("d", Locale.getDefault()))} – ${pb.format(dm)}", head.left, ly, lp)
                     val right = "${hrs(done)} of ${hrs(total)}h · ${Pay.money(Math.round(done * setup.hourly).toDouble())} earned"

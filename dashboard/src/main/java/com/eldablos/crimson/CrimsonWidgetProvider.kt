@@ -29,7 +29,11 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
     }
 
     override fun onDisabled(context: Context) {
-        RefreshJob.cancel(context)
+        // Only when no other widget still needs the refresh (Money, Glance and Arcade share it).
+        val manager = AppWidgetManager.getInstance(context)
+        val others = listOf(com.eldablos.crimson.money.MoneyWidget::class.java, CrimsonGlanceProvider::class.java, ArcadeWidgetProvider::class.java)
+            .any { c -> runCatching { manager.getAppWidgetIds(android.content.ComponentName(context, c)).isNotEmpty() }.getOrDefault(false) }
+        if (!others) RefreshJob.cancel(context)
     }
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {

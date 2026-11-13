@@ -158,6 +158,8 @@ class DayActivity : Activity() {
     }
 
     private fun set(shift: Shifts.Shift?) {
+        // A day off has no worked times either (they'd still count towards pay).
+        if (shift == null) Shifts.setActual(this, date, null)
         Work.setShift(this, date, shift)
         finish()
     }

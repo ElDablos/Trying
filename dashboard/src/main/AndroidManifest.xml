@@ -103,7 +103,7 @@
             android:exported="true"
             android:icon="@mipmap/ic_comms"
             android:label="@string/assistant_name"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity="com.eldablos.crimson.assistant"
             android:theme="@style/AppTheme.NoTitle"
             android:windowSoftInputMode="adjustResize|stateHidden">

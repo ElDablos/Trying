@@ -48,6 +48,7 @@ object Reminders {
     }
 
     /** Adds a reminder for [at]; [repeat] is none, daily, weekdays or weekly. [ask] is sent to the assistant when it's tapped. */
+    @Synchronized
     fun add(context: Context, text: String, at: LocalDateTime, repeat: String = "none", ask: String? = null): Reminder {
         val p = prefs(context)
         val id = p.getInt("next_id", 1)
@@ -59,6 +60,7 @@ object Reminders {
         return r
     }
 
+    @Synchronized
     fun cancel(context: Context, id: Int): Reminder? {
         val r = all(context).firstOrNull { it.id == id } ?: return null
         save(context, all(context).filter { it.id != id })
@@ -77,7 +79,7 @@ object Reminders {
 
     /** When a repeating reminder rings next after [after]. Pure, for tests. */
     fun next(time: LocalDateTime, repeat: String, after: LocalDateTime): LocalDateTime? {
-        if (repeat == "none") return null
+        if (repeat !in setOf("daily", "weekdays", "weekly")) return null
         var t = time
         var guard = 0
         while (!t.isAfter(after) || (repeat == "weekdays" && t.dayOfWeek in setOf(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY))) {
@@ -101,6 +103,7 @@ object Reminders {
     }
 
     /** Sets every reminder's alarm again (after a restart or an update); ones missed while the phone was off ring now. */
+    @Synchronized
     fun arm(context: Context) {
         try {
             val now = System.currentTimeMillis()
@@ -121,6 +124,7 @@ object Reminders {
     }
 
     /** Shows reminder [id] now; a repeating one is set for its next time, a one-off waits for Done or Snooze. */
+    @Synchronized
     fun ring(context: Context, id: Int) {
         val r = all(context).firstOrNull { it.id == id } ?: return
         channel(context)
@@ -136,11 +140,15 @@ object Reminders {
             .setShowWhen(true)
             .setAutoCancel(true)
             .setContentIntent(open)
+            // Swiped away counts as dealt with.
+            .setDeleteIntent(action(ReminderReceiver.DONE))
             .addAction(Notification.Action.Builder(null, "Done", action(ReminderReceiver.DONE)).build())
             .addAction(Notification.Action.Builder(null, "Snooze 10 min", action(ReminderReceiver.SNOOZE)).build())
             .addAction(Notification.Action.Builder(null, "In 1 hour", action(ReminderReceiver.HOUR)).build())
             .build()
         context.getSystemService(NotificationManager::class.java)?.notify(id, n)
+        // Already rung (shown again): nothing more to schedule.
+        if (r.repeat == "rung") return
         val again = next(r.time, r.repeat, LocalDateTime.now())
         val rest = all(context).filter { it.id != id }
         if (again != null) {
@@ -154,6 +162,7 @@ object Reminders {
     }
 
     /** Done: off the list (repeating ones carry on). */
+    @Synchronized
     fun done(context: Context, id: Int) {
         context.getSystemService(NotificationManager::class.java)?.cancel(id)
         val r = all(context).firstOrNull { it.id == id } ?: return
@@ -161,6 +170,7 @@ object Reminders {
     }
 
     /** Rings again in [minutes]. A repeating one gets a one-off copy, so its own schedule stays put. */
+    @Synchronized
     fun snooze(context: Context, id: Int, minutes: Long) {
         context.getSystemService(NotificationManager::class.java)?.cancel(id)
         val r = all(context).firstOrNull { it.id == id } ?: return

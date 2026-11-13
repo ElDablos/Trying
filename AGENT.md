@@ -84,6 +84,12 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
   reminders (notifications), calendar, notes, habits, countdowns, spending, file search/read (PDFs and
   pictures read by Gemini), weather, tube, memory, documents, messages, apps, web search; on-phone Gemma
   fallback; settings (key, model mode, memory, pay, calendar, theme, permissions, backup, log).
+  Crimson Ask widget (chat box: type / attach / mic; taller adds three quick questions); Money widget
+  defaults to 4x5 so both fit a page. Pre-ship review fixes: tools with no parameters omit `parameters`
+  (Gemini 400s on an empty object); MoneyWidget schedules RefreshJob; launch extras not replayed from Recents;
+  attachments capped at 7 MB and Throwable caught; reminders can't double-ring ("rung" state, synchronized);
+  history always ends on a model turn; assistant is singleTask; permission requests queued; Gemini key left
+  out of backups and kept through restores; Shifts.sync synchronized; day off clears clocked times.
 - **1.75** — Pop-outs everywhere on the deck (`Detail`/`DRow`, `pop()`, `drawDetail()`: a bottom sheet with a
   title, sub line, big figure, scrolling rows — `scrollDetail` takes the scroll — tappable rows and buttons;
   back, swipe, ✕ or a tap outside closes). Briefing card → the whole briefing (every line, each opening what

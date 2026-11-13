@@ -79,7 +79,8 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         if (Chat.items.length() == 0) welcome()
         refreshStatus()
         scrollDown()
-        handle(intent)
+        // Only when freshly opened: a screen brought back from Recents mustn't repeat what it was opened to do.
+        if (savedInstanceState == null && (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0) handle(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -267,7 +268,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             chips.addView(Ui.text(this, s, 13f, 0xFFD9DCE2.toInt()).apply {
                 setPadding(dp(12), dp(9), dp(12), dp(9))
                 background = Ui.pressable(Ui.rounded(Ui.SURFACE_HI, dp(14).toFloat(), Ui.EDGE, dp(1).toFloat()))
-                setOnClickListener { send(s) }
+                setOnClickListener { if (s == OPEN_SETTINGS) startActivity(Intent(context, SettingsActivity::class.java)) else send(s) }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (i > 0) marginStart = dp(8) })
         }
     }
@@ -275,7 +276,9 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
     private fun welcome() {
         val name = Memory.name(this)
         val hasKey = Gemini.key(this) != null
-        addView(aiText(if (hasKey) "Evening, $name. Tell me your shifts, ask about your pay, set alarms or reminders, or have me find something on your phone."
+        val hour = java.time.LocalTime.now().hour
+        val hello = when { hour < 5 -> "Up late"; hour < 12 -> "Morning"; hour < 18 -> "Afternoon"; else -> "Evening" }
+        addView(aiText(if (hasKey) "$hello, $name. Tell me your shifts, ask about your pay, set alarms or reminders, or have me find something on your phone."
             else "Hello, $name. I'm ready to help with your shifts, pay, alarms, reminders and files. First I need a free Gemini key to think with: it takes about a minute."), animate = false)
         if (!hasKey) addView(cardView(Card("One-time setup", null, listOf(Card.Row("1. Get a free key from Google AI Studio"), Card.Row("2. Paste it into settings")),
             listOf(Act("Open settings", "intent", "settings"), Act("Get a key", "url", "https://aistudio.google.com/apikey")))), animate = false)
@@ -445,14 +448,15 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         val dots = Ui.text(this, "● ● ●", 12f, Ui.MUTED).apply { animate().alpha(.3f).setDuration(600).withEndAction(object : Runnable {
             override fun run() { if (parent != null) animate().alpha(if (alpha < .6f) 1f else .3f).setDuration(600).withEndAction(this).start() }
         }).start() }
-        addView(dots)
+        addView(dots, animate = false)
         thinking = dots
         Thread {
             val reply = try {
                 agent.send(said.ifEmpty { "Have a look at what I've attached." }, files)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Including running out of memory on a big file: say so rather than close.
                 SysLog.error("Assistant", "${e.javaClass.simpleName}: ${e.message.orEmpty().take(140)}")
-                Agent.Reply("Something went wrong inside the app (${e.javaClass.simpleName}). It's in the log in settings.", "", failed = true)
+                Agent.Reply(if (e is OutOfMemoryError) "That was too big for the phone's memory. Try a smaller file." else "Something went wrong inside the app (${e.javaClass.simpleName}). It's in the log in settings.", "", failed = true)
             }
             main.post {
                 thinking?.let { list.removeView(it) }
@@ -463,7 +467,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
                 updateSend()
                 refreshStatus()
                 chipScroll.visibility = View.VISIBLE
-                if (reply.failed && Gemini.key(this) == null) suggest("Open settings") else suggest()
+                if (reply.failed && Gemini.key(this) == null) suggest(OPEN_SETTINGS) else suggest()
             }
         }.start()
     }
@@ -531,9 +535,31 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
 
     override fun attachments(): List<DocText.Picked> = everAttached.toList()
 
+    /** Permissions the tools ask for are collected and asked for together (Android drops a second request while one's showing). */
+    private val wanted = LinkedHashSet<String>()
+    private var asking = false
+
     override fun requestPermission(vararg permissions: String) {
-        val need = permissions.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
-        if (need.isNotEmpty()) main.post { requestPermissions(need.toTypedArray(), 7) }
+        main.post {
+            wanted += permissions.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+            askNext()
+        }
+    }
+
+    private fun askNext() {
+        if (asking || wanted.isEmpty()) return
+        asking = true
+        val now = wanted.toTypedArray()
+        wanted.clear()
+        requestPermissions(now, 7)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        asking = false
+        // Calendar just allowed: the shifts saved a moment ago go in now.
+        if (com.eldablos.crimson.core.Shifts.canWrite(this)) com.eldablos.crimson.core.Work.changed(this)
+        askNext()
     }
 
     /** A yes/no card; the tool waits (off the main thread) until one is tapped. */
@@ -556,7 +582,10 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             box.addView(Ui.row(this, Ui.button(this, "Yes", light = true) { done(true) }, Ui.button(this, "No") { done(false) }), Ui.lp(top = dp(10)))
             addView(box, top = 8)
         }
-        latch.await(120, java.util.concurrent.TimeUnit.SECONDS)
+        if (!latch.await(120, java.util.concurrent.TimeUnit.SECONDS)) {
+            // No answer in two minutes counts as no; the buttons stop working so a late tap can't mislead.
+            latch.countDown()
+        }
         return answer
     }
 
@@ -566,6 +595,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         const val EXTRA_TYPE = "type"
         const val EXTRA_VOICE = "voice"
         const val EXTRA_ATTACH = "attach"
+        private const val OPEN_SETTINGS = "Open settings"
         private const val REQ_SPEECH = 1
         private const val REQ_FILE = 2
     }

@@ -181,7 +181,7 @@ class Tools(private val activity: Activity, private val host: Host) {
             val days = (0 until arr.length()).mapNotNull { date(arr.optString(it)) }.filter { planned[it] != null }
             if (days.isEmpty()) return@Tool Out(ok("removed" to 0, "note" to "There were no shifts on those dates."), said = "There were no shifts on those dates.")
             if (days.size > 1 && !host.confirm("Remove ${days.size} shifts (${days.joinToString(", ") { it.format(dayFmt) }})?")) return@Tool Out(ok("removed" to 0, "note" to "The user said no."), said = "Left as they were.")
-            days.forEach { Shifts.set(activity, it, null) }
+            days.forEach { Shifts.set(activity, it, null); Shifts.setActual(activity, it, null) }
             Work.changed(activity)
             Out(ok("removed" to days.size), Card("Removed", null, days.map { Card.Row(it.format(dayFmt), "day off") }), "Removed ${days.size}.")
         },
@@ -236,13 +236,14 @@ class Tools(private val activity: Activity, private val host: Host) {
                     Card("I'll nudge you the evening before", null, listOf(Card.Row("Reminder", Reminders.describe(r)), Card.Row("Alarms then", "${times.first().format(hm)} – ${times.last().format(hm)}"))),
                     "That shift's more than a day off, so I'll remind you ${Reminders.describe(r)} and set them with one tap.")
             }
+            // One at a time, a moment apart (the Clock app drops them if they arrive together); each must be taken.
+            var set = 0
             times.forEachIndexed { i, t ->
                 if (i > 0) Thread.sleep(700)
-                activity.runOnUiThread {
-                    start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, t.hour).putExtra(AlarmClock.EXTRA_MINUTES, t.minute)
-                        .putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, label))
-                }
+                if (start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, t.hour).putExtra(AlarmClock.EXTRA_MINUTES, t.minute)
+                        .putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, label))) set++
             }
+            if (set < times.size) return@Tool fail(if (set == 0) "The Clock app wouldn't take the alarms." else "The Clock app only took $set of the ${times.size} alarms: check them in the Clock app.")
             Out(ok("set" to JSONArray(times.map { it.format(hm) }), "for_shift" to "${d} ${shift.start.format(hm)}", "label" to label),
                 Card("${times.size} alarm${if (times.size == 1) "" else "s"} set", "${times.first().format(hm)}${if (times.size > 1) " – " + times.last().format(hm) else ""}",
                     listOf(Card.Row("For", "${d.format(dayFmt)} · ${shift.start.format(hm)} start"), Card.Row("Every", "${Memory.alarmGap(activity)} minutes")), listOf(Act("See alarms", "alarms")), good = true),
@@ -259,7 +260,8 @@ class Tools(private val activity: Activity, private val host: Host) {
         },
 
         Tool("set_timer", "Starts a countdown timer in the Clock app.", obj("minutes" to num("How long, in minutes"), "label" to str("What it's for"), required = listOf("minutes"))) { a ->
-            val secs = (a.optDouble("minutes", 0.0) * 60).toInt().coerceIn(1, 24 * 3600)
+            val minutes = a.optDouble("minutes", 0.0).takeIf { !it.isNaN() && it > 0 } ?: return@Tool fail("How long should the timer be?")
+            val secs = (minutes * 60).toInt().coerceIn(1, 24 * 3600)
             if (!start(Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, secs).putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, a.s("label") ?: "Timer")))
                 return@Tool fail("The Clock app wouldn't start the timer.")
             Out(ok("started_seconds" to secs), said = "Timer started.")
@@ -329,7 +331,9 @@ class Tools(private val activity: Activity, private val host: Host) {
             val allDay = raw.length <= 10
             val begin = if (allDay) date(raw)?.atStartOfDay() else runCatching { LocalDateTime.parse(raw.take(16)) }.getOrNull()
             begin ?: return@Tool fail("I couldn't read the start \"$raw\".")
-            val end = a.s("end")?.let { runCatching { LocalDateTime.parse(it.take(16)) }.getOrNull() } ?: if (allDay) begin.plusDays(1) else begin.plusHours(1)
+            // An all-day event ends the morning after its last day; a timed one must end after it starts.
+            val end = if (allDay) (date(a.s("end"))?.takeIf { !it.isBefore(begin.toLocalDate()) } ?: begin.toLocalDate()).plusDays(1).atStartOfDay()
+                else a.s("end")?.let { runCatching { LocalDateTime.parse(it.take(16)) }.getOrNull() }?.takeIf { it.isAfter(begin) } ?: begin.plusHours(1)
             val cal = Shifts.calendars(activity).let { list -> list.firstOrNull { it.primary } ?: list.firstOrNull() } ?: return@Tool fail("There's no calendar on the phone to add to.")
             val v = ContentValues().apply {
                 put(CalendarContract.Events.CALENDAR_ID, cal.id)
@@ -347,7 +351,8 @@ class Tools(private val activity: Activity, private val host: Host) {
                 }
             }
             val uri = activity.contentResolver.insert(CalendarContract.Events.CONTENT_URI, v) ?: return@Tool fail("The calendar wouldn't take it.")
-            val whenText = begin.toLocalDate().format(dayFmt) + if (allDay) " · all day" else " · ${begin.format(hm)} – ${end.format(hm)}"
+            val lastDay = end.toLocalDate().minusDays(1)
+            val whenText = begin.toLocalDate().format(dayFmt) + if (allDay) (if (lastDay.isAfter(begin.toLocalDate())) " – ${lastDay.format(dayFmt)}" else " · all day") else " · ${begin.format(hm)} – ${end.format(hm)}"
             Out(ok("added" to a.optString("title"), "when" to whenText, "calendar" to cal.name),
                 Card("In your calendar", null, listOf(Card.Row(a.optString("title"), whenText)), listOf(Act("Open it", "view", "$uri|")), good = true), "Added to your calendar.")
         },
@@ -459,7 +464,7 @@ class Tools(private val activity: Activity, private val host: Host) {
             val n = a.optInt("number", 0)
             val picked: DocText.Picked = if (n <= 0) host.attachments().lastOrNull() ?: return@Tool fail("Nothing's attached to the chat.")
             else found.getOrNull(n - 1)?.let { f -> DocText.copy(activity, f.uri, f.mime) } ?: return@Tool fail("There's no result number $n: search first.")
-            if (picked.file.length() > 18_000_000) return@Tool fail("That file's too big to read (over 18 MB).")
+            if (picked.file.length() > 7_000_000) return@Tool fail("That file's too big to read (over 7 MB).")
             val text = DocText.text(picked)
             if (text != null) return@Tool Out(ok("name" to picked.name, "text" to text.take(24_000), "cut_short" to (text.length > 24_000)), said = "Read ${picked.name}.")
             if (Gemini.key(activity) == null) return@Tool fail("Reading PDFs and pictures needs Gemini (a key and a connection).")
@@ -559,7 +564,7 @@ class Tools(private val activity: Activity, private val host: Host) {
             val okd = when (a.optString("app")) {
                 "email" -> start(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + (to?.takeIf { it.contains('@') } ?: ""))).putExtra(Intent.EXTRA_SUBJECT, a.s("subject") ?: "").putExtra(Intent.EXTRA_TEXT, text))
                 "sms" -> start(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:" + (number ?: ""))).putExtra("sms_body", text))
-                else -> (number != null && start(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${number.filter { it.isDigit() }}?text=${Uri.encode(text)}")).setPackage("com.whatsapp"))) ||
+                else -> (number != null && start(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${international(number)}?text=${Uri.encode(text)}")).setPackage("com.whatsapp"))) ||
                     start(Intent(Intent.ACTION_SEND).setType("text/plain").setPackage("com.whatsapp").putExtra(Intent.EXTRA_TEXT, text)) ||
                     start(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Send with"))
             }
@@ -609,10 +614,27 @@ class Tools(private val activity: Activity, private val host: Host) {
         }
     }
 
+    /** A number as WhatsApp wants it: digits with the country code ("07123 456789" is a UK number: 447123456789). */
+    private fun international(number: String): String {
+        val digits = number.filter { it.isDigit() }
+        return when {
+            digits.startsWith("00") -> digits.drop(2)
+            digits.startsWith("0") -> "44" + digits.drop(1)
+            else -> digits
+        }
+    }
+
     fun byName(name: String): Tool? = all.firstOrNull { it.name == name }
 
     /** The tools as Gemini's function declarations. */
-    fun declarations(): JSONArray = JSONArray().also { a -> all.forEach { a.put(JSONObject().put("name", it.name).put("description", it.description).put("parameters", it.params)) } }
+    fun declarations(): JSONArray = JSONArray().also { a ->
+        all.forEach { t ->
+            val d = JSONObject().put("name", t.name).put("description", t.description)
+            // A tool that takes nothing must leave its parameters out altogether (Gemini rejects an empty object).
+            if ((t.params.optJSONObject("properties")?.length() ?: 0) > 0) d.put("parameters", t.params)
+            a.put(d)
+        }
+    }
 
     /** Runs a tool by name, never throwing: a failure comes back as an error the model can explain. */
     fun run(name: String, args: JSONObject): Out {

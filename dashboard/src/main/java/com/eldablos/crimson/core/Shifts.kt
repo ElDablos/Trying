@@ -222,6 +222,7 @@ object Shifts {
      * in place, removes days now off; [force] rewrites every one. Returns how many it changed, or -1
      * without calendar access.
      */
+    @Synchronized
     fun sync(context: Context, force: Boolean = false): Int {
         if (!canWrite(context)) return -1
         val cal = calendarId(context) ?: return -1

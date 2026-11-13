@@ -168,8 +168,8 @@ How to work:
             val plain = runCatching { DocText.text(f) }.getOrNull()
             when {
                 plain != null -> parts.put(JSONObject().put("text", "Attached file \"${f.name}\":\n${plain.take(30_000)}"))
-                f.file.length() <= 14_000_000 -> parts.put(Gemini.inline(f.file.readBytes(), if (f.isPdf) "application/pdf" else f.mime.takeIf { it.contains('/') && !it.endsWith("*") } ?: "image/jpeg"))
-                else -> notes += "\"${f.name}\" was too big to attach"
+                f.file.length() <= 7_000_000 -> parts.put(Gemini.inline(f.file.readBytes(), if (f.isPdf) "application/pdf" else f.mime.takeIf { it.contains('/') && !it.endsWith("*") } ?: "image/jpeg"))
+                else -> notes += "\"${f.name}\" was too big to attach (over 7 MB)"
             }
         }
         parts.put(JSONObject().put("text", text + if (notes.isEmpty()) "" else "\n(${notes.joinToString("; ")})"))
@@ -214,9 +214,10 @@ How to work:
                 }
                 return Reply(when {
                     acted -> "That's done (see above), but I lost Gemini before I could say more: " + (if (r.offline) "no connection." else if (r.quota) "the free requests ran out for now." else "it stopped answering.")
-                    r.offline -> "I can't reach Gemini: there's no connection."
+                    r.offline -> "I can't reach Gemini: no connection, or it took too long to answer."
                     r.quota -> "Gemini's free requests have run out for now. They come back later today."
-                    r.error.orEmpty().startsWith("400") || r.error.orEmpty().startsWith("403") -> "Gemini turned that down (${r.error.orEmpty().take(140)}). Check the key in settings."
+                    r.error.orEmpty().startsWith("403") || r.error.orEmpty().contains("API key", true) -> "Gemini didn't accept the key (${r.error.orEmpty().take(120)}). Check it in settings."
+                    r.error.orEmpty().startsWith("400") -> "Gemini turned that request down (${r.error.orEmpty().take(160)})."
                     else -> "Gemini didn't answer (${r.error.orEmpty().take(120)})."
                 }, "", failed = true)
             }
@@ -229,6 +230,10 @@ How to work:
                 if (text.isBlank()) {
                     // Nothing came back (a malformed tool call, or it stopped early): one more go, then own up.
                     if (emptyTries++ < 1) continue
+                    if (acted) {
+                        contents.put(JSONObject().put("role", "model").put("parts", JSONArray().put(JSONObject().put("text", "(Done, as shown above.)"))))
+                        remember(contents)
+                    }
                     val blocked = json.optJSONObject("promptFeedback")?.optString("blockReason").orEmpty()
                     return Reply(if (blocked.isNotEmpty()) "Gemini wouldn't answer that one ($blocked)." else "I didn't get an answer to that. Try putting it another way.", Gemini.lastModel.orEmpty(), failed = true)
                 }
@@ -251,6 +256,7 @@ How to work:
             }
             contents.put(JSONObject().put("role", "user").put("parts", responses))
         }
+        contents.put(JSONObject().put("role", "model").put("parts", JSONArray().put(JSONObject().put("text", "(I stopped there: too many steps.)"))))
         remember(contents)
         return Reply("That took more steps than I allow myself. Tell me which part to carry on with.", Gemini.lastModel.orEmpty(), failed = true)
     }

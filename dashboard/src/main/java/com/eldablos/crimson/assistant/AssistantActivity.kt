@@ -107,6 +107,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
         agent = Agent(this, Tools(this, this), this)
+        shot = savedInstanceState?.getString("shot")?.let { Uri.parse(it) }
         build()
         Chat.load(this)
         redraw()
@@ -125,6 +126,11 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         super.onResume()
         refreshStatus()
         if (Chat.items.length() == 0 && !busy) redraw()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        shot?.let { outState.putString("shot", it.toString()) }
     }
 
     override fun onDestroy() {
@@ -264,7 +270,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             elevation = dp(8).toFloat()
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }
-        bar.addView(square("＋") { pickFile() }, LinearLayout.LayoutParams(dp(44), dp(44)))
+        bar.addView(square("＋") { fileMenu() }, LinearLayout.LayoutParams(dp(44), dp(44)))
         input = EditText(this).apply {
             background = null
             hint = "Ask ${Agent.assistantName(context)} anything…"
@@ -284,7 +290,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             })
         }
         bar.addView(input, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        bar.addView(square("📷") { pickPhoto() }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(4) })
+        bar.addView(square("📷") { photoMenu() }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(4) })
         sendButton = Ui.text(this, "🎙", 17f, Theme.on(Hud.RED), Hud.MEDIUM).apply {
             gravity = Gravity.CENTER
             setOnClickListener {
@@ -953,19 +959,90 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         }
     }
 
-    private fun pickFile() {
+    /** A small sheet from the bottom of the screen: a title and a few choices, each with an icon and a line saying what it does. */
+    private fun sheet(heading: String, vararg options: Triple<String, String, String>, pick: (Int) -> Unit) {
+        val d = Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar)
+        val box = Ui.column(this).apply {
+            background = Ui.rounded(Ui.SHEET, dp(24).toFloat(), Ui.EDGE, dp(1).toFloat())
+            setPadding(dp(16), dp(16), dp(16), dp(12))
+        }
+        box.addView(Ui.text(this, heading, 13f, Ui.MUTED, Hud.MEDIUM), Ui.lp(start = dp(4), bottom = dp(6)))
+        options.forEachIndexed { i, (glyph, name, sub) ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                background = Ui.pressable(Ui.rounded(Color.TRANSPARENT, dp(14).toFloat()))
+                setOnClickListener { d.dismiss(); pick(i) }
+            }
+            row.addView(Ui.text(this, glyph, 18f, Ui.TEXT).apply {
+                gravity = Gravity.CENTER
+                background = Ui.rounded(Hud.alpha(Hud.HOT, .16f), dp(12).toFloat())
+            }, LinearLayout.LayoutParams(dp(42), dp(42)))
+            val words = Ui.column(this)
+            words.addView(Ui.text(this, name, 15.5f, Ui.TEXT, Hud.MEDIUM))
+            words.addView(Ui.text(this, sub, 12.5f, Ui.MUTED), Ui.lp(top = dp(2)))
+            row.addView(words, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(12) })
+            box.addView(row, Ui.lp(top = dp(2)))
+        }
+        d.setContentView(box)
+        d.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            setLayout((screenW * .94f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+            setGravity(Gravity.BOTTOM)
+            attributes = attributes.apply { y = dp(24) }
+        }
+        d.show()
+    }
+
+    /** ＋: a document (PDF, Word, Excel, PowerPoint, text) or any file at all. */
+    private fun fileMenu() = sheet("Add to your message",
+        Triple("📄", "Document", "PDF, Word, Excel, PowerPoint or text"),
+        Triple("📁", "Any file", "Browse everything on the phone"),
+    ) { if (it == 0) pickFile(DOCUMENTS) else pickFile() }
+
+    /** 📷: take a picture now, or choose ones you've got. */
+    private fun photoMenu() = sheet("Add a picture",
+        Triple("📸", "Take a photo", "Opens the camera"),
+        Triple("🖼", "Choose from gallery", "Up to 5 pictures"),
+    ) { if (it == 0) takePhoto() else pickPhotos() }
+
+    private fun pickFile(types: Array<String>? = null) {
         try {
-            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), REQ_FILE)
+            val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+            if (types == null) i.type = "*/*" else { i.type = "*/*"; i.putExtra(Intent.EXTRA_MIME_TYPES, types) }
+            startActivityForResult(i, REQ_FILE)
         } catch (e: Exception) {
             Toast.makeText(this, "No file picker on this phone", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun pickPhoto() {
+    private fun pickPhotos() {
         try {
-            startActivityForResult(Intent(android.provider.MediaStore.ACTION_PICK_IMAGES), REQ_FILE)
+            startActivityForResult(Intent(android.provider.MediaStore.ACTION_PICK_IMAGES).putExtra(android.provider.MediaStore.EXTRA_PICK_IMAGES_MAX, 5), REQ_FILE)
         } catch (e: Exception) {
-            pickFile()
+            pickFile(arrayOf("image/*"))
+        }
+    }
+
+    /** The photo is saved to Pictures/Crimson (so it's in your gallery too), then attached. */
+    private var shot: Uri? = null
+
+    private fun takePhoto() {
+        try {
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "Crimson_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".jpg")
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Crimson")
+            }
+            val uri = contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: throw IllegalStateException("no uri")
+            shot = uri
+            startActivityForResult(Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE).putExtra(android.provider.MediaStore.EXTRA_OUTPUT, uri)
+                .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION), REQ_CAMERA)
+        } catch (e: Exception) {
+            shot?.let { runCatching { contentResolver.delete(it, null, null) } }
+            shot = null
+            Toast.makeText(this, "Couldn't open the camera", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1000,10 +1077,22 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_CAMERA) {
+            val uri = shot ?: return
+            shot = null
+            // Cancelled: the empty picture made for it goes again.
+            if (resultCode == RESULT_OK) attach(uri, "image/jpeg") else runCatching { contentResolver.delete(uri, null, null) }
+            return
+        }
         if (resultCode != RESULT_OK || data == null) return
         when (requestCode) {
             REQ_SPEECH -> data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { send(it) }
-            REQ_FILE -> data.data?.let { attach(it, contentResolver.getType(it)) }
+            REQ_FILE -> {
+                // One file, or several (picked together).
+                val clip = data.clipData
+                val uris = if (clip != null) (0 until clip.itemCount).map { clip.getItemAt(it).uri } else listOfNotNull(data.data)
+                uris.take(5).forEach { attach(it, contentResolver.getType(it)) }
+            }
         }
     }
 
@@ -1072,5 +1161,13 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         private const val OPEN_SETTINGS = "Open settings"
         private const val REQ_SPEECH = 1
         private const val REQ_FILE = 2
+        private const val REQ_CAMERA = 3
+        private val DOCUMENTS = arrayOf(
+            "application/pdf", "text/plain", "text/csv", "application/rtf",
+            "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.oasis.opendocument.text", "application/vnd.oasis.opendocument.spreadsheet",
+        )
     }
 }

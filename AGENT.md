@@ -78,6 +78,10 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.1.2 (code 83) — attach menus
+- ＋ opens a sheet: Document (PDF/Word/Excel/PowerPoint/text/ODF mime list) or Any file; both allow picking several (up to 5).
+- 📷 opens a sheet: Take a photo (ACTION_IMAGE_CAPTURE into a MediaStore row in Pictures/Crimson, no FileProvider or CAMERA permission; the row is deleted on cancel; the uri survives activity recreation) or Choose from gallery (photo picker, up to 5).
+
 ### 2.1.1 (code 82) — your messages showed only their time
 - `maxWidth = (width * .8f)` inside a TextView `apply {}` read the TextView's own width (0), not the screen's, so user bubbles (and card row values) had zero width. Screen width is now `screenW`; never name a property `width` in an Activity that builds views with `apply`.
 

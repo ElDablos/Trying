@@ -68,6 +68,11 @@ DROPPED (no accessibility service).
    deleting existing alarms can only open the Clock app now). REMINDERS as the app's own notifications, not
    calendar: AlarmManager exact alarms (USE_EXACT_ALARM), notification with Done / Snooze 10 min / Later,
    repeats ("every Monday"), re-armed after reboot (BOOT_COMPLETED), list + cancel in the app and by asking.
+   MEMORY ("training"): a remember/forget tool. Routines become structured settings the app code uses
+   (alarm lead / count / gap — reuse JarvisMemory's alarmLead/alarmCount/alarmGap, commute, shift types, pay);
+   everything else is a free-text fact list sent with every request. Corrections ("no, I meant…") are saved
+   too. A "What I know about you" page in settings shows, edits and deletes them. Stored on the phone; Gemma
+   uses the same.
 4. Polish. Same rules: compile + tests here, "build it" before pushing, AGENT.md every build.
 
 ## Release log (newest first)

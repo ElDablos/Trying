@@ -151,8 +151,11 @@ class SettingsActivity : Activity() {
                     }
                 }.start()
             }, Ui.button(context, "Get a free key") { open(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey"))) })
-            val lite = Gemini.mode(context) == "lite"
-            line("Model", if (lite) "Lighter (more free requests)" else "Best available") { Gemini.setMode(context, if (lite) "auto" else "lite"); render() }
+            val modes = listOf("fast" to "Fast: quick, light thinking (recommended)", "smart" to "Smart: the newest model, thinking harder", "lite" to "Lite: quickest, most free requests")
+            line("Speed", modes.first { it.first == Gemini.mode(context) }.second.substringBefore(':')) {
+                android.app.AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("How Gemini answers")
+                    .setItems(modes.map { it.second }.toTypedArray()) { _, i -> Gemini.setMode(context, modes[i].first); render() }.show()
+            }
             if (key != null) line("Remove the key", "", Ui.BAD) { Gemini.setKey(context, null); render() }
         }
 

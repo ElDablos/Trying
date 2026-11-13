@@ -93,4 +93,25 @@ class AssistantTest {
         assertTrue(slip.net in 1050.0..1200.0)
         assertEquals(slip.gross - slip.tax - slip.ni - slip.pension, slip.net, 0.001)
     }
+
+    @Test
+    fun fastModeTriesTheStableAliasFirstAndPreviewsLast() {
+        val ranked = listOf("gemini-3.8-flash-preview", "gemini-3.7-flash", "gemini-3.8-flash-lite")
+        assertEquals(listOf("gemini-flash-latest", "gemini-3.7-flash", "gemini-3.8-flash-preview", "gemini-3.8-flash-lite"), Gemini.order(ranked, "fast"))
+        assertEquals("gemini-3.8-flash-preview", Gemini.order(ranked, "smart").first())
+        assertEquals("gemini-3.8-flash-lite", Gemini.order(ranked, "lite").first())
+        assertEquals(Gemini.order(ranked, "fast").distinct(), Gemini.order(ranked, "fast"))
+    }
+
+    @Test
+    fun transcriptKeepsTheLastTurnsSoTheOnPhoneModelRemembers() {
+        fun turn(role: String, text: String) = JSONObject().put("role", role).put("parts", JSONArray().put(JSONObject().put("text", text)))
+        val contents = JSONArray()
+            .put(turn("user", "Set my alarms"))
+            .put(turn("model", "What date are you setting the alarms for?"))
+            .put(turn("user", "For tomorrow please"))
+        val t = Agent.transcript(contents, "Vee")
+        assertEquals("Vee: Set my alarms\nYou: What date are you setting the alarms for?\nVee: For tomorrow please", t)
+        assertEquals("Vee: For tomorrow please", Agent.transcript(contents, "Vee", turns = 1))
+    }
 }

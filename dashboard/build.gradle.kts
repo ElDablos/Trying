@@ -12,8 +12,8 @@ android {
         // Health Connect is built into Android 14+, so no extra library is needed.
         minSdk = 34
         targetSdk = 34
-        versionCode = 80
-        versionName = "2.0"
+        versionCode = 81
+        versionName = "2.1"
         // The on-phone model's native library: the phone's 64-bit ARM build is all it needs.
         ndk { abiFilters += "arm64-v8a" }
     }

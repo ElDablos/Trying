@@ -77,6 +77,12 @@ Owner's decisions: Gemini + Gemma backup; tap to talk; light/heater dropped; ala
 lead, count, gap) kept; reminders are notifications, not calendar; it must remember what it's told.
 
 ## Release log (newest first)
+
+### 2.1 (code 81) — faster, remembers, redesigned chat
+- Speed: Gemini replies stream (SSE `streamGenerateContent`); modes fast (default: `gemini-flash-latest` alias, then stable before preview, light thinking) / smart (newest, more thinking) / lite. A 503/500 retries once after 1.2s, then the model rests 10 min (previews were overloaded and retried on every message). Single self-spoken tool calls skip the second round trip. Status line shows the model; tap it to switch Fast/Smart; Settings has a Speed picker.
+- Forgetting fix: the on-phone Gemma fallback now gets the last 8 turns (`Agent.transcript`); the system prompt says act first, ask later; set_work_alarms never asks for a date (no date = next shift).
+- Chat redesign (AssistantActivity): home with greeting, weather, "Today at a glance" (next shift + whether alarms cover it, next payslip, reminders) and 6 shortcut tiles; orb with a spinning ring while working; live steps (spinner → tick, saved as "step" items); streaming text with a cursor; cards with green header, big figure, chips, note and split buttons incl. Undo (`Tools.undo` for shifts, reminders, calendar events); Copy / Retry / Read aloud (TTS, en-GB) + "model · time" under replies; Stop button; long-press your message to edit/copy; ✎ new chat archives to filesDir/chats (☰ history, 40 kept); 📷 photo picker; contextual suggestion chips from the tools used.
+- Tests: `Gemini.order`, `Agent.transcript` (37 total).
 - **2.0** — Launcher, Command Deck, rule-based Jarvis, wake word and hands removed (vosk/jna dependencies too).
   New: Crimson Money widget (full page: next payday, period progress, 14 tappable days with ‹ › fortnights,
   payslip lines, last 4 payslips, Clock in/out, Copy last fortnight, Ask AI) and its day sheet; the assistant

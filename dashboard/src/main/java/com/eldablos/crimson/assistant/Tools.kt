@@ -34,24 +34,30 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 
-/** Something to show under a reply: a title, a big figure, rows, and buttons. Plain data, so chats can be saved. */
-class Card(val title: String, val big: String? = null, val rows: List<Row> = emptyList(), val actions: List<Act> = emptyList(), val good: Boolean = false) {
+/**
+ * Something to show under a reply: a title, a big figure, rows, little chips (alarm times), a note line, and
+ * buttons. Plain data, so chats can be saved.
+ */
+class Card(val title: String, val big: String? = null, val rows: List<Row> = emptyList(), val actions: List<Act> = emptyList(), val good: Boolean = false,
+           val chips: List<String> = emptyList(), val note: String? = null) {
     class Row(val left: String, val right: String = "", val act: Act? = null)
 
-    fun json(): JSONObject = JSONObject().put("title", title).put("big", big ?: "").put("good", good)
+    fun json(): JSONObject = JSONObject().put("title", title).put("big", big ?: "").put("good", good).put("chips", JSONArray(chips)).put("note", note ?: "")
         .put("rows", JSONArray().also { a -> rows.forEach { a.put(JSONObject().put("l", it.left).put("r", it.right).put("a", it.act?.json() ?: JSONObject.NULL)) } })
         .put("actions", JSONArray().also { a -> actions.forEach { a.put(it.json()) } })
 
     companion object {
         fun from(o: JSONObject): Card = Card(o.optString("title"), o.optString("big").takeIf { it.isNotEmpty() },
             (o.optJSONArray("rows") ?: JSONArray()).let { a -> (0 until a.length()).map { a.getJSONObject(it) }.map { Row(it.optString("l"), it.optString("r"), it.optJSONObject("a")?.let { x -> Act.from(x) }) } },
-            (o.optJSONArray("actions") ?: JSONArray()).let { a -> (0 until a.length()).map { Act.from(a.getJSONObject(it)) } }, o.optBoolean("good"))
+            (o.optJSONArray("actions") ?: JSONArray()).let { a -> (0 until a.length()).map { Act.from(a.getJSONObject(it)) } }, o.optBoolean("good"),
+            (o.optJSONArray("chips") ?: JSONArray()).let { a -> (0 until a.length()).map { a.optString(it) } }, o.optString("note").takeIf { it.isNotEmpty() })
     }
 }
 
 /**
  * A button: what it's called and what it does. Kinds: "say" (sends [data] as your next message), "view" and
- * "share" (a file: "uri|mime"), "url", "alarms" (the Clock's alarm list), "intent" (a settings page by action).
+ * "share" (a file: "uri|mime"), "url", "alarms" (the Clock's alarm list), "intent" (a settings page by action),
+ * "undo" (takes back what a tool just did: [data] is the undo's number).
  */
 class Act(val label: String, val kind: String, val data: String = "") {
     fun json(): JSONObject = JSONObject().put("label", label).put("kind", kind).put("data", data)
@@ -76,6 +82,20 @@ class Tools(private val activity: Activity, private val host: Host) {
     }
 
     class Out(val json: JSONObject, val card: Card? = null, val said: String = "")
+
+    companion object {
+        /** What the last few tools did, ready to be taken back: number to "undo it, and say what happened". */
+        private val undos = java.util.concurrent.ConcurrentHashMap<String, () -> String>()
+        private val nextUndo = java.util.concurrent.atomic.AtomicInteger(1)
+
+        fun undo(id: String): String = undos.remove(id)?.let { runCatching { it() }.getOrElse { "I couldn't undo that." } } ?: "That can't be undone any more."
+    }
+
+    private fun undoable(action: () -> String): Act {
+        val id = nextUndo.getAndIncrement().toString()
+        undos[id] = action
+        return Act("Undo", "undo", id)
+    }
     class Tool(val name: String, val description: String, val params: JSONObject, val run: (JSONObject) -> Out)
 
     private val zone: ZoneId get() = ZoneId.systemDefault()
@@ -160,7 +180,13 @@ class Tools(private val activity: Activity, private val host: Host) {
                 set += d to Shifts.Shift(st, en, (o.s("name") ?: "SHIFT").uppercase().take(20))
             }
             if (set.isEmpty()) return@Tool fail("No shifts given.")
+            val before = Shifts.all(activity)
             set.forEach { (d, s) -> Shifts.set(activity, d, s) }
+            val undo = undoable {
+                set.forEach { (d, _) -> Shifts.set(activity, d, before[d]) }
+                Work.changed(activity)
+                "Put your shifts back as they were."
+            }
             Work.changed(activity)
             val calendar = Shifts.canWrite(activity)
             if (!calendar) host.requestPermission(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
@@ -170,7 +196,7 @@ class Tools(private val activity: Activity, private val host: Host) {
             Out(ok("saved" to set.size, "in_calendar" to calendar, "payslip_for_that_period" to ok("from" to pa.toString(), "to" to pb.toString(), "paid_on" to Pay.payday(pb).toString(), "take_home" to Math.round(slip.net))),
                 Card(if (set.size == 1) "Shift saved" else "${set.size} shifts saved", null, set.sortedBy { it.first }.map { (d, s) -> Card.Row(d.format(dayFmt), "${s.start.format(hm)} – ${s.end.format(hm)} · ${Work.hours(s.minutes)}") } +
                     Card.Row(if (calendar) "✓ In your calendar" else "Not in your calendar yet", if (calendar) "" else "allow calendar access"),
-                    listOf(Act("Set my alarms", "say", "Set my work alarms for ${dayName(set.minOf { it.first })}")), good = true),
+                    listOf(Act("Set my alarms", "say", "Set my work alarms for ${dayName(set.minOf { it.first })}"), undo), good = true),
                 "Saved ${set.size} shift${if (set.size == 1) "" else "s"}.")
         },
 
@@ -215,7 +241,7 @@ class Tools(private val activity: Activity, private val host: Host) {
                 "About ${money(slip.net)} take-home.")
         },
 
-        Tool("set_work_alarms", "Sets the user's wake-up alarms for a work shift, using their saved routine (how long before the shift, how many alarms, how far apart). Defaults to the next shift.",
+        Tool("set_work_alarms", "Sets the user's wake-up alarms for a work shift, using their saved routine (how long before the shift, how many alarms, how far apart). Call it straight away without asking: with no date it takes the next shift.",
             obj("date" to str("The shift's date, YYYY-MM-DD; omit for the next shift"))) { a ->
             val planned = Shifts.all(activity)
             val d = date(a.s("date")) ?: Shifts.next(planned, System.currentTimeMillis(), zone)?.first ?: return@Tool fail("There are no shifts coming up to set alarms for.")
@@ -239,15 +265,29 @@ class Tools(private val activity: Activity, private val host: Host) {
             // One at a time, a moment apart (the Clock app drops them if they arrive together); each must be taken.
             var set = 0
             times.forEachIndexed { i, t ->
-                if (i > 0) Thread.sleep(700)
+                if (i > 0) Thread.sleep(500)
                 if (start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, t.hour).putExtra(AlarmClock.EXTRA_MINUTES, t.minute)
                         .putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, label))) set++
             }
             if (set < times.size) return@Tool fail(if (set == 0) "The Clock app wouldn't take the alarms." else "The Clock app only took $set of the ${times.size} alarms: check them in the Clock app.")
-            Out(ok("set" to JSONArray(times.map { it.format(hm) }), "for_shift" to "${d} ${shift.start.format(hm)}", "label" to label),
-                Card("${times.size} alarm${if (times.size == 1) "" else "s"} set", "${times.first().format(hm)}${if (times.size > 1) " – " + times.last().format(hm) else ""}",
-                    listOf(Card.Row("For", "${d.format(dayFmt)} · ${shift.start.format(hm)} start"), Card.Row("Every", "${Memory.alarmGap(activity)} minutes")), listOf(Act("See alarms", "alarms")), good = true),
-                "Set ${times.size} alarms from ${times.first().format(hm)}.")
+            // The morning at a glance: when to leave, your line, and rain around the start.
+            val leave = shift.start.minusMinutes(Memory.commuteMinutes(activity).toLong())
+            val bits = ArrayList<String>()
+            bits += "Leave by ${leave.format(hm)}"
+            runCatching { Travel.report(activity, d, fetch = false) }.getOrNull()?.let { rep ->
+                Travel.commute(activity, d).firstOrNull()?.let { id -> rep.lines.firstOrNull { it.id == id } }?.let { l -> bits += "${Travel.lineName(l)} ${l.status.lowercase()}" }
+            }
+            runCatching { Forecast.cached(activity) }.getOrNull()?.let { f ->
+                val st = d.atTime(shift.start)
+                f.hours.filter { !it.time.isBefore(st.minusHours(2)) && !it.time.isAfter(st) }.maxByOrNull { it.rain }?.let { h ->
+                    bits += if (h.rain >= 40) "Rain ${h.rain}% at ${h.time.format(hm)}: take a coat" else "Dry, ${h.temp}° at ${h.time.format(hm)}"
+                }
+            }
+            val when_ = dayName(d).replaceFirstChar { it.uppercase() }
+            Out(ok("set" to JSONArray(times.map { it.format(hm) }), "for_shift" to "${d} ${shift.start.format(hm)}", "label" to label, "morning" to bits.joinToString("; ")),
+                Card("✓ ${times.size} alarm${if (times.size == 1) "" else "s"} set · $when_", times.first().format(hm), emptyList(), listOf(Act("See alarms", "alarms")), good = true,
+                    chips = times.map { it.format(hm) }, note = bits.joinToString(" · ")),
+                "Done: ${times.size} alarm${if (times.size == 1) "" else "s"} for ${dayName(d)}'s ${shift.start.format(hm)} shift, from ${times.first().format(hm)}.")
         },
 
         Tool("set_alarm", "Sets a one-off alarm in the phone's Clock app for the next time it's that time of day.",
@@ -280,8 +320,10 @@ class Tools(private val activity: Activity, private val host: Host) {
             val first = if (at.isAfter(LocalDateTime.now())) at else Reminders.next(at, repeat, LocalDateTime.now()) ?: at
             val r = Reminders.add(activity, a.optString("text"), first, repeat)
             if (!Reminders.canNotify(activity)) host.requestPermission(Manifest.permission.POST_NOTIFICATIONS)
+            val undo = undoable { Reminders.cancel(activity, r.id); "Reminder cancelled." }
             Out(ok("id" to r.id, "when" to Reminders.describe(r), "notifications_allowed" to Reminders.canNotify(activity)),
-                Card("Reminder set", null, listOf(Card.Row(r.text, Reminders.describe(r))), listOf(Act("My reminders", "say", "What reminders have I got?")), good = true), "Reminder set: ${Reminders.describe(r)}.")
+                Card("✓ Reminder set", null, listOf(Card.Row(r.text, Reminders.describe(r))), listOf(Act("My reminders", "say", "What reminders have I got?"), undo), good = true),
+                "I'll remind you ${Reminders.describe(r)}.")
         },
 
         Tool("list_reminders", "The reminders that are set.", obj()) {
@@ -354,7 +396,8 @@ class Tools(private val activity: Activity, private val host: Host) {
             val lastDay = end.toLocalDate().minusDays(1)
             val whenText = begin.toLocalDate().format(dayFmt) + if (allDay) (if (lastDay.isAfter(begin.toLocalDate())) " – ${lastDay.format(dayFmt)}" else " · all day") else " · ${begin.format(hm)} – ${end.format(hm)}"
             Out(ok("added" to a.optString("title"), "when" to whenText, "calendar" to cal.name),
-                Card("In your calendar", null, listOf(Card.Row(a.optString("title"), whenText)), listOf(Act("Open it", "view", "$uri|")), good = true), "Added to your calendar.")
+                Card("✓ In your calendar", null, listOf(Card.Row(a.optString("title"), whenText)), listOf(Act("Open it", "view", "$uri|"),
+                    undoable { activity.contentResolver.delete(uri, null, null); "Taken out of your calendar." }), good = true), "Added to your calendar.")
         },
 
         Tool("notes", "The user's notes / to-do list: list them, add one, tick one done, untick, or delete one.",

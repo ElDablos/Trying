@@ -62,6 +62,45 @@ object Chat {
         file(context).delete()
     }
 
+    // --- Earlier chats ---
+
+    class Past(val file: File, val title: String, val at: Long)
+
+    private fun dir(context: Context) = File(context.filesDir, "chats").also { it.mkdirs() }
+
+    /** Puts the chat on screen away in the history (if there's anything in it) and starts a fresh one. */
+    @Synchronized
+    fun archive(context: Context) {
+        if (items.length() == 0) return clear(context)
+        val title = (0 until items.length()).mapNotNull { items.optJSONObject(it) }.firstOrNull { it.optString("t") == "me" }?.optString("text")
+            ?.replace(Regex("📎[^\n]*\n?"), "")?.trim()?.take(60)?.ifBlank { null } ?: "Chat"
+        try {
+            File(dir(context), "${System.currentTimeMillis()}.json").writeText(JSONObject().put("title", title).put("items", items).put("contents", contents).toString())
+            // The newest 40 are kept.
+            dir(context).listFiles()?.sortedByDescending { it.name }?.drop(40)?.forEach { it.delete() }
+        } catch (e: Exception) {
+            SysLog.warn("Assistant", "Couldn't keep the chat: ${e.javaClass.simpleName}")
+        }
+        clear(context)
+    }
+
+    fun past(context: Context): List<Past> = (dir(context).listFiles() ?: emptyArray()).sortedByDescending { it.name }.mapNotNull { f ->
+        runCatching { Past(f, JSONObject(f.readText()).optString("title", "Chat"), f.nameWithoutExtension.toLongOrNull() ?: f.lastModified()) }.getOrNull()
+    }
+
+    /** Brings an earlier chat back to carry on with; the one on screen goes to the history. */
+    @Synchronized
+    fun open(context: Context, past: Past) {
+        val o = runCatching { JSONObject(past.file.readText()) }.getOrNull() ?: return
+        archive(context)
+        items = o.optJSONArray("items") ?: JSONArray()
+        contents = o.optJSONArray("contents") ?: JSONArray()
+        past.file.delete()
+        save(context)
+    }
+
+    fun forgetPast(context: Context) { dir(context).listFiles()?.forEach { it.delete() } }
+
     /** The last [max] turns of [all], starting at a turn where you said something (never mid tool call). Pure. */
     fun trimmed(all: JSONArray, max: Int): JSONArray {
         if (all.length() <= max) return all
@@ -80,17 +119,29 @@ object Chat {
 
 /**
  * The assistant's thinking loop. Your message goes to Gemini with the tools it may use; when it asks for one,
- * the app runs it and hands back the result, until Gemini answers in words. With no connection (or no free
- * requests left), the model on the phone takes over for simpler things.
+ * the app runs it and hands back the result, until Gemini answers in words. Everyday requests (alarms, a shift,
+ * a reminder) are answered by the tool itself, which saves a second trip. With no connection or no free
+ * requests left, the model on the phone takes over, with the conversation so far.
  */
 class Agent(private val activity: Activity, private val tools: Tools, private val listener: Listener) {
     interface Listener {
-        /** A tool is being used ("Saving shifts"). */
-        fun tool(label: String)
+        /** A step has started ("Setting work alarms"); returns its number for [stepDone]. */
+        fun step(label: String): Int
+        fun stepDone(id: Int, ok: Boolean, summary: String)
         fun card(card: Card)
+        /** The reply so far, as it streams in. */
+        fun partial(text: String)
     }
 
-    class Reply(val text: String, val via: String, val failed: Boolean = false)
+    class Reply(val text: String, val via: String, val failed: Boolean = false, val tools: List<String> = emptyList())
+
+    private val cancel = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Stops the answer being worked on (what's already been done stays done). */
+    fun stop() {
+        cancel.set(true)
+        Gemini.abort()
+    }
 
     private val labels = mapOf(
         "get_shifts" to "Checking your shifts", "set_shifts" to "Saving shifts", "remove_shifts" to "Removing shifts", "clock" to "Clocking", "get_pay" to "Working out pay",
@@ -101,6 +152,10 @@ class Agent(private val activity: Activity, private val tools: Tools, private va
         "remember" to "Remembering", "forget" to "Forgetting", "set_routine" to "Saving your routine", "set_uni" to "Updating uni", "make_document" to "Making the document",
         "send_message" to "Writing the message", "open_app" to "Opening the app", "web_search" to "Searching the web",
     )
+
+    /** Tools whose own words and card are the whole answer: no need to ask Gemini how to put it. */
+    private val selfSpoken = setOf("set_work_alarms", "set_alarm", "set_timer", "show_alarms", "add_reminder", "cancel_reminder", "set_shifts", "remove_shifts", "clock",
+        "remember", "forget", "set_routine", "open_file", "open_app", "send_message")
 
     companion object {
         fun assistantName(context: Context): String = context.getSharedPreferences("assistant", Context.MODE_PRIVATE).getString("name", null) ?: "Jarvis"
@@ -121,14 +176,16 @@ Now: ${now.format(day)} (${ZoneId.systemDefault().id}). Dates: $dates.
 What you know about $user:
 ${Memory.summary(context)}
 How to work:
-- Do things with your tools rather than describing them. Facts about $user's shifts, pay, calendar, files, notes and reminders come from tools, never from guesses.
-- Never work out pay, tax, hours totals or alarm times yourself: get_pay, get_shifts and set_work_alarms do the sums exactly.
-- When $user tells you shifts ("I'm working Saturday 7 till 6"), call set_shifts straight away. Work times like "7 till 6" mean 07:00 to 18:00. Only ask if a day or time is truly unclear.
-- "Remind me…" is add_reminder (a notification on the phone), not the calendar. Appointments and plans go in the calendar with add_calendar_event. Work shifts only ever go through set_shifts.
+- Act first, ask later. Use your tools straight away with sensible defaults instead of asking questions: if something is unclear, do the most likely thing and say what you assumed, so $user can correct you.
+- "Set my alarms" / "alarms for work": call set_work_alarms at once with no date (it takes the next shift). Never ask which day.
+- When $user tells you shifts ("I'm working Saturday 7 till 6"), call set_shifts straight away. Work times like "7 till 6" mean 07:00 to 18:00.
+- Facts about $user's shifts, pay, calendar, files, notes and reminders come from tools, never from guesses. Never work out pay, tax, hours or alarm times yourself.
+- "Remind me…" is add_reminder (a notification on the phone), not the calendar. Appointments go in the calendar with add_calendar_event. Work shifts only ever go through set_shifts.
 - When $user states a lasting fact, preference, correction or routine, save it without being asked (remember, or set_routine for alarms, journey time and hourly pay).
+- Several things in one message: call all the tools needed together.
 - You can't press buttons inside other apps or send messages yourself: send_message opens the app with the text ready.
-- Tool results often show $user a card already (rows of detail and buttons). Don't repeat the card: add the one or two sentences that matter, and offer the obvious next step.
-- If a tool returns an error, say what went wrong plainly and how to put it right.
+- Tool results usually show $user a card already. Don't repeat it: add the one or two sentences that matter and the obvious next step.
+- If a tool returns an error, say plainly what went wrong and how to put it right.
 - Keep replies short. Plain sentences; **bold** for the one figure that matters; a short list only when it helps. No headings or tables.
 """.trim()
         }
@@ -157,11 +214,28 @@ How to work:
             }
             return out
         }
+
+        /** The last few turns as a short transcript ("Vee: …" / "You: …"), for the model on the phone. Pure. */
+        fun transcript(contents: JSONArray, user: String, turns: Int = 8): String {
+            val flat = flatten(contents)
+            val from = maxOf(0, flat.length() - turns)
+            return (from until flat.length()).mapNotNull { flat.optJSONObject(it) }.joinToString("\n") { t ->
+                val text = (0 until (t.optJSONArray("parts")?.length() ?: 0)).mapNotNull { t.getJSONArray("parts").optJSONObject(it)?.optString("text")?.takeIf { s -> s.isNotBlank() } }.joinToString(" ")
+                (if (t.optString("role") == "model") "You: " else "$user: ") + text.take(400)
+            }
+        }
     }
+
+    /** A tool has run for the message being answered. */
+    private var acted = false
+    private val used = ArrayList<String>()
 
     /** Sends what you said (with any [attached] files) and returns the answer. Blocking: call off the main thread. */
     fun send(text: String, attached: List<DocText.Picked>): Reply {
         Chat.load(activity)
+        cancel.set(false)
+        acted = false
+        used.clear()
         val parts = JSONArray()
         val notes = ArrayList<String>()
         for (f in attached) {
@@ -174,36 +248,38 @@ How to work:
         }
         parts.put(JSONObject().put("text", text + if (notes.isEmpty()) "" else "\n(${notes.joinToString("; ")})"))
         val turn = JSONObject().put("role", "user").put("parts", parts)
+        val deep = attached.isNotEmpty() || Regex("\\b(check|compare|explain|why|plan|write|letter|essay|document|summar)", RegexOption.IGNORE_CASE).containsMatchIn(text)
 
-        acted = false
-        val reply = if (Gemini.key(activity) != null) gemini(turn) else null
+        val reply = if (Gemini.key(activity) != null) gemini(turn, text, deep) else null
+        if (cancel.get()) return Reply("Stopped.", "", failed = true, tools = used.toList())
         // Once it has done something, a failure isn't retried on the phone's model (that would do it twice).
         if (reply != null && (!reply.failed || acted)) return reply
-        // Gemini couldn't (no key, no signal, out of free requests): the model on the phone, if there is one.
-        val why = reply?.text
+        // Gemini couldn't (no key, no signal, out of free requests, overloaded): the model on the phone, if there is one.
         if (LocalBrain.installed(activity)) {
             local(text)?.let { return it }
         }
-        return Reply(why ?: "I need a Gemini key to think with: it's free, and takes a minute to set up in settings.", "", failed = true)
+        return reply ?: Reply("I need a Gemini key to think with: it's free, and takes a minute to set up in settings.", "", failed = true)
     }
 
-    /** A tool has run for the message being answered. */
-    private var acted = false
-
-    private fun gemini(turn: JSONObject): Reply? {
+    private fun gemini(turn: JSONObject, said: String, deep: Boolean): Reply {
+        val started = System.currentTimeMillis()
         var contents = JSONArray(Chat.contents.toString()).put(turn)
         val system = JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system(activity))))
         val toolSpec = JSONArray().put(JSONObject().put("functionDeclarations", tools.declarations()))
+        // One request at a time is unlikely to want more than one thing when it's short and has no "and".
+        val single = !Regex("\\b(and|then|also|plus)\\b|,|;", RegexOption.IGNORE_CASE).containsMatchIn(said)
         var flattened = false
         var emptyTries = 0
+        fun via() = (Gemini.lastModel ?: "Gemini") + " · " + "%.1fs".format(Locale.ROOT, (System.currentTimeMillis() - started) / 1000.0)
         for (step in 0 until 10) {
+            if (cancel.get()) break
             val body = JSONObject().put("systemInstruction", system).put("contents", contents).put("tools", toolSpec)
-                .put("generationConfig", JSONObject().put("temperature", 0.5))
-            val r = Gemini.generate(activity, body)
+            val r = Gemini.generate(activity, body, deep, cancel) { listener.partial(it) }
             val json = r.json
             if (json == null) {
+                if (cancel.get()) break
                 // A 400 mid-conversation is usually a model that won't take another's tool calls: say them in words, once.
-                if (!flattened && r.error.orEmpty().startsWith("400")) {
+                if (!flattened && r.code == 400 && !r.error.orEmpty().contains("API key", true)) {
                     flattened = true
                     contents = flatten(contents)
                     continue
@@ -214,16 +290,15 @@ How to work:
                 }
                 return Reply(when {
                     acted -> "That's done (see above), but I lost Gemini before I could say more: " + (if (r.offline) "no connection." else if (r.quota) "the free requests ran out for now." else "it stopped answering.")
-                    r.offline -> "I can't reach Gemini: no connection, or it took too long to answer."
+                    r.offline -> "I can't reach Gemini: no connection."
                     r.quota -> "Gemini's free requests have run out for now. They come back later today."
-                    r.error.orEmpty().startsWith("403") || r.error.orEmpty().contains("API key", true) -> "Gemini didn't accept the key (${r.error.orEmpty().take(120)}). Check it in settings."
-                    r.error.orEmpty().startsWith("400") -> "Gemini turned that request down (${r.error.orEmpty().take(160)})."
+                    r.code == 503 || r.code == 500 -> "Gemini's busy right now (Google's servers are overloaded). Try again in a minute."
+                    r.code == 403 || r.code == 401 || r.error.orEmpty().contains("API key", true) -> "Gemini didn't accept the key. Check it in settings."
+                    r.code == 400 -> "Gemini turned that request down (${r.error.orEmpty().take(160)})."
                     else -> "Gemini didn't answer (${r.error.orEmpty().take(120)})."
-                }, "", failed = true)
+                }, "", failed = true, tools = used.toList())
             }
-            val candidate = json.optJSONArray("candidates")?.optJSONObject(0)
-            val content = candidate?.optJSONObject("content")
-            val parts = content?.optJSONArray("parts") ?: JSONArray()
+            val parts = Gemini.parts(json)
             val calls = (0 until parts.length()).mapNotNull { parts.optJSONObject(it)?.optJSONObject("functionCall") }
             if (calls.isEmpty()) {
                 val text = Gemini.text(json)
@@ -233,32 +308,52 @@ How to work:
                     if (acted) {
                         contents.put(JSONObject().put("role", "model").put("parts", JSONArray().put(JSONObject().put("text", "(Done, as shown above.)"))))
                         remember(contents)
+                        return Reply("Done.", via(), tools = used.toList())
                     }
                     val blocked = json.optJSONObject("promptFeedback")?.optString("blockReason").orEmpty()
-                    return Reply(if (blocked.isNotEmpty()) "Gemini wouldn't answer that one ($blocked)." else "I didn't get an answer to that. Try putting it another way.", Gemini.lastModel.orEmpty(), failed = true)
+                    return Reply(if (blocked.isNotEmpty()) "Gemini wouldn't answer that one ($blocked)." else "I didn't get an answer to that. Try putting it another way.", via(), failed = true)
                 }
                 contents.put(JSONObject().put("role", "model").put("parts", JSONArray().put(JSONObject().put("text", text))))
                 remember(contents)
-                return Reply(text, Gemini.lastModel.orEmpty())
+                return Reply(text, via(), tools = used.toList())
             }
             // Its turn goes back exactly as it came (it carries the model's own working that the next step needs).
             contents.put(JSONObject().put("role", "model").put("parts", parts))
             val responses = JSONArray()
+            val said2 = ArrayList<String>()
+            var allSelf = true
             for (call in calls) {
                 val name = call.optString("name")
-                listener.tool(labels[name] ?: name.replace('_', ' '))
+                val id = listener.step(labels[name] ?: name.replace('_', ' '))
                 acted = true
+                used += name
                 val out = tools.run(name, call.optJSONObject("args") ?: JSONObject())
+                val ok = !out.json.has("error")
+                listener.stepDone(id, ok, out.said)
                 out.card?.let { listener.card(it) }
+                if (name !in selfSpoken || !ok || out.said.isBlank()) allSelf = false
+                said2 += out.said
                 val fr = JSONObject().put("name", name).put("response", out.json)
                 if (call.has("id")) fr.put("id", call.optString("id"))
                 responses.put(JSONObject().put("functionResponse", fr))
             }
             contents.put(JSONObject().put("role", "user").put("parts", responses))
+            // A plain request, done by tools that say it all themselves: their words are the answer (one trip, not two).
+            if (step == 0 && single && allSelf) {
+                val text = said2.joinToString(" ")
+                contents.put(JSONObject().put("role", "model").put("parts", JSONArray().put(JSONObject().put("text", text))))
+                remember(contents)
+                return Reply(text, via(), tools = used.toList())
+            }
+        }
+        if (cancel.get()) {
+            contents.put(JSONObject().put("role", "model").put("parts", JSONArray().put(JSONObject().put("text", "(Stopped.)"))))
+            remember(contents)
+            return Reply("Stopped.", "", failed = true, tools = used.toList())
         }
         contents.put(JSONObject().put("role", "model").put("parts", JSONArray().put(JSONObject().put("text", "(I stopped there: too many steps.)"))))
         remember(contents)
-        return Reply("That took more steps than I allow myself. Tell me which part to carry on with.", Gemini.lastModel.orEmpty(), failed = true)
+        return Reply("That took more steps than I allow myself. Tell me which part to carry on with.", via(), failed = true, tools = used.toList())
     }
 
     /** Keeps the conversation for next time, with attached files swapped for a note that they were there. */
@@ -277,29 +372,42 @@ How to work:
     private val localTools = listOf("get_shifts", "set_shifts", "remove_shifts", "clock", "get_pay", "set_work_alarms", "set_alarm", "set_timer", "add_reminder", "list_reminders",
         "notes", "habits", "spending", "weather", "remember", "set_routine", "search_files")
 
-    /** The model on the phone picks one tool (or just answers); the tool's own words are the reply. */
+    /** The model on the phone picks one tool (or just answers), knowing the conversation so far; the tool's own words are the reply. */
     private fun local(text: String): Reply? {
+        val started = System.currentTimeMillis()
         val list = tools.all.filter { it.name in localTools }.joinToString("\n") { t ->
             val props = t.params.optJSONObject("properties")
             val args = props?.keys()?.asSequence()?.joinToString(", ") { k -> "$k: ${props.optJSONObject(k)?.optString("description").orEmpty().take(60)}" }.orEmpty()
             "- ${t.name}($args): ${t.description.substringBefore('.').take(110)}"
         }
         val today = LocalDate.now()
+        val user = Memory.name(activity)
         val system = "You are ${assistantName(activity)}, a phone assistant working offline. Today is ${LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE d MMMM yyyy, HH:mm", Locale.UK))}; tomorrow is ${today.plusDays(1)}.\n" +
-            "What you know about the user:\n${Memory.summary(activity)}\n" +
-            "If the request needs one of these tools, reply with ONLY one line of JSON: {\"tool\": \"name\", \"args\": {…}} (dates as YYYY-MM-DD, times as HH:MM, 24-hour).\n" +
+            "What you know about $user:\n${Memory.summary(activity)}\n" +
+            "If the request needs one of these tools, reply with ONLY one line of JSON: {\"tool\": \"name\", \"args\": {…}} (dates as YYYY-MM-DD, times as HH:MM, 24-hour). " +
+            "For alarms for work, use set_work_alarms with no arguments. Act on the most likely meaning instead of asking.\n" +
             "Otherwise answer in one or two short sentences. Never invent facts about the user's shifts or pay: use a tool.\nTools:\n$list"
-        val out = LocalBrain.ask(activity, system, text) ?: return null
+        val history = transcript(Chat.contents, user)
+        val prompt = (if (history.isNotBlank()) "Conversation so far:\n$history\n\n" else "") + "$user now says: $text"
+        val id = listener.step("Thinking on the phone (offline)")
+        val out = LocalBrain.ask(activity, system, prompt)
+        listener.stepDone(id, out != null, "")
+        out ?: return null
+        val via = "On-phone · " + "%.1fs".format(Locale.ROOT, (System.currentTimeMillis() - started) / 1000.0)
         val call = Regex("(?s)\\{.*\"tool\".*\\}").find(out)?.value?.let { runCatching { JSONObject(it) }.getOrNull() }
-        val via = "On-phone model"
-        if (call == null) return Reply(out.ifBlank { "I couldn't work that one out offline." }, via)
-        val name = call.optString("tool")
-        if (name !in localTools) return Reply("I can't do that one offline.", via, failed = true)
-        listener.tool(labels[name] ?: name)
-        val result = tools.run(name, call.optJSONObject("args") ?: JSONObject())
-        result.card?.let { listener.card(it) }
+        val answer: Reply = if (call == null) Reply(out.ifBlank { "I couldn't work that one out offline." }, via) else {
+            val name = call.optString("tool")
+            if (name !in localTools) Reply("I can't do that one offline.", via, failed = true) else {
+                val sid = listener.step(labels[name] ?: name)
+                used += name
+                val result = tools.run(name, call.optJSONObject("args") ?: JSONObject())
+                listener.stepDone(sid, !result.json.has("error"), result.said)
+                result.card?.let { listener.card(it) }
+                Reply(result.said.ifBlank { "Done." }, via, failed = result.json.has("error"), tools = used.toList())
+            }
+        }
         Chat.contents.put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", text))))
-        Chat.contents.put(JSONObject().put("role", "model").put("parts", JSONArray().put(JSONObject().put("text", result.said.ifBlank { "Done." }))))
-        return Reply(result.said.ifBlank { "Done." }, via, failed = result.json.has("error"))
+        Chat.contents.put(JSONObject().put("role", "model").put("parts", JSONArray().put(JSONObject().put("text", answer.text))))
+        return answer
     }
 }

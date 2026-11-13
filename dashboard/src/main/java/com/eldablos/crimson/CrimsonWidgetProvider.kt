@@ -166,11 +166,8 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.weather_desc, condition.label)
                 views.setTextViewText(R.id.weather_place, "↑${weather.high}° ↓${weather.low}° · $town")
             }
-            // Tap for the weather app the user picked (or one we can find), via a trampoline activity.
-            views.setOnClickPendingIntent(
-                R.id.weather_row,
-                activity(context, 4, OpenAppActivity.intent(context, "Weather", WEATHER_APPS)),
-            )
+            // Tap for Crimson Weather (its Samsung button opens the phone's weather app).
+            views.setOnClickPendingIntent(R.id.weather_row, activity(context, 4, Intent(context, com.eldablos.crimson.weather.WeatherActivity::class.java)))
         }
 
         private fun bindSteps(context: Context, views: RemoteViews, locale: Locale) {

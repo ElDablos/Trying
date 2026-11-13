@@ -176,6 +176,14 @@
             android:taskAffinity="com.eldablos.crimson.alarm"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
             android:turnScreenOn="true" />
+        <!-- Crimson Weather, from the launcher days, opened from the widgets' weather. -->
+        <activity
+            android:name=".weather.WeatherActivity"
+            android:exported="false"
+            android:label="Weather"
+            android:taskAffinity="com.eldablos.crimson.weather"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Wallpaper.NoTitleBar" />
         <activity
             android:name=".alarm.AlarmsActivity"
             android:exported="false"

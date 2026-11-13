@@ -60,9 +60,7 @@ class CrimsonGlanceProvider : AppWidgetProvider() {
             }
             views.setOnClickPendingIntent(
                 R.id.glance_weather,
-                CrimsonWidgetProvider.activity(
-                    context, 4, OpenAppActivity.intent(context, "Weather", CrimsonWidgetProvider.WEATHER_APPS),
-                ),
+                CrimsonWidgetProvider.activity(context, 4, android.content.Intent(context, com.eldablos.crimson.weather.WeatherActivity::class.java)),
             )
 
             // Steps.

@@ -78,6 +78,9 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.3.1 (code 89) — Crimson Weather is back
+- The launcher's Crimson Weather (WeatherView + WeatherArt, removed in 2.0) restored as `weather/WeatherActivity` (wallpaper theme, Hud.u = width/412, Back steps out of hour/day pages, its Samsung button opens the phone's weather app via OpenAppActivity). The clock widget's and glance widget's weather now open it instead of the Samsung app. `EXTRA_DAY` opens on a day's page.
+
 ### 2.3 (code 88) — Crimson's own alarm clock, owned by Jarvis
 - Why: Samsung Clock's alarm provider needs `com.sec.android.app.clockpackage.permission.READ_ALARM/WRITE_ALARM`, protectionLevel **signature** (checked on the owner's S23 Ultra via Shizuku/aShell), so no app can edit Clock alarms. Crimson rings its own.
 - `alarm/Alarms.kt`: list in **device-protected storage** ("alarms" prefs via createDeviceProtectedStorageContext) so `AlarmReceiver` (directBootAware, LOCKED_BOOT_COMPLETED) re-arms after Samsung's overnight auto-restart before unlock. Each alarm armed with `setAlarmClock` (status-bar icon, Doze-exempt). Work alarms: `planWork` (pure, tested) keeps one series per shift within 8 days (routine lead/count/gap copied from Memory into the device store), edits in place by (shift date, index), keeps user-switched-off ones off, removes them for days off; skipped dates; `auto` on by default (`wanted` dates when off). Own alarms: one-off or weekdays. `arm` tidies past one-offs and rings ones missed in the last 15 min (restart).

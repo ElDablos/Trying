@@ -78,6 +78,10 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.1.3 (code 84) — opens on a new chat
+- Every fresh open (onCreate without saved state and not from Recents, or onNewIntent from the icon/widgets/reminders while idle) archives the chat on screen (`Chat.archive`) and shows the home. Coming back from Recents or after the camera keeps the chat.
+- Home shows "Recent chats" (last 3, tap to carry on; "See all ›" opens the ☰ history).
+
 ### 2.1.2 (code 83) — attach menus
 - ＋ opens a sheet: Document (PDF/Word/Excel/PowerPoint/text/ODF mime list) or Any file; both allow picking several (up to 5).
 - 📷 opens a sheet: Take a photo (ACTION_IMAGE_CAPTURE into a MediaStore row in Pictures/Crimson, no FileProvider or CAMERA permission; the row is deleted on cancel; the uri survives activity recreation) or Choose from gallery (photo picker, up to 5).

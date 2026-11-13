@@ -110,6 +110,8 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         shot = savedInstanceState?.getString("shot")?.let { Uri.parse(it) }
         build()
         Chat.load(this)
+        // Opened afresh (not brought back from Recents or recreated): a new chat; the last one goes to ☰.
+        if (savedInstanceState == null && (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0) Chat.archive(this)
         redraw()
         refreshStatus()
         // Only when freshly opened: a screen brought back from Recents mustn't repeat what it was opened to do.
@@ -119,6 +121,12 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // Opened again from its icon, a widget or a reminder: a new chat too (unless it's still answering).
+        if (!busy && Chat.items.length() > 0) {
+            Chat.archive(this)
+            everAttached.clear()
+            redraw()
+        }
         handle(intent)
     }
 
@@ -478,6 +486,38 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
                 tr.addView(tile, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) marginStart = dp(10) })
             }
             v.addView(tr, Ui.lp(top = dp(10)))
+        }
+
+        // The last few chats, a tap away (all of them are under ☰).
+        val past = Chat.past(this)
+        if (past.isNotEmpty()) {
+            val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            head.addView(Ui.text(this, "Recent chats", 12.5f, Ui.MUTED, Hud.MEDIUM), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            head.addView(Ui.text(this, "See all ›", 12.5f, Theme.readable(Hud.HOT), Hud.MEDIUM).apply { setPadding(dp(8), dp(6), 0, dp(6)); setOnClickListener { history() } })
+            v.addView(head, Ui.lp(top = dp(20), start = dp(4)))
+            val f = DateTimeFormatter.ofPattern("EEE HH:mm", Locale.getDefault())
+            val box = Ui.column(this).apply { background = Ui.rounded(Ui.SURFACE, dp(18).toFloat(), Ui.EDGE, dp(1).toFloat()) }
+            past.take(3).forEachIndexed { i, p ->
+                if (i > 0) box.addView(View(this).apply { setBackgroundColor(Color.argb(15, 255, 255, 255)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+                box.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), dp(12), dp(12), dp(12))
+                    background = Ui.pressable(Ui.rounded(Color.TRANSPARENT, dp(18).toFloat()))
+                    addView(Ui.text(context, "💬", 14f, Ui.TEXT), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    addView(Ui.text(context, p.title, 14.5f, Ui.TEXT).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
+                    addView(Ui.text(context, Instant.ofEpochMilli(p.at).atZone(ZoneId.systemDefault()).format(f), 12f, Ui.FAINT),
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(8) })
+                    setOnClickListener {
+                        if (busy) return@setOnClickListener
+                        Chat.open(this@AssistantActivity, p)
+                        everAttached.clear()
+                        redraw()
+                    }
+                })
+            }
+            v.addView(box, Ui.lp(top = dp(6)))
         }
         return v
     }

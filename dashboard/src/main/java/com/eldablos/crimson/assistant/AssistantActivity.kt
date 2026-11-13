@@ -97,7 +97,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
     private var liveHadAvatar = false
 
     private fun dp(v: Int) = Ui.dp(this, v)
-    private val width get() = resources.displayMetrics.widthPixels
+    private val screenW get() = resources.displayMetrics.widthPixels
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -549,7 +549,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         box.addView(Ui.row(this, *buttons.toTypedArray()), Ui.lp(top = dp(12)))
         d.setContentView(box)
         d.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
-        d.window?.setLayout((width * .92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        d.window?.setLayout((screenW * .92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
         d.show()
     }
 
@@ -609,7 +609,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         val b = Ui.text(this, text, 15.5f, Theme.on(Hud.RED)).apply {
             setLineSpacing(0f, 1.25f)
             setPadding(dp(15), dp(11), dp(15), dp(11))
-            maxWidth = (width * .80f).toInt()
+            maxWidth = (screenW * .80f).toInt()
             val r = dp(22).toFloat()
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Hud.HOT, Hud.RED)).apply { cornerRadii = floatArrayOf(r, r, r, r, dp(6).toFloat(), dp(6).toFloat(), r, r) }
             elevation = dp(3).toFloat()
@@ -735,7 +735,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             if (i > 0 || card.chips.isNotEmpty()) body.addView(View(this).apply { setBackgroundColor(Color.argb(15, 255, 255, 255)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
             val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(9), 0, dp(9)) }
             line.addView(Ui.text(this, row.left, 14.5f, Ui.TEXT).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            if (row.right.isNotEmpty()) line.addView(Ui.text(this, row.right, 13.5f, Ui.MUTED).apply { gravity = Gravity.END; maxWidth = (width * .46f).toInt() },
+            if (row.right.isNotEmpty()) line.addView(Ui.text(this, row.right, 13.5f, Ui.MUTED).apply { gravity = Gravity.END; maxWidth = (screenW * .46f).toInt() },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(10) })
             row.act?.let { act ->
                 line.addView(Ui.text(this, "›", 18f, Ui.MUTED), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(8) })

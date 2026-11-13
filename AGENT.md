@@ -78,6 +78,9 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.1.1 (code 82) — your messages showed only their time
+- `maxWidth = (width * .8f)` inside a TextView `apply {}` read the TextView's own width (0), not the screen's, so user bubbles (and card row values) had zero width. Screen width is now `screenW`; never name a property `width` in an Activity that builds views with `apply`.
+
 ### 2.1 (code 81) — faster, remembers, redesigned chat
 - Speed: Gemini replies stream (SSE `streamGenerateContent`); modes fast (default: `gemini-flash-latest` alias, then stable before preview, light thinking) / smart (newest, more thinking) / lite. A 503/500 retries once after 1.2s, then the model rests 10 min (previews were overloaded and retried on every message). Single self-spoken tool calls skip the second round trip. Status line shows the model; tap it to switch Fast/Smart; Settings has a Speed picker.
 - Forgetting fix: the on-phone Gemma fallback now gets the last 8 turns (`Agent.transcript`); the system prompt says act first, ask later; set_work_alarms never asks for a date (no date = next shift).

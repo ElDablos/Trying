@@ -50,6 +50,21 @@ Real phrases the owner said go into `RealPhrasesTest` / `BatchTest` so they neve
 NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday office 9–5 counts as paid.
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
+## THE NEW PLAN (13 Nov 2026) — read this first
+The owner is retiring the launcher (battery, too much) and going back to widgets + a separate AI assistant.
+Decisions: Gemini (free AI Studio key, function calling) as the brain with on-phone Gemma as offline/limit
+fallback; NO wake word (tap to talk: widget, shortcut, Samsung side button, mic in chat); light/heater hands
+DROPPED (no accessibility service).
+1. Remove the launcher: HOME intent, LauncherActivity, deck, home Jarvis, JarvisEar/overlay, JarvisHands,
+   rule parser. Keep the app id so prefs survive. Keep and move to a core package: Shifts, Pay, Uni, Files,
+   DocText, Documents, Travel, Spending, JarvisBrain (LiteRT), JarvisBackup, SysLog. Existing widgets stay.
+2. Money & Shifts widget (small/medium/large): next payday + amount, week bubbles, period progress; tap a
+   day → small dialog activity over home (shift types, custom, day off, clocked) → calendar sync as now. Pay
+   maths stays code, never AI. Mock up first.
+3. Assistant app: View-based chat UI; Gemini function calling with tools (shifts, pay, calendar, files,
+   notes, alarms, weather, tube, documents); confirm destructive actions; Gemma fallback for simple asks.
+4. Polish. Same rules: compile + tests here, "build it" before pushing, AGENT.md every build.
+
 ## Release log (newest first)
 - **1.75** — Pop-outs everywhere on the deck (`Detail`/`DRow`, `pop()`, `drawDetail()`: a bottom sheet with a
   title, sub line, big figure, scrolling rows — `scrollDetail` takes the scroll — tappable rows and buttons;

@@ -98,6 +98,19 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         intent ?: return
         val reminder = intent.getIntExtra(EXTRA_REMINDER, 0)
         if (reminder != 0) Reminders.done(this, reminder)
+        // From the chat-box widget: straight to typing, talking or attaching.
+        if (intent.getBooleanExtra(EXTRA_TYPE, false)) {
+            intent.removeExtra(EXTRA_TYPE)
+            main.postDelayed({ input.requestFocus(); getSystemService(InputMethodManager::class.java)?.showSoftInput(input, 0) }, 250)
+        }
+        if (intent.getBooleanExtra(EXTRA_VOICE, false)) {
+            intent.removeExtra(EXTRA_VOICE)
+            main.postDelayed({ if (!busy) listen() }, 250)
+        }
+        if (intent.getBooleanExtra(EXTRA_ATTACH, false)) {
+            intent.removeExtra(EXTRA_ATTACH)
+            main.postDelayed({ pickFile() }, 250)
+        }
         intent.getStringExtra(EXTRA_ASK)?.takeIf { it.isNotBlank() }?.let { ask ->
             intent.removeExtra(EXTRA_ASK)
             main.postDelayed({ send(ask) }, 250)
@@ -550,6 +563,9 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
     companion object {
         const val EXTRA_ASK = "ask"
         const val EXTRA_REMINDER = "reminder"
+        const val EXTRA_TYPE = "type"
+        const val EXTRA_VOICE = "voice"
+        const val EXTRA_ATTACH = "attach"
         private const val REQ_SPEECH = 1
         private const val REQ_FILE = 2
     }

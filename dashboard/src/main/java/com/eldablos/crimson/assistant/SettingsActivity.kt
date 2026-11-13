@@ -171,7 +171,7 @@ class SettingsActivity : Activity() {
         // What it knows about you.
         section("What I know about you", "Tell the assistant anything in chat and it's saved here. Tap to change, or remove what's wrong.").apply {
             line("Your name", Memory.name(context)) { ask("Your name", Memory.name(context)) { Memory.setName(context, it) } }
-            line("Assistant's name", Agent.assistantName(context)) { ask("Assistant's name", Agent.assistantName(context)) { Agent.setAssistantName(context, it) } }
+            line("Assistant's name", Agent.assistantName(context)) { ask("Assistant's name", Agent.assistantName(context)) { Agent.setAssistantName(context, it); AskWidget.refresh(context) } }
             val ex = Memory.alarmTimes(context, LocalTime.of(7, 0))
             val hm = DateTimeFormatter.ofPattern("HH:mm")
             line("First alarm before a shift", Work.hours(Memory.alarmLead(context).toLong())) { ask("Minutes before the shift starts", "${Memory.alarmLead(context)}", true) { v -> v.toDoubleOrNull()?.let { Memory.setAlarmRoutine(context, it.toInt(), null, null) } } }
@@ -231,6 +231,7 @@ class SettingsActivity : Activity() {
                             Theme.set(context, t)
                             WidgetTheme.refreshWidgets(context)
                             MoneyWidget.refresh(context)
+                            AskWidget.refresh(context)
                             recreate()
                         }
                     }

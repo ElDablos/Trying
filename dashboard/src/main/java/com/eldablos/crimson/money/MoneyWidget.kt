@@ -118,7 +118,7 @@ class MoneyWidget : AppWidgetProvider() {
                 val wDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: 360
                 val hDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 640
                 val size = when {
-                    hDp >= 480 -> Size.FULL
+                    hDp >= 420 -> Size.FULL
                     hDp >= 230 -> Size.MEDIUM
                     else -> Size.SMALL
                 }

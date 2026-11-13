@@ -8,6 +8,8 @@
     <string name="arcade_name">Crimson Arcade</string>
     <string name="assistant_name">Jarvis</string>
     <string name="money_name">Crimson Money</string>
+    <string name="ask_name">Crimson Ask</string>
+    <string name="ask_description">A chat box for the assistant: tap to type, the mic to talk, the clip to attach. Taller adds quick questions</string>
     <string name="money_description">Your next payday, the fortnight\'s shifts to tap and set, payslip lines and clocking in. Made to fill a page</string>
     <string name="arcade_description">Your games as a HUD and a hexagon hive, most played first</string>
     <string name="buds_default_name">Galaxy Buds</string>

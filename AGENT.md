@@ -78,6 +78,9 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.2.1 (code 86) — readable shift times
+- Money widget day tiles: date + weekday letter on the top line (tick on the right), the shift's start and end below on two lines in 15sp medium with a small rule between (was one line of 8sp mono). Off/Uni/+ centred below the date.
+
 ### 2.2 (code 85) — real payslips, rota screenshots, work nudges, Arcade-style widgets
 - **Payslips** (core/Payslips.kt): Grind payslip format parsed from the PDF's words (`DocText.pdfText`, Android 15+ `PdfRenderer.Page.getTextContents`), else from the figures Gemini reads off it (`save_payslip` tool; `Payslip.checked` derives other pay/deductions so it adds up). Kept in prefs "payslips". `Pay.period` = the real payslip when saved, else the estimate. TRONC/hour for estimates = average of the last 3 payslips (beats the "£18 minus basic" guess). Student loan plan detected by matching the deduction (Plan 5 on the 6 Nov payslip) but NOT counted in estimates unless switched on in settings (`Payslips.loanOn`): the owner says the deduction is a payroll mistake. Slip has bonus/studentLoan/other(advance)/actual. Never commit a real payslip (it has the NI number and address); the test uses a made-up one.
 - **Rota screenshots**: `set_shifts` takes worked_start/worked_end (the grey times beside Nory's green ticks → Shifts.actual) and days_off; card lists what changed ("was 9–15:30", "day off · removed"). System prompt explains the Nory layout. Home tile and Ask-widget "ROTA" chip open the photo picker and send it with the request (`pending` prompt in AssistantActivity).

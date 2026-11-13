@@ -305,19 +305,34 @@ class MoneyWidget : AppWidgetProvider() {
                         }
                         if (d == today) K.brackets(c, RectF(cell.left - 3 * u, cell.top - 3 * u, cell.right + 3 * u, cell.bottom + 3 * u), 7 * u * k2, K.GOLD, u)
                         val cx = cell.centerX()
-                        c.drawText(d.dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, Locale.UK), cell.left + 6 * u, cell.top + 12 * u * k2,
-                            K.mono(7.5f * u * k2.coerceAtLeast(.8f), if (past && s == null) FAINT else K.DUST, bold = true))
-                        if (finished) c.drawText("✓", cell.right - 7 * u, cell.top + 12 * u * k2, K.sans(9 * u * k2.coerceAtLeast(.8f), GOOD, Hud.BOLD, Paint.Align.RIGHT))
-                        c.drawText("${d.dayOfMonth}", cx, cell.centerY() + 6 * u * k2, K.sans(17 * u * k2, if (past && s == null && uni == null) MUTED else Color.WHITE, Hud.MEDIUM, Paint.Align.CENTER))
-                        val label = when {
-                            s != null -> Work.short(actual[d]?.takeIf { finished } ?: s)
-                            uni != null -> "UNI"
-                            past -> "OFF"
-                            else -> "+"
+                        val kk = k2.coerceAtLeast(.8f)
+                        // Top line: the date, with its weekday letter beside it, and a tick once worked.
+                        val numP = K.sans(14 * u * kk, if (past && s == null && uni == null) MUTED else Color.WHITE, Hud.MEDIUM)
+                        val ty = cell.top + 16 * u * kk
+                        c.drawText("${d.dayOfMonth}", cell.left + 6 * u, ty, numP)
+                        c.drawText(d.dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, Locale.UK), cell.left + 6 * u + numP.measureText("${d.dayOfMonth}") + 3 * u, ty,
+                            K.mono(7.5f * u * kk, if (past && s == null) FAINT else K.DUST, bold = true))
+                        if (finished) c.drawText("✓", cell.right - 6 * u, ty, K.sans(10 * u * kk, GOOD, Hud.BOLD, Paint.Align.RIGHT))
+                        // The rest of the tile: the shift's times, big and on two lines (start over end), so they read at a glance.
+                        val shown = s?.let { actual[d]?.takeIf { finished } ?: it }
+                        if (shown != null) {
+                            fun t(x: java.time.LocalTime) = if (x.minute == 0) "${x.hour}" else "${x.hour}:${"%02d".format(x.minute)}"
+                            val a = t(shown.start)
+                            val b = t(shown.end)
+                            val tp = K.sans(15 * u * kk, Color.WHITE, Hud.MEDIUM, Paint.Align.CENTER)
+                            K.fit(if (a.length >= b.length) a else b, tp, cw - 8 * u)
+                            val gapY = tp.textSize * 1.08f
+                            val mid = (ty + 4 * u + cell.bottom) / 2
+                            c.drawText(a, cx, mid - 1 * u, tp)
+                            c.drawText(b, cx, mid - 1 * u + gapY, tp.apply { color = 0xFFF0E4E6.toInt() })
+                            // A small rule between start and end.
+                            c.drawLine(cx - 6 * u, mid + gapY * .18f, cx + 6 * u, mid + gapY * .18f, Paint().apply { color = K.a(K.HOT, .6f); strokeWidth = u })
+                        } else {
+                            val label = when { uni != null -> "UNI"; past -> "OFF"; else -> "+" }
+                            val lc = when (label) { "+" -> K.HOT; "OFF" -> FAINT; else -> UNI }
+                            val lp = if (label == "+") K.sans(20 * u * kk, lc, Hud.LIGHT, Paint.Align.CENTER) else K.mono(9 * u * kk, lc, bold = true, spacing = .12f, align = Paint.Align.CENTER)
+                            c.drawText(label, cx, (ty + cell.bottom) / 2 + lp.textSize * .45f, lp)
                         }
-                        val lc = when { label == "+" -> K.HOT; label == "OFF" -> FAINT; s != null -> 0xFFF0E4E6.toInt(); else -> UNI }
-                        val lp = if (label == "+") K.sans(15 * u * k2.coerceAtLeast(.8f), lc, Hud.MEDIUM, Paint.Align.CENTER) else K.mono(8 * u * k2.coerceAtLeast(.8f), lc, bold = s != null, spacing = .02f, align = Paint.Align.CENTER)
-                        c.drawText(label, cx, cell.bottom - 7 * u * k2, K.fit(label, lp, cw - 6 * u))
                     }
                 }
             }

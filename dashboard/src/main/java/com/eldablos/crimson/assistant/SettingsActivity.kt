@@ -199,7 +199,11 @@ class SettingsActivity : Activity() {
             val slips = com.eldablos.crimson.core.Payslips.all(context)
             line("Real payslips saved", if (slips.isEmpty()) "None yet: share a PDF to me" else "${slips.size} · latest paid ${slips.last().paid.format(java.time.format.DateTimeFormatter.ofPattern("d MMM"))}")
             if (setup.troncLearnt) line("TRONC per hour (from payslips)", Pay.money(setup.troncRate))
-            setup.loan?.let { line("Student loan", "${it.label} (from your payslip)") }
+            com.eldablos.crimson.core.Payslips.loanSeen(context)?.let { plan ->
+                line("Student loan in estimates", if (com.eldablos.crimson.core.Payslips.loanOn(context)) "On · ${plan.label}" else "Off (${plan.label} seen on a payslip)") {
+                    com.eldablos.crimson.core.Payslips.setLoanOn(context, !com.eldablos.crimson.core.Payslips.loanOn(context)); MoneyWidget.refresh(context); render()
+                }
+            }
             line("Evening-before heads-up", if (Nudges.headsOn(context)) "On · ${Nudges.headsAt(context)}" else "Off") {
                 if (!Nudges.headsOn(context)) { Nudges.setHeadsOn(context, true); render() }
                 else android.app.TimePickerDialog(context, { _, h, m -> Nudges.setHeadsAt(context, java.time.LocalTime.of(h, m)); render() }, Nudges.headsAt(context).hour, Nudges.headsAt(context).minute, true).apply {

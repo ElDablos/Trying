@@ -308,11 +308,11 @@ class Tools(private val activity: Activity, private val host: Host) {
             val notes = listOfNotNull(
                 "Estimated ${money(estimate.net)} · real ${money(p.takeHome)}".takeIf { estimate.hours > 0 },
                 "TRONC now ${money(after.troncRate)}/h from your payslips (was ${money(troncBefore)})".takeIf { kotlin.math.abs(after.troncRate - troncBefore) > .005 },
-                after.loan?.let { "Student loan: ${it.label}, now in the estimates" }.takeIf { setup.loan == null && after.loan != null },
+                "Student loan ${money(p.studentLoan)} on this one: not counted in estimates (switch on in ⚙ if it's right)".takeIf { p.studentLoan > 0 && after.loan == null },
                 "Hours: payslip ${"%.1f".format(Locale.ROOT, p.hours)}h, your clocked shifts ${"%.1f".format(Locale.ROOT, tracked)}h".takeIf { p.hours > 0 && tracked > 0 && kotlin.math.abs(p.hours - tracked) >= .25 },
             )
             Out(ok("saved" to true, "read_from" to if (fromPdf != null) "the PDF's text" else "your reading", "payslip" to p.json(), "estimate_was" to Math.round(estimate.net * 100) / 100.0,
-                "tronc_per_hour_now" to after.troncRate, "student_loan_plan" to after.loan?.label),
+                "tronc_per_hour_now" to after.troncRate, "student_loan_in_estimates" to (after.loan != null)),
                 Card("✓ Payslip saved · paid ${p.paid.format(dayFmt)}", money(p.takeHome), slipRows(p.slip()) + Card.Row("Take-home", money(p.takeHome)), good = true,
                     note = notes.joinToString(" · ").ifBlank { null }),
                 "Saved your payslip for ${Payslips.label(p)}: ${money(p.takeHome)} take-home.")

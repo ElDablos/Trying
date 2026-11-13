@@ -135,7 +135,7 @@ object Payslips {
         return (0 until a.length()).mapNotNull { a.optJSONObject(it)?.let { o -> Payslip.from(o) } }.sortedBy { it.from }
     }
 
-    /** Saves [p], replacing any payslip for the same period; learns the student loan plan from it. */
+    /** Saves [p], replacing any payslip for the same period; notes the student loan plan it shows (counted only if you switch it on). */
     fun save(context: Context, p: Payslip) {
         val list = all(context).filter { it.from != p.from } + p
         prefs(context).edit().putString("all", JSONArray(list.sortedBy { it.from }.takeLast(60).map { it.json() }).toString()).apply()
@@ -179,8 +179,15 @@ object Payslips {
             .minByOrNull { abs(it.take(p.earnings, periods) - p.studentLoan) }
     }
 
-    /** Your student loan plan, once a payslip has shown it. */
-    fun loanPlan(context: Context): Plan? = prefs(context).getString("loan_plan", null)?.let { n -> Plan.values().firstOrNull { it.name == n } }
+    /** The student loan plan a payslip has shown, if any. */
+    fun loanSeen(context: Context): Plan? = prefs(context).getString("loan_plan", null)?.let { n -> Plan.values().firstOrNull { it.name == n } }
+
+    /** Whether estimates take student loan off: off unless you say so (a deduction may be a payroll mistake). */
+    fun loanOn(context: Context): Boolean = prefs(context).getBoolean("loan_on", false)
+    fun setLoanOn(context: Context, on: Boolean) = prefs(context).edit().putBoolean("loan_on", on).apply()
+
+    /** The plan the estimates use: the one seen, if you've switched it on. */
+    fun loanPlan(context: Context): Plan? = loanSeen(context)?.takeIf { loanOn(context) }
 
     private val DM = DateTimeFormatter.ofPattern("d MMM", Locale.UK)
     fun label(p: Payslip): String = "${p.from.format(DM)} – ${p.to.format(DM)}"

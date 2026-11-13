@@ -126,20 +126,12 @@ class CrimsonWidgetProvider : AppWidgetProvider() {
             // Taps on gaps do nothing, so a near-miss never opens this app.
             views.setOnClickPendingIntent(R.id.widget_root, broadcast(context, ACTION_NOTHING, 30))
 
-            // Clock, alarm and date: tap for the alarm list in the Clock app.
-            views.setOnClickPendingIntent(
-                R.id.clock_area,
-                openOrNothing(
-                    context, 1,
-                    Intent(AlarmClock.ACTION_SHOW_ALARMS).setPackage(SAMSUNG_CLOCK),
-                    Intent(AlarmClock.ACTION_SHOW_ALARMS),
-                    findApp(context, listOf(SAMSUNG_CLOCK), "Clock"),
-                ),
-            )
-            val alarm = context.getSystemService(AlarmManager::class.java)?.nextAlarmClock
+            // Clock, alarm and date: the next of Crimson's alarms; tap for Crimson's alarms.
+            views.setOnClickPendingIntent(R.id.clock_area, activity(context, 1, Intent(context, com.eldablos.crimson.alarm.AlarmsActivity::class.java)))
+            val alarm = com.eldablos.crimson.alarm.Alarms.next(context)
             views.setTextViewText(
                 R.id.alarm_text,
-                if (alarm != null) Format.alarm(alarm.triggerTime, now, is24h, locale) else "No alarm",
+                if (alarm != null) Format.alarm(alarm.due(), now, is24h, locale) else "No alarm",
             )
 
             bindWeather(context, views)

@@ -80,6 +80,8 @@ class RefreshJob : JobService() {
             // The Money widget: payday countdown, hours done, today's outline.
             com.eldablos.crimson.money.MoneyWidget.refresh(context)
             com.eldablos.crimson.assistant.AskWidget.refresh(context)
+            // Alarms: shifts coming into the next week get theirs; everything stays set.
+            com.eldablos.crimson.alarm.Alarms.syncWork(context)
             // Reminders stay armed (a no-op when they already are).
             if (background) com.eldablos.crimson.assistant.Reminders.arm(context)
         }

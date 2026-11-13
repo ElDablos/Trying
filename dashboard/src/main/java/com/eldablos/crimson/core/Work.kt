@@ -27,6 +27,8 @@ object Work {
         com.eldablos.crimson.money.MoneyWidget.refresh(app)
         com.eldablos.crimson.assistant.AskWidget.refresh(app)
         com.eldablos.crimson.assistant.Nudges.arm(app)
+        // Work alarms follow the shifts: moved, added or removed in place.
+        com.eldablos.crimson.alarm.Alarms.syncWork(app)
         Thread {
             try {
                 Shifts.sync(app)

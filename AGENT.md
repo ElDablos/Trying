@@ -78,6 +78,17 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.3 (code 88) — Crimson's own alarm clock, owned by Jarvis
+- Why: Samsung Clock's alarm provider needs `com.sec.android.app.clockpackage.permission.READ_ALARM/WRITE_ALARM`, protectionLevel **signature** (checked on the owner's S23 Ultra via Shizuku/aShell), so no app can edit Clock alarms. Crimson rings its own.
+- `alarm/Alarms.kt`: list in **device-protected storage** ("alarms" prefs via createDeviceProtectedStorageContext) so `AlarmReceiver` (directBootAware, LOCKED_BOOT_COMPLETED) re-arms after Samsung's overnight auto-restart before unlock. Each alarm armed with `setAlarmClock` (status-bar icon, Doze-exempt). Work alarms: `planWork` (pure, tested) keeps one series per shift within 8 days (routine lead/count/gap copied from Memory into the device store), edits in place by (shift date, index), keeps user-switched-off ones off, removes them for days off; skipped dates; `auto` on by default (`wanted` dates when off). Own alarms: one-off or weekdays. `arm` tidies past one-offs and rings ones missed in the last 15 min (restart).
+- `AlarmService` (FGS type systemExempted, fallback mediaPlayback): wakelock, STREAM_ALARM raised to the chosen volume (100% default, restored after), MediaPlayer USAGE_ALARM looping; fallbacks: chosen sound → default alarm → DEFAULT_ALARM_ALERT_URI → ringtone → ToneGenerator beeps. Vibration (USAGE_ALARM). Full-screen notification (channel alarm_ring) + Snooze/Stop actions. Rings `ringMinutes` (10) then auto-snoozes (max 3). `Alarms.rang` advances the list as soon as it starts.
+- `AlarmActivity`: lock-screen alarm (showWhenLocked/turnScreenOn, directBootAware, reads only the service's state): time, label, shift, "alarm n of m", Snooze, Stop, "I'm up · skip the other n". Volume keys snooze; Back does nothing.
+- `AlarmsActivity`: "Will it ring" checks (exact alarms, notifications, alarm channel, full-screen intent, battery unrestricted, Samsung never-sleeping tip, 10-second test), work alarms per shift (chips toggle, Skip day), own alarms (tap toggles, hold = retime/delete, + add with repeat days), settings (auto, routine, sound picker, volume, gradual, vibrate, snooze, ring length).
+- Jarvis tools: set_work_alarms (turns auto on / wants a date), skip_work_alarms, set_alarm (own, optional days, Undo), list_alarms, cancel_alarm, show_alarms (opens AlarmsActivity). Work.changed, RefreshJob, Memory.setAlarmRoutine, boot → `Alarms.syncWork`.
+- Linked: clock widget + glance widget show `Alarms.next` and open AlarmsActivity; Money widget day tiles show ⏰ for shifts with alarms; Jarvis glance "alarms set" and the evening heads-up use Crimson alarms. SysLog.add never throws (direct boot).
+- Owner must delete the old "Work" alarms from Samsung Clock once, or both will ring.
+- Tests: AlarmsTest (series times, move without duplicates, user-off kept, skipped/past, day-before for early shifts, nextAt, JSON round trip). 50 total.
+
 ### 2.2.2 (code 87) — taller day tiles, 9:00 times, clear dates
 - FULL Money widget bands are now 215/60/130/130/220/140/105 (day rows taller; the payslip chart gave up the room). widget_money.xml weights match.
 - Each day tile has a header strip (bold date + weekday letter, tick on the right, crimson rule under it) and the shift below as start over end in H:MM ("9:00 / 17:00"). Past days off keep a readable date.

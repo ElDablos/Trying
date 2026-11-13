@@ -177,6 +177,9 @@ class SettingsActivity : Activity() {
             line("Assistant's name", Agent.assistantName(context)) { ask("Assistant's name", Agent.assistantName(context)) { Agent.setAssistantName(context, it); AskWidget.refresh(context) } }
             val ex = Memory.alarmTimes(context, LocalTime.of(7, 0))
             val hm = DateTimeFormatter.ofPattern("HH:mm")
+            line("Alarms (sound, volume, test)", com.eldablos.crimson.alarm.Alarms.next(context)?.let { "next " + java.time.Instant.ofEpochMilli(it.due()).atZone(java.time.ZoneId.systemDefault()).toLocalTime().format(hm) } ?: "none set", Theme.readable(Hud.HOT)) {
+                startActivity(Intent(context, com.eldablos.crimson.alarm.AlarmsActivity::class.java))
+            }
             line("First alarm before a shift", Work.hours(Memory.alarmLead(context).toLong())) { ask("Minutes before the shift starts", "${Memory.alarmLead(context)}", true) { v -> v.toDoubleOrNull()?.let { Memory.setAlarmRoutine(context, it.toInt(), null, null) } } }
             line("How many alarms", "${Memory.alarmCount(context)}") { ask("How many alarms", "${Memory.alarmCount(context)}", true) { v -> v.toDoubleOrNull()?.let { Memory.setAlarmRoutine(context, null, it.toInt(), null) } } }
             line("Minutes between alarms", "${Memory.alarmGap(context)}") { ask("Minutes between alarms", "${Memory.alarmGap(context)}", true) { v -> v.toDoubleOrNull()?.let { Memory.setAlarmRoutine(context, null, null, it.toInt()) } } }

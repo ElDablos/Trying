@@ -92,15 +92,15 @@ class CrimsonGlanceProvider : AppWidgetProvider() {
             }
 
             // Next alarm.
-            val alarm = context.getSystemService(AlarmManager::class.java)?.nextAlarmClock
+            val alarm = com.eldablos.crimson.alarm.Alarms.next(context)
             views.setTextViewText(
                 R.id.glance_alarm,
-                if (alarm != null) Format.alarm(alarm.triggerTime, Format.now(), DateFormat.is24HourFormat(context), locale)
+                if (alarm != null) Format.alarm(alarm.due(), Format.now(), DateFormat.is24HourFormat(context), locale)
                 else "Off",
             )
             views.setOnClickPendingIntent(
                 R.id.glance_alarm_area,
-                CrimsonWidgetProvider.activity(context, 1, android.content.Intent(AlarmClock.ACTION_SHOW_ALARMS)),
+                CrimsonWidgetProvider.activity(context, 1, android.content.Intent(context, com.eldablos.crimson.alarm.AlarmsActivity::class.java)),
             )
             return views
         }

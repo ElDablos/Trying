@@ -13,6 +13,7 @@ import com.eldablos.crimson.DashboardStore
 import com.eldablos.crimson.Forecast
 import com.eldablos.crimson.OpenAppActivity
 import com.eldablos.crimson.Weather
+import com.eldablos.crimson.alarm.Alarms
 import com.eldablos.crimson.core.DocText
 import com.eldablos.crimson.core.Documents
 import com.eldablos.crimson.core.Files
@@ -345,62 +346,63 @@ class Tools(private val activity: Activity, private val host: Host) {
                 "That's ${money(per)} a day until ${payday.format(dayFmt)}.")
         },
 
-        Tool("set_work_alarms", "Sets the user's wake-up alarms for a work shift, using their saved routine (how long before the shift, how many alarms, how far apart). Call it straight away without asking: with no date it takes the next shift.",
-            obj("date" to str("The shift's date, YYYY-MM-DD; omit for the next shift"))) { a ->
+        Tool("set_work_alarms", "Sets the user's work alarms: Crimson's own alarms (not the Clock app), which follow their shifts using their routine (how long before, how many, how far apart). With no date: turns on automatic work alarms for every shift and shows the next one's. With a date: makes sure that shift has them. Moving or removing shifts moves or removes the alarms by itself, so there are never duplicates. Call it straight away without asking.",
+            obj("date" to str("The shift's date, YYYY-MM-DD; omit for every shift (and the next one shown)"))) { a ->
             val planned = Shifts.all(activity)
-            val d = date(a.s("date")) ?: Shifts.next(planned, System.currentTimeMillis(), zone)?.first ?: return@Tool fail("There are no shifts coming up to set alarms for.")
+            val asked = date(a.s("date"))
+            if (asked != null) {
+                if (planned[asked] == null) return@Tool fail("There's no shift on ${asked.format(dayFmt)}.")
+                Alarms.want(activity, asked)
+                if (asked in Alarms.skipped(activity)) Alarms.setSkipped(activity, asked, false)
+            } else Alarms.set(activity, "auto", true)
+            Alarms.syncWork(activity)
+            val d = asked ?: Shifts.next(planned, System.currentTimeMillis(), zone)?.first ?: return@Tool fail("There are no shifts coming up to set alarms for.")
             val shift = planned[d] ?: return@Tool fail("There's no shift on ${d.format(dayFmt)}.")
-            val times = Memory.alarmTimes(activity, shift.start)
-            // The first alarm may fall on the day before (a very early start).
-            val firstAt = d.atTime(shift.start).minusMinutes(Memory.alarmLead(activity).toLong())
-            val now = LocalDateTime.now()
-            if (!firstAt.isAfter(now)) return@Tool fail("The first alarm (${firstAt.toLocalTime().format(hm)}) has already passed for that shift.")
-            val label = "Work · ${shift.start.format(hm)}"
-            if (ChronoUnit.HOURS.between(now, firstAt) >= 23) {
-                // The Clock app can only set "the next 05:00": too early and it would ring a day early. So: a nudge the evening before.
-                val evening = firstAt.toLocalDate().minusDays(1).atTime(20, 0).let { if (it.isAfter(now)) it else firstAt.minusHours(10) }
-                val r = Reminders.add(activity, "Set your alarms for ${d.format(dayFmt)}'s ${shift.start.format(hm)} shift", evening, "none", "Set my work alarms for ${d}")
-                if (!Reminders.canNotify(activity)) host.requestPermission(Manifest.permission.POST_NOTIFICATIONS)
-                return@Tool Out(ok("set_now" to false, "why" to "The shift is more than a day away, and the Clock app would ring them a day early.", "reminder_at" to r.time.toString(),
-                    "alarms_planned" to JSONArray(times.map { it.format(hm) })),
-                    Card("I'll nudge you the evening before", null, listOf(Card.Row("Reminder", Reminders.describe(r)), Card.Row("Alarms then", "${times.first().format(hm)} – ${times.last().format(hm)}"))),
-                    "That shift's more than a day off, so I'll remind you ${Reminders.describe(r)} and set them with one tap.")
-            }
-            // One at a time, a moment apart (the Clock app drops them if they arrive together); each must be taken.
-            var set = 0
-            times.forEachIndexed { i, t ->
-                if (i > 0) Thread.sleep(500)
-                if (start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, t.hour).putExtra(AlarmClock.EXTRA_MINUTES, t.minute)
-                        .putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, label))) set++
-            }
-            if (set < times.size) return@Tool fail(if (set == 0) "The Clock app wouldn't take the alarms." else "The Clock app only took $set of the ${times.size} alarms: check them in the Clock app.")
-            // The morning at a glance: when to leave, your line, and rain around the start.
-            val leave = shift.start.minusMinutes(Memory.commuteMinutes(activity).toLong())
-            val bits = ArrayList<String>()
-            bits += "Leave by ${leave.format(hm)}"
-            runCatching { Travel.report(activity, d, fetch = false) }.getOrNull()?.let { rep ->
-                Travel.commute(activity, d).firstOrNull()?.let { id -> rep.lines.firstOrNull { it.id == id } }?.let { l -> bits += "${Travel.lineName(l)} ${l.status.lowercase()}" }
-            }
-            runCatching { Forecast.cached(activity) }.getOrNull()?.let { f ->
-                val st = d.atTime(shift.start)
-                f.hours.filter { !it.time.isBefore(st.minusHours(2)) && !it.time.isAfter(st) }.maxByOrNull { it.rain }?.let { h ->
-                    bits += if (h.rain >= 40) "Rain ${h.rain}% at ${h.time.format(hm)}: take a coat" else "Dry, ${h.temp}° at ${h.time.format(hm)}"
-                }
-            }
+            val set = Alarms.forShift(activity, d)
+            if (set.isEmpty()) return@Tool fail("The alarms for ${d.format(dayFmt)}'s shift would already have gone off.")
+            if (!Reminders.canNotify(activity)) host.requestPermission(Manifest.permission.POST_NOTIFICATIONS)
+            val bits = arrayListOf(Nudges.headsLine(activity, d, shift))
             val when_ = dayName(d).replaceFirstChar { it.uppercase() }
-            Out(ok("set" to JSONArray(times.map { it.format(hm) }), "for_shift" to "${d} ${shift.start.format(hm)}", "label" to label, "morning" to bits.joinToString("; ")),
-                Card("✓ ${times.size} alarm${if (times.size == 1) "" else "s"} set · $when_", times.first().format(hm), emptyList(), listOf(Act("See alarms", "alarms")), good = true,
-                    chips = times.map { it.format(hm) }, note = bits.joinToString(" · ")),
-                "Done: ${times.size} alarm${if (times.size == 1) "" else "s"} for ${dayName(d)}'s ${shift.start.format(hm)} shift, from ${times.first().format(hm)}.")
+            Out(ok("set" to JSONArray(set.map { it.time.format(hm) }), "for_shift" to "$d ${shift.start.format(hm)}", "automatic_for_all_shifts" to Alarms.auto(activity), "morning" to bits.joinToString("; ")),
+                Card("✓ ${set.size} alarm${if (set.size == 1) "" else "s"} set · $when_", set.first().time.format(hm), emptyList(), listOf(Act("Alarms", "alarms")), good = true,
+                    chips = set.map { it.time.format(hm) }, note = bits.joinToString(" · ")),
+                "Done: ${set.size} alarm${if (set.size == 1) "" else "s"} for ${dayName(d)}'s ${shift.start.format(hm)} shift, from ${set.first().time.format(hm)}." +
+                    if (asked == null) " They'll follow your shifts from now on." else "")
         },
 
-        Tool("set_alarm", "Sets a one-off alarm in the phone's Clock app for the next time it's that time of day.",
-            obj("time" to str("HH:MM, 24-hour"), "label" to str("What it's for"), required = listOf("time"))) { a ->
+        Tool("skip_work_alarms", "Turns off the work alarms for one shift ('no alarms Saturday', 'I'm up already'), or back on with on=true.",
+            obj("date" to str("The shift's date, YYYY-MM-DD"), "on" to bool("true to turn them back on"), required = listOf("date"))) { a ->
+            val d = date(a.s("date")) ?: return@Tool fail("I couldn't read the date.")
+            val on = a.optBoolean("on")
+            Alarms.setSkipped(activity, d, !on)
+            Out(ok("date" to d.toString(), "alarms_on" to on), said = if (on) "Work alarms back on for ${dayName(d)}." else "No work alarms for ${dayName(d)}.")
+        },
+
+        Tool("set_alarm", "Sets one of the user's own alarms (Crimson's alarm clock): once at the next time it's that time, or on chosen days.",
+            obj("time" to str("HH:MM, 24-hour"), "label" to str("What it's for"), "days" to list("Days it repeats on (omit for once)", choice("A day", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")),
+                required = listOf("time"))) { a ->
             val t = time(a.s("time")) ?: return@Tool fail("I couldn't read that time.")
-            val okd = start(Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR, t.hour).putExtra(AlarmClock.EXTRA_MINUTES, t.minute)
-                .putExtra(AlarmClock.EXTRA_SKIP_UI, true).putExtra(AlarmClock.EXTRA_MESSAGE, a.s("label") ?: "Alarm"))
-            if (!okd) return@Tool fail("The Clock app wouldn't take the alarm.")
-            Out(ok("set" to t.format(hm)), Card("Alarm set", t.format(hm), actions = listOf(Act("See alarms", "alarms")), good = true), "Alarm set for ${t.format(hm)}.")
+            val days = a.optJSONArray("days")?.let { arr -> (0 until arr.length()).mapNotNull { runCatching { java.time.DayOfWeek.valueOf(arr.getString(it).uppercase()) }.getOrNull() } }.orEmpty().toSet()
+            val al = Alarms.addOwn(activity, t, a.s("label") ?: "Alarm", days)
+            if (!Reminders.canNotify(activity)) host.requestPermission(Manifest.permission.POST_NOTIFICATIONS)
+            val undo = undoable { Alarms.remove(activity, al.id); "Removed the ${t.format(hm)} alarm." }
+            Out(ok("set" to t.format(hm), "rings" to Alarms.describe(al)), Card("✓ Alarm set", t.format(hm), listOf(Card.Row(al.label, Alarms.describe(al).substringAfter(' '))), listOf(Act("Alarms", "alarms"), undo), good = true),
+                "Alarm set for ${Alarms.describe(al)}.")
+        },
+
+        Tool("list_alarms", "The user's alarms (work ones and their own): times, what for, on or off.", obj()) { _ ->
+            val all = Alarms.all(activity)
+            Out(ok("alarms" to JSONArray(all.map { ok("time" to it.time.format(hm), "when" to Alarms.describe(it), "label" to it.label, "on" to it.enabled, "kind" to it.kind) })),
+                Card("Your alarms", Alarms.next(activity)?.let { java.time.Instant.ofEpochMilli(it.due()).atZone(zone).toLocalTime().format(hm) },
+                    all.filter { it.enabled }.take(10).map { Card.Row(it.label, Alarms.describe(it)) }.ifEmpty { listOf(Card.Row("None on", "")) }, listOf(Act("Alarms", "alarms"))),
+                "${all.count { it.enabled }} alarms on.")
+        },
+
+        Tool("cancel_alarm", "Switches off one of the user's own alarms by its time (HH:MM).", obj("time" to str("HH:MM"), required = listOf("time"))) { a ->
+            val t = time(a.s("time")) ?: return@Tool fail("I couldn't read that time.")
+            val hit = Alarms.all(activity).firstOrNull { it.kind != "work" && it.time == t && it.enabled } ?: return@Tool fail("There's no alarm of yours at ${t.format(hm)} switched on.")
+            Alarms.setEnabled(activity, hit.id, false)
+            Out(ok("off" to t.format(hm)), said = "Switched off the ${t.format(hm)} alarm.")
         },
 
         Tool("set_timer", "Starts a countdown timer in the Clock app.", obj("minutes" to num("How long, in minutes"), "label" to str("What it's for"), required = listOf("minutes"))) { a ->
@@ -411,8 +413,8 @@ class Tools(private val activity: Activity, private val host: Host) {
             Out(ok("started_seconds" to secs), said = "Timer started.")
         },
 
-        Tool("show_alarms", "Opens the Clock app's alarm list (to change or delete alarms, which only the user can do).", obj()) {
-            start(Intent(AlarmClock.ACTION_SHOW_ALARMS))
+        Tool("show_alarms", "Opens Crimson's alarms screen (work alarms, the user's own, sound and volume).", obj()) {
+            start(Intent(activity, com.eldablos.crimson.alarm.AlarmsActivity::class.java))
             Out(ok("opened" to true), said = "Opened your alarms.")
         },
 
@@ -673,6 +675,7 @@ class Tools(private val activity: Activity, private val host: Host) {
                 "commute_minutes" to int("Minutes to get to work"), "hourly_pay" to num("Total pay per hour in pounds, including TRONC"))) { a ->
             fun i(k: String) = if (a.has(k) && !a.isNull(k)) a.optInt(k) else null
             Memory.setAlarmRoutine(activity, i("alarm_lead_minutes"), i("alarm_count"), i("alarm_gap_minutes"))
+            Alarms.syncWork(activity)
             i("commute_minutes")?.let { Memory.setCommuteMinutes(activity, it) }
             a.optDouble("hourly_pay", 0.0).takeIf { !it.isNaN() && it in 5.0..200.0 }?.let { Memory.setHourlyRate(activity, it); com.eldablos.crimson.money.MoneyWidget.refresh(activity) }
             val example = Memory.alarmTimes(activity, LocalTime.of(7, 0))

@@ -436,10 +436,9 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         val zone = ZoneId.systemDefault()
         val ms = System.currentTimeMillis()
         val next = Shifts.next(Shifts.all(this), ms, zone)
-        val alarm = getSystemService(android.app.AlarmManager::class.java)?.nextAlarmClock?.triggerTime
         val shiftCell = next?.let { (d, sh) ->
             val start = sh.begin(d, zone)
-            val covered = alarm != null && alarm < start && start - alarm < 6 * 3_600_000L
+            val covered = com.eldablos.crimson.alarm.Alarms.forShift(this, d).isNotEmpty()
             Triple("Next shift", "${if (d == LocalDate.now()) "Today" else if (d == LocalDate.now().plusDays(1)) "Tomorrow" else d.format(DateTimeFormatter.ofPattern("EEE d", Locale.getDefault()))} ${sh.start}", if (covered) "alarms set" to Ui.GOOD else "alarms not set" to Ui.WARN)
         } ?: Triple("Next shift", "None", "add on Money" to Ui.MUTED)
         val setup = Pay.setup(this)
@@ -470,6 +469,8 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             c.addView(Ui.text(this, k, 11.5f, Ui.MUTED))
             c.addView(Ui.text(this, value, 17f, Ui.TEXT, Hud.MEDIUM).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, Ui.lp(top = dp(4)))
             c.addView(Ui.text(this, sub.first, 11.5f, sub.second).apply { maxLines = 1 }, Ui.lp(top = dp(3)))
+            // The shift cell opens the alarms (Crimson's own) for it.
+            if (i == 0) { c.isClickable = true; c.setOnClickListener { startActivity(Intent(this, com.eldablos.crimson.alarm.AlarmsActivity::class.java)) } }
             row.addView(c, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) marginStart = dp(8) })
         }
         glance.addView(row, Ui.lp(top = dp(10)))
@@ -847,7 +848,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
                     else startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType(mime ?: "*/*").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Send with"))
                 }
                 "url" -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(act.data)))
-                "alarms" -> startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS))
+                "alarms" -> startActivity(Intent(this, com.eldablos.crimson.alarm.AlarmsActivity::class.java))
                 "intent" -> when (act.data) {
                     "files" -> startActivity(Files.accessIntent(this))
                     else -> startActivity(Intent(this, SettingsActivity::class.java))

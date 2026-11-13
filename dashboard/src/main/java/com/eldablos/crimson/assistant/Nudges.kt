@@ -136,6 +136,12 @@ object Nudges {
         return bits.joinToString(" · ")
     }
 
+    /** "Alarms set: 06:00 – 06:25" for the shift on [d], or a warning that there are none. */
+    private fun alarmLine(context: Context, d: LocalDate): String {
+        val set = com.eldablos.crimson.alarm.Alarms.forShift(context, d)
+        return if (set.isEmpty()) "⚠ No alarms set for it: tap Alarms." else "⏰ Alarms set: ${set.first().time.format(HM)}" + (if (set.size > 1) " – ${set.last().time.format(HM)} (${set.size})" else "")
+    }
+
     private fun show(context: Context, e: Event) {
         val s = Shifts.all(context)[e.date] ?: return
         if (e.kind == Kind.IN && (Shifts.clockedIn(context) != null || Shifts.actual(context)[e.date] != null)) return
@@ -155,9 +161,10 @@ object Nudges {
                 val pay = runCatching { Pay.money(Math.round(Pay.slipFor(context, pa, pb, setup).net).toDouble()) }.getOrNull()
                 b.setContentTitle("Tomorrow ${s.times()} · ${Work.hours(s.minutes)}")
                     .setContentText(line)
-                    .setStyle(Notification.BigTextStyle().bigText("$line\nSet your alarms for the morning." + (pay?.let { "\nThis payslip so far: about $it." } ?: "")))
+                    .setStyle(Notification.BigTextStyle().bigText(line + "\n" + alarmLine(context, e.date) + (pay?.let { "\nThis payslip so far: about $it." } ?: "")))
                     .setContentIntent(chat)
-                    .addAction(Notification.Action.Builder(null, "Set alarms", PendingIntent.getActivity(context, id + 70, Intent(AlarmClock.ACTION_SHOW_ALARMS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), flags)).build())
+                    .addAction(Notification.Action.Builder(null, "Alarms", PendingIntent.getActivity(context, id + 70,
+                        Intent(context, com.eldablos.crimson.alarm.AlarmsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), flags)).build())
             }
             Kind.IN -> b.setContentTitle("Clock in on Nory")
                 .setContentText("Your shift starts at ${s.start.format(HM)} (${s.times()})")

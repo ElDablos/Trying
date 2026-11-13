@@ -42,6 +42,8 @@ object Memory {
         count?.let { e.putInt("set:alarm_count", it.coerceIn(1, 12)) }
         gap?.let { e.putInt("set:alarm_gap", it.coerceIn(1, 60)) }
         e.apply()
+        // The work alarms move to the new routine at once.
+        com.eldablos.crimson.alarm.Alarms.syncWork(context)
     }
 
     /** The alarm times for a shift starting at [start], from your routine. */

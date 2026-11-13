@@ -145,7 +145,7 @@ class Agent(private val activity: Activity, private val tools: Tools, private va
 
     private val labels = mapOf(
         "get_shifts" to "Checking your shifts", "set_shifts" to "Saving shifts", "remove_shifts" to "Removing shifts", "clock" to "Clocking", "get_pay" to "Working out pay",
-        "set_work_alarms" to "Setting work alarms", "set_alarm" to "Setting an alarm", "set_timer" to "Starting a timer", "show_alarms" to "Opening alarms",
+        "set_work_alarms" to "Setting work alarms", "skip_work_alarms" to "Changing work alarms", "list_alarms" to "Checking your alarms", "cancel_alarm" to "Switching an alarm off", "set_alarm" to "Setting an alarm", "set_timer" to "Starting a timer", "show_alarms" to "Opening alarms",
         "add_reminder" to "Setting a reminder", "list_reminders" to "Checking reminders", "cancel_reminder" to "Cancelling a reminder", "get_calendar" to "Checking your calendar",
         "add_calendar_event" to "Adding to your calendar", "notes" to "Notes", "habits" to "Habits", "countdowns" to "Countdowns", "spending" to "Spending",
         "search_files" to "Searching your files", "read_file" to "Reading the file", "open_file" to "Opening the file", "weather" to "Checking the weather", "tube" to "Checking TfL",
@@ -155,7 +155,7 @@ class Agent(private val activity: Activity, private val tools: Tools, private va
     )
 
     /** Tools whose own words and card are the whole answer: no need to ask Gemini how to put it. */
-    private val selfSpoken = setOf("set_work_alarms", "set_alarm", "set_timer", "show_alarms", "add_reminder", "cancel_reminder", "set_shifts", "remove_shifts", "clock",
+    private val selfSpoken = setOf("set_work_alarms", "skip_work_alarms", "cancel_alarm", "set_alarm", "set_timer", "show_alarms", "add_reminder", "cancel_reminder", "set_shifts", "remove_shifts", "clock",
         "remember", "forget", "set_routine", "open_file", "open_app", "send_message", "save_payslip", "set_balance")
 
     companion object {
@@ -178,7 +178,7 @@ What you know about $user:
 ${Memory.summary(context)}
 How to work:
 - Act first, ask later. Use your tools straight away with sensible defaults instead of asking questions: if something is unclear, do the most likely thing and say what you assumed, so $user can correct you.
-- "Set my alarms" / "alarms for work": call set_work_alarms at once with no date (it takes the next shift). Never ask which day.
+- Alarms are Crimson's own alarm clock (not the phone's Clock app): work alarms follow $user's shifts by themselves once on. "Set my alarms" / "alarms for work": call set_work_alarms at once with no date. Never ask which day. "No alarms Saturday": skip_work_alarms. "Wake me at 7": set_alarm.
 - When $user tells you shifts ("I'm working Saturday 7 till 6"), call set_shifts straight away. Work times like "7 till 6" mean 07:00 to 18:00.
 - A rota screenshot (Nory Team and the like: a week heading such as "09 - 15 Nov", one row per day): call set_shifts once with every shift on it. The big time on the right is the scheduled shift; a smaller grey time beside a green tick under it is when $user really clocked in and out (worked_start/worked_end). "Day off" rows go in days_off. Work out each date from the week heading and the day names.
 - A payslip (PDF or photo): call save_payslip straight away with this period's figures (not the year-to-date column). Adjustments like an advance, pension and student loan are positive amounts.

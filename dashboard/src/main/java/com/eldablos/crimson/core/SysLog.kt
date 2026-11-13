@@ -42,10 +42,13 @@ object SysLog {
     @Synchronized
     private fun add(level: Char, source: String, text: String, now: Boolean = false) {
         val c = app ?: return
-        val line = "${System.currentTimeMillis()}|$level|${source.replace('|', '/')}|${text.replace('\n', ' ').replace('|', '/').take(300)}"
-        val kept = prefs(c).getString("log", "").orEmpty().lines().filter { it.isNotBlank() }.takeLast(KEEP - 1) + line
-        val ed = prefs(c).edit().putString("log", kept.joinToString("\n"))
-        if (now) ed.commit() else ed.apply()
+        // Never throw from logging (straight after a restart, before unlock, this storage can't be read).
+        try {
+            val line = "${System.currentTimeMillis()}|$level|${source.replace('|', '/')}|${text.replace('\n', ' ').replace('|', '/').take(300)}"
+            val kept = prefs(c).getString("log", "").orEmpty().lines().filter { it.isNotBlank() }.takeLast(KEEP - 1) + line
+            val ed = prefs(c).edit().putString("log", kept.joinToString("\n"))
+            if (now) ed.commit() else ed.apply()
+        } catch (ignored: Throwable) {}
     }
 
     /** Newest first. */

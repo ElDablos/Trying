@@ -196,6 +196,7 @@ class MoneyWidget : AppWidgetProvider() {
             val planned = Shifts.all(context)
             val actual = Shifts.actual(context)
             val worked = planned + actual
+            val alarmed = runCatching { com.eldablos.crimson.alarm.Alarms.all(context).filter { it.kind == "work" && it.enabled }.mapNotNull { it.shift }.toSet() }.getOrDefault(emptySet())
             val K = HudKit
             val dm = DateTimeFormatter.ofPattern("d MMM", Locale.UK)
             fun caps(d: LocalDate, f: String) = d.format(DateTimeFormatter.ofPattern(f, Locale.UK)).uppercase(Locale.UK)
@@ -318,6 +319,8 @@ class MoneyWidget : AppWidgetProvider() {
                         c.drawText(d.dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, Locale.UK), cell.left + 5 * u + numP.measureText(num) + 3 * u, dateY,
                             K.mono(8 * u * kk, if (past && s == null) 0xFF8A7F81.toInt() else K.DUST, bold = true))
                         if (finished) c.drawText("✓", cell.right - 5 * u, dateY, K.sans(11 * u * kk, GOOD, Hud.BOLD, Paint.Align.RIGHT))
+                        // A shift still to come with Crimson's alarms set for it: a small bell.
+                        else if (s != null && alarmed.contains(d)) c.drawText("⏰", cell.right - 9 * u * k2, dateY, K.sans(9 * u * kk, Color.WHITE, Hud.SANS, Paint.Align.RIGHT))
                         // Below: the shift's start over its end, as 9:00 / 17:00.
                         val bodyTop = cell.top + headH
                         val shown = s?.let { actual[d]?.takeIf { finished } ?: it }

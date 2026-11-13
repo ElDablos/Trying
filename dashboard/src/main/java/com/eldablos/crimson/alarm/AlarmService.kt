@@ -37,7 +37,8 @@ import java.time.format.DateTimeFormatter
  */
 class AlarmService : Service() {
     /** What's ringing now, for the alarm screen. */
-    class Ringing(val id: Int, val label: String, val time: LocalTime, val shiftTimes: String?, val index: Int, val of: Int, val shift: LocalDate?, val autoSnoozes: Int)
+    class Ringing(val id: Int, val label: String, val time: LocalTime, val shiftTimes: String?, val index: Int, val of: Int, val shift: LocalDate?, val autoSnoozes: Int,
+                  val brief: String?, val snoozed: Boolean)
 
     private val main = Handler(Looper.getMainLooper())
     private var player: MediaPlayer? = null
@@ -67,7 +68,11 @@ class AlarmService : Service() {
             if (current == null) stopSelf()
             return
         }
-        val r = Ringing(a.id, a.label, if (a.snoozedUntil > 0) LocalTime.now().withSecond(0) else a.time, a.shiftTimes, a.index, a.of, a.shift, autoSnoozes)
+        // The morning's details: fresh if the phone's unlocked, otherwise as worked out when the alarm was set.
+        val fresh = if (getSystemService(android.os.UserManager::class.java)?.isUserUnlocked == true && a.shift != null)
+            runCatching { com.eldablos.crimson.core.Shifts.all(this)[a.shift]?.let { com.eldablos.crimson.assistant.Nudges.headsLine(this, a.shift, it) } }.getOrNull() else null
+        val r = Ringing(a.id, a.label, if (a.snoozedUntil > 0) LocalTime.now().withSecond(0) else a.time, a.shiftTimes, a.index, a.of, a.shift, autoSnoozes,
+            fresh ?: a.brief, a.snoozedUntil > 0)
         val already = current != null
         current = r
         foreground(r.label, r.shiftTimes)
@@ -221,7 +226,7 @@ class AlarmService : Service() {
 
     private fun snooze(r: Ringing, auto: Boolean) {
         val minutes = Alarms.snoozeMinutes(this)
-        Alarms.snooze(this, r.id, minutes, r.label, r.shiftTimes)
+        Alarms.snooze(this, r.id, minutes, r.label, r.shiftTimes, r.brief)
         if (auto) Alarms.store(this).edit().putInt("auto:${r.id}", r.autoSnoozes + 1).apply()
         else Alarms.store(this).edit().remove("auto:${r.id}").apply()
         stop()

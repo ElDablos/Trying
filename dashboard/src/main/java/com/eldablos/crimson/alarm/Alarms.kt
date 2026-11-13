@@ -47,6 +47,8 @@ object Alarms {
         val userOff: Boolean = false,
         /** Snoozed until, as epoch millis (0 when not snoozed). */
         val snoozedUntil: Long = 0,
+        /** For the alarm screen: "Leave by 07:15 · Jubilee: good service · dry, 6°", kept for a restart before unlock. */
+        val brief: String? = null,
     ) {
         val time: LocalTime get() = at.toLocalTime()
         fun millis(zone: ZoneId = ZoneId.systemDefault()) = at.atZone(zone).toInstant().toEpochMilli()
@@ -55,12 +57,13 @@ object Alarms {
         fun due(zone: ZoneId = ZoneId.systemDefault()) = if (snoozedUntil > 0) snoozedUntil else millis(zone)
 
         fun copy(at: LocalDateTime = this.at, label: String = this.label, enabled: Boolean = this.enabled, days: Set<DayOfWeek> = this.days,
-                 shiftTimes: String? = this.shiftTimes, index: Int = this.index, of: Int = this.of, userOff: Boolean = this.userOff, snoozedUntil: Long = this.snoozedUntil) =
-            Alarm(id, at, label, enabled, kind, days, shift, index, of, shiftTimes, userOff, snoozedUntil)
+                 shiftTimes: String? = this.shiftTimes, index: Int = this.index, of: Int = this.of, userOff: Boolean = this.userOff, snoozedUntil: Long = this.snoozedUntil,
+                 brief: String? = this.brief) =
+            Alarm(id, at, label, enabled, kind, days, shift, index, of, shiftTimes, userOff, snoozedUntil, brief)
 
         fun json(): JSONObject = JSONObject().put("id", id).put("at", at.toString()).put("label", label).put("on", enabled).put("kind", kind)
             .put("days", JSONArray(days.map { it.name })).put("shift", shift?.toString()).put("i", index).put("of", of).put("times", shiftTimes)
-            .put("userOff", userOff).put("snooze", snoozedUntil)
+            .put("userOff", userOff).put("snooze", snoozedUntil).put("brief", brief)
 
         companion object {
             fun from(o: JSONObject): Alarm? = runCatching {
@@ -68,7 +71,8 @@ object Alarms {
                 Alarm(o.getInt("id"), LocalDateTime.parse(o.getString("at")), o.optString("label"), o.optBoolean("on", true), o.optString("kind", "own"),
                     (0 until d.length()).mapNotNull { runCatching { DayOfWeek.valueOf(d.getString(it)) }.getOrNull() }.toSet(),
                     o.optString("shift").takeIf { it.isNotBlank() && it != "null" }?.let { LocalDate.parse(it) }, o.optInt("i"), o.optInt("of", 1),
-                    o.optString("times").takeIf { it.isNotBlank() && it != "null" }, o.optBoolean("userOff"), o.optLong("snooze"))
+                    o.optString("times").takeIf { it.isNotBlank() && it != "null" }, o.optBoolean("userOff"), o.optLong("snooze"),
+                    o.optString("brief").takeIf { it.isNotBlank() && it != "null" })
             }.getOrNull()
         }
     }
@@ -244,7 +248,12 @@ object Alarms {
             val want = wanted(c)
             val auto = auto(c)
             val shifts = try { Shifts.all(c) } catch (e: Exception) { return arm(c) }  // locked after a restart: keep what's set
-            save(c, planWork(all(c), shifts, LocalDateTime.now(), lead, count, gap, { d -> d !in skip && (auto || d in want) }) { newId(c) })
+            val planned = planWork(all(c), shifts, LocalDateTime.now(), lead, count, gap, { d -> d !in skip && (auto || d in want) }) { newId(c) }
+            // What the alarm screen shows about the morning, worked out now (it can't be after a restart before unlock).
+            val briefs = planned.mapNotNull { it.shift }.distinct().associateWith { d ->
+                shifts[d]?.let { s -> runCatching { com.eldablos.crimson.assistant.Nudges.headsLine(c, d, s) }.getOrNull() }
+            }
+            save(c, planned.map { a -> if (a.kind == "work" && a.shift != null) a.copy(brief = briefs[a.shift] ?: a.brief) else a })
             arm(c)
         } catch (e: Exception) {
             SysLog.warn("Alarms", "Couldn't sync work alarms: ${e.javaClass.simpleName}")
@@ -323,12 +332,12 @@ object Alarms {
     }
 
     /** Rings [id] again in [minutes] (it stays on the list until then). */
-    fun snooze(c: Context, id: Int, minutes: Int, label: String, times: String?) {
+    fun snooze(c: Context, id: Int, minutes: Int, label: String, times: String?, brief: String? = null) {
         val until = System.currentTimeMillis() + minutes * 60_000L
         update(c) { l ->
             if (l.any { it.id == id }) l.map { if (it.id == id) it.copy(snoozedUntil = until, enabled = true) else it }
             // Already gone (a work one-off): back as a one-off for the snooze.
-            else l + Alarm(id, LocalDateTime.ofInstant(Instant.ofEpochMilli(until), ZoneId.systemDefault()), label, true, "own", shiftTimes = times, snoozedUntil = until)
+            else l + Alarm(id, LocalDateTime.ofInstant(Instant.ofEpochMilli(until), ZoneId.systemDefault()), label, true, "own", shiftTimes = times, snoozedUntil = until, brief = brief)
         }
     }
 

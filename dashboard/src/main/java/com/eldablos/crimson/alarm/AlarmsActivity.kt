@@ -102,100 +102,136 @@ class AlarmsActivity : Activity() {
     private fun render() {
         page.removeAllViews()
         val now = LocalDateTime.now()
-        // --- Header: the next alarm ---
+        val zone = java.time.ZoneId.systemDefault()
+        val c = this
+
+        // --- The next alarm, on the dial, with how long to go ---
         page.addView(label("ALARMS", "CRIMSON"), Ui.lp(top = dp(8)))
         val next = Alarms.next(this)
-        page.addView(Ui.text(this, next?.let { java.time.Instant.ofEpochMilli(it.due()).atZone(java.time.ZoneId.systemDefault()).toLocalTime().format(hm) } ?: "--:--", 64f, Color.WHITE, Hud.LIGHT).apply {
-            setShadowLayer(24f, 0f, 0f, Hud.alpha(Hud.HOT, .55f))
-        }, Ui.lp(top = dp(6)))
-        page.addView(Ui.text(this, next?.let { "Next: ${it.label} · ${Alarms.describe(it, now).substringAfter(' ')}" } ?: "No alarms set", 14f, Ui.MUTED), Ui.lp(top = dp(2)))
+        val dial = ReactorClock(this, live = false).apply {
+            if (next != null) {
+                val at = java.time.Instant.ofEpochMilli(next.due()).atZone(zone).toLocalDateTime()
+                val mins = java.time.Duration.between(now, at).toMinutes().coerceAtLeast(0)
+                time = at.toLocalTime().format(hm)
+                top = "NEXT ALARM"
+                caption = if (mins >= 60) "IN ${mins / 60}H ${mins % 60}M" else "IN ${mins}M"
+                if (next.kind == "work") { index = next.index; of = next.of }
+            } else { time = "--:--"; top = "NO ALARMS"; caption = "TAP + TO ADD" }
+        }
+        val size = (resources.displayMetrics.widthPixels * .62f).toInt()
+        page.addView(dial, LinearLayout.LayoutParams(size, size).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(4) })
+        page.addView(Ui.text(this, next?.let { "${it.label} · ${Alarms.describe(it, now).substringAfter(' ').replaceFirstChar { ch -> ch.uppercase() }}" } ?: "Nothing set", 15f, Ui.TEXT, Hud.MEDIUM).apply { gravity = Gravity.CENTER },
+            Ui.lp())
 
-        // --- Will it ring? ---
+        // --- Will it ring: one line when all's well, each problem with its fix otherwise ---
         val problems = checks()
-        card("WILL IT RING", if (problems.none { !it.ok }) "READY" else "${problems.count { !it.ok }} TO FIX").apply {
-            problems.forEach { c -> line(c.name, if (c.ok) "✓" else c.fixLabel, if (c.ok) Ui.GOOD else Ui.WARN, onClick = if (c.ok) null else c.fix) }
-            line("Samsung: never let Crimson sleep", "how", Ui.MUTED) {
-                AlertDialog.Builder(this@AlarmsActivity, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("Keep Crimson awake")
-                    .setMessage("Settings → Battery → Background usage limits → Never sleeping apps → + → Crimson.\n\nAlso check Settings → Apps → Crimson → Battery is set to Unrestricted.")
-                    .setPositiveButton("Open battery settings") { _, _ -> open(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }.setNegativeButton("Close", null).show()
-            }
-            val last = Alarms.store(this@AlarmsActivity).getLong("last_rang", 0)
-            line("Test alarm (rings in 10 seconds)", if (last > 0) "last rang " + java.time.Instant.ofEpochMilli(last).atZone(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("EEE HH:mm")) else "lock the phone", Theme.readable(Hud.HOT)) {
-                Alarms.addTest(this@AlarmsActivity)
-                Toast.makeText(this@AlarmsActivity, "Lock the phone: it rings in 10 seconds", Toast.LENGTH_LONG).show()
+        val bad = problems.filter { !it.ok }
+        val ready = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = hud(if (bad.isEmpty()) HudDrawable.Kind.PILL_ON else HudDrawable.Kind.PILL_WARN)
+            setPadding(dp(14), dp(12), dp(10), dp(12))
+        }
+        ready.addView(Ui.text(this, if (bad.isEmpty()) "✓  READY TO RING  ·  ${problems.size}/${problems.size}" else "⚠  ${bad.size} THING${if (bad.size == 1) "" else "S"} COULD STOP IT RINGING", 12f,
+            if (bad.isEmpty()) Ui.GOOD else Ui.WARN, Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)).apply { letterSpacing = .08f }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        ready.addView(Ui.text(this, "TEST", 12f, Color.WHITE, Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)).apply {
+            letterSpacing = .2f; gravity = Gravity.CENTER
+            background = hud(HudDrawable.Kind.PRIMARY)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            setOnClickListener {
+                Alarms.addTest(c)
+                Toast.makeText(c, "Lock the phone: it rings in 10 seconds", Toast.LENGTH_LONG).show()
                 render()
             }
-        }
+        })
+        page.addView(ready, Ui.lp(top = dp(16)))
+        if (bad.isNotEmpty()) card("TO FIX").apply { bad.forEach { ch -> line(ch.name, ch.fixLabel, Ui.WARN, onClick = ch.fix) } }
+        page.addView(Ui.text(this, "Samsung: also add Crimson to Never sleeping apps  ›", 12.5f, Ui.MUTED).apply {
+            setPadding(dp(4), dp(10), 0, 0)
+            setOnClickListener {
+                AlertDialog.Builder(c, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("Keep Crimson awake")
+                    .setMessage("Settings → Battery → Background usage limits → Never sleeping apps → + → Crimson.\n\nAnd Settings → Apps → Crimson → Battery → Unrestricted.")
+                    .setPositiveButton("Open battery settings") { _, _ -> open(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }.setNegativeButton("Close", null).show()
+            }
+        })
 
-        // --- Work alarms ---
+        // --- Work alarms: each shift as a timeline ---
         val (lead, count, gap) = Alarms.routine(this)
         val work = Alarms.all(this).filter { it.kind == "work" }.groupBy { it.shift }
         val skipped = Alarms.skipped(this)
         val shifts = runCatching { com.eldablos.crimson.core.Shifts.all(this) }.getOrDefault(emptyMap())
             .filterKeys { !it.isBefore(now.toLocalDate()) && !it.isAfter(now.toLocalDate().plusDays(8)) }
+        val commute = runCatching { Memory.commuteMinutes(this) }.getOrDefault(45)
         card("WORK ALARMS", if (Alarms.auto(this)) "SET BY JARVIS" else "OFF").apply {
-            addView(Ui.text(context, if (Alarms.auto(this@AlarmsActivity)) "$count alarm${if (count == 1) "" else "s"}, the first ${com.eldablos.crimson.core.Work.hours(lead.toLong())} before each shift, $gap min apart. They follow your shifts: change a shift and they move."
-                else "Jarvis isn't setting work alarms by himself. Ask him (\"set my alarms\") or switch it on below.", 13f, Ui.MUTED).apply { setLineSpacing(0f, 1.25f) }, Ui.lp(top = dp(6)))
+            addView(Ui.text(context, if (Alarms.auto(c)) "$count alarm${if (count == 1) "" else "s"}, the first ${com.eldablos.crimson.core.Work.hours(lead.toLong())} before each shift, $gap min apart. Tap one to switch it off."
+                else "Not set by themselves: ask Jarvis (\"set my alarms\") or switch it on below.", 13f, Ui.MUTED).apply { setLineSpacing(0f, 1.25f) }, Ui.lp(top = dp(6)))
             if (shifts.isEmpty()) addView(Ui.text(context, "No shifts in the next week.", 14f, Ui.MUTED), Ui.lp(top = dp(10)))
             shifts.toSortedMap().forEach { (d, s) ->
                 val list = work[d].orEmpty().sortedBy { it.index }
-                val head = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                head.addView(Ui.text(context, d.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.UK)) + " · shift ${s.times()}", 15f, Ui.TEXT, Hud.MEDIUM), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 val isSkipped = d in skipped
-                head.addView(Ui.text(context, if (isSkipped) "Turn back on" else "Skip day", 13f, if (isSkipped) Ui.GOOD else Theme.readable(Hud.HOT)).apply {
-                    setPadding(dp(10), dp(8), 0, dp(8))
-                    setOnClickListener { Alarms.setSkipped(this@AlarmsActivity, d, !isSkipped); render() }
+                addView(View(context).apply { setBackgroundColor(Hud.alpha(Hud.CRIMSON, .25f)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(12) })
+                val head = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                val when_ = when (d) { now.toLocalDate() -> "TODAY"; now.toLocalDate().plusDays(1) -> "TOMORROW"; else -> d.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.UK)).uppercase(Locale.UK) }
+                val ht = SpannableStringBuilder(when_)
+                ht.setSpan(ForegroundColorSpan(Color.WHITE), 0, ht.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                ht.append("   ${s.times()}")
+                head.addView(Ui.text(context, ht, 13f, Ui.MUTED, Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)).apply { letterSpacing = .1f }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                head.addView(Ui.text(context, if (isSkipped) "TURN ON" else "SKIP DAY", 11f, if (isSkipped) Ui.GOOD else Theme.readable(Hud.HOT), Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)).apply {
+                    letterSpacing = .14f
+                    background = hud(HudDrawable.Kind.PILL_OFF)
+                    setPadding(dp(10), dp(6), dp(10), dp(6))
+                    setOnClickListener { Alarms.setSkipped(c, d, !isSkipped); render() }
                 })
-                addView(View(context).apply { setBackgroundColor(Color.argb(15, 255, 255, 255)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(8) })
-                addView(head, Ui.lp(top = dp(4)))
-                if (isSkipped) { addView(Ui.text(context, "Skipped: no alarms for this shift.", 13f, Ui.MUTED)); return@forEach }
-                if (list.isEmpty()) { addView(Ui.text(context, if (Alarms.auto(this@AlarmsActivity)) "Already past." else "None set.", 13f, Ui.MUTED)); return@forEach }
-                // The times as chips: tap one to switch it off or on.
-                list.chunked(4).forEach { row ->
-                    val r = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-                    row.forEach { a ->
-                        r.addView(Ui.text(context, a.time.format(hm), 15f, if (a.enabled) Color.WHITE else Ui.FAINT, Hud.MEDIUM).apply {
-                            gravity = Gravity.CENTER
-                            setPadding(dp(12), dp(8), dp(12), dp(8))
-                            background = hud(if (a.enabled) HudDrawable.Kind.PILL_ON else HudDrawable.Kind.PILL_OFF)
-                            if (!a.enabled) paintFlags = paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
-                            setOnClickListener { Alarms.setEnabled(this@AlarmsActivity, a.id, !a.enabled); render() }
-                        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
-                    }
-                    repeat(4 - row.size) { r.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f).apply { marginEnd = dp(6) }) }
-                    addView(r, Ui.lp(top = dp(8)))
+                addView(head, Ui.lp(top = dp(10)))
+                when {
+                    isSkipped -> addView(Ui.text(context, "Skipped: no alarms for this shift.", 13f, Ui.MUTED), Ui.lp(top = dp(8)))
+                    list.isEmpty() -> addView(Ui.text(context, if (Alarms.auto(c)) "Their times have passed." else "None set.", 13f, Ui.MUTED), Ui.lp(top = dp(8)))
+                    else -> addView(ShiftTimeline(context) { id -> list.firstOrNull { it.id == id }?.let { a -> Alarms.setEnabled(c, a.id, !a.enabled) }; render() }.apply {
+                        nodes = list.map { ShiftTimeline.Node(it.id, it.time, it.enabled) }
+                        leave = s.start.minusMinutes(commute.toLong())
+                        start = s.start
+                    }, Ui.lp(top = dp(4)))
                 }
             }
         }
 
         // --- Your own alarms ---
         card("YOUR ALARMS").apply {
-            val own = Alarms.all(this@AlarmsActivity).filter { it.kind != "work" }
-            if (own.isEmpty()) addView(Ui.text(context, "None. Add one below, or ask Jarvis (\"wake me at 7\").", 13f, Ui.MUTED), Ui.lp(top = dp(6)))
+            val own = Alarms.all(c).filter { it.kind != "work" }
+            if (own.isEmpty()) addView(Ui.text(context, "None yet. Add one, or ask Jarvis (\"wake me at 7 on weekdays\").", 13f, Ui.MUTED), Ui.lp(top = dp(6)))
             own.forEach { a ->
-                val left = SpannableStringBuilder(a.time.format(hm))
-                left.setSpan(android.text.style.RelativeSizeSpan(1.5f), 0, left.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                left.append("   ${a.label} · ${Alarms.describe(a, now).substringAfter(' ')}")
-                line(left, if (a.enabled) "ON" else "OFF", if (a.enabled) Ui.GOOD else Ui.FAINT, onLong = {
-                    AlertDialog.Builder(this@AlarmsActivity, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("${a.time.format(hm)} · ${a.label}")
-                        .setItems(arrayOf("Change the time", "Delete")) { _, w ->
-                            if (w == 0) pickTime(a.time) { t -> Alarms.retime(this@AlarmsActivity, a.id, t); render() }
-                            else { Alarms.remove(this@AlarmsActivity, a.id); render() }
-                        }.show()
-                }) { Alarms.setEnabled(this@AlarmsActivity, a.id, !a.enabled); render() }
+                addView(View(context).apply { setBackgroundColor(Color.argb(15, 255, 255, 255)) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(10) })
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(8), 0, 0)
+                    setOnLongClickListener {
+                        AlertDialog.Builder(c, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("${a.time.format(hm)} · ${a.label}")
+                            .setItems(arrayOf("Change the time", "Delete")) { _, w ->
+                                if (w == 0) pickTime(a.time) { t -> Alarms.retime(c, a.id, t); render() } else { Alarms.remove(c, a.id); render() }
+                            }.show()
+                        true
+                    }
+                    setOnClickListener { pickTime(a.time) { t -> Alarms.retime(c, a.id, t); render() } }
+                }
+                row.addView(Ui.text(context, a.time.format(hm), 34f, if (a.enabled) Color.WHITE else Ui.FAINT, Hud.LIGHT))
+                val mid = Ui.column(context).apply { setPadding(dp(14), 0, dp(8), 0) }
+                mid.addView(Ui.text(context, a.label, 14.5f, if (a.enabled) Ui.TEXT else Ui.FAINT, Hud.MEDIUM))
+                if (a.days.isEmpty()) mid.addView(Ui.text(context, if (a.enabled) "Once · ${Alarms.describe(a, now).substringAfter(' ').substringBefore(" ·")}" else "Once · off", 12.5f, Ui.MUTED))
+                else mid.addView(DayDots(context, a.days), Ui.lp(w = ViewGroup.LayoutParams.WRAP_CONTENT, top = dp(4)))
+                row.addView(mid, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                row.addView(HudSwitch(context, a.enabled) { on -> Alarms.setEnabled(c, a.id, on); render() })
+                addView(row)
             }
-            addView(Ui.text(context, "Hold one to change or delete it.", 12f, Ui.FAINT), Ui.lp(top = dp(6)))
+            addView(Ui.text(context, "Tap one to change the time · hold to delete", 12f, Ui.FAINT), Ui.lp(top = dp(10)))
             addView(Ui.text(context, "+  ADD AN ALARM", 14f, Color.WHITE, Typeface.create("sans-serif", Typeface.BOLD)).apply {
-                gravity = Gravity.CENTER; letterSpacing = .14f
+                gravity = Gravity.CENTER; letterSpacing = .16f
                 background = hud(HudDrawable.Kind.PRIMARY)
-                setPadding(0, dp(14), 0, dp(14))
+                setPadding(0, dp(15), 0, dp(15))
                 setOnClickListener { addOwn() }
             }, Ui.lp(top = dp(12)))
         }
 
         // --- How they ring ---
         card("HOW THEY RING").apply {
-            val c = this@AlarmsActivity
             line("Work alarms set by Jarvis", if (Alarms.auto(c)) "On" else "Off") { Alarms.set(c, "auto", !Alarms.auto(c)); Alarms.syncWork(c); render() }
             line("First alarm before a shift", com.eldablos.crimson.core.Work.hours(lead.toLong())) { number("Minutes before the shift starts", lead) { v -> Memory.setAlarmRoutine(c, v, null, null) } }
             line("How many", "$count") { number("How many alarms", count) { v -> Memory.setAlarmRoutine(c, null, v, null) } }
@@ -207,7 +243,7 @@ class AlarmsActivity : Activity() {
                     .putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Alarms.sound(c)), 9)
             }
             line("Volume", "${Alarms.volume(c)}%") { choose("Alarm volume", listOf(100, 85, 70), "%") { Alarms.set(c, "volume", it) } }
-            line("Get louder gradually", if (Alarms.ramp(c)) "On" else "Off (full volume at once)") { Alarms.set(c, "ramp", !Alarms.ramp(c)); render() }
+            line("Get louder gradually", if (Alarms.ramp(c)) "On" else "Off · full at once") { Alarms.set(c, "ramp", !Alarms.ramp(c)); render() }
             line("Vibrate", if (Alarms.vibrate(c)) "On" else "Off") { Alarms.set(c, "vibrate", !Alarms.vibrate(c)); render() }
             line("Snooze", "${Alarms.snoozeMinutes(c)} min") { choose("Snooze for", listOf(3, 5, 9, 10, 15), " min") { Alarms.set(c, "snooze", it) } }
             line("Rings for, then snoozes", "${Alarms.ringMinutes(c)} min") { choose("Ring for", listOf(3, 5, 10, 15, 20), " min") { Alarms.set(c, "ring_minutes", it) } }

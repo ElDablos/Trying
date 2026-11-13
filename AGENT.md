@@ -50,32 +50,40 @@ Real phrases the owner said go into `RealPhrasesTest` / `BatchTest` so they neve
 NEST pension 5% above £240/fortnight, relief at source (80% deducted). Thursday office 9–5 counts as paid.
 Clock-in/out times are kept separately; the calendar only ever shows the planned rota.
 
-## THE NEW PLAN (13 Nov 2026) — read this first
-The owner is retiring the launcher (battery, too much) and going back to widgets + a separate AI assistant.
-Decisions: Gemini (free AI Studio key, function calling) as the brain with on-phone Gemma as offline/limit
-fallback; NO wake word (tap to talk: widget, shortcut, Samsung side button, mic in chat); light/heater hands
-DROPPED (no accessibility service).
-1. Remove the launcher: HOME intent, LauncherActivity, deck, home Jarvis, JarvisEar/overlay, JarvisHands,
-   rule parser. Keep the app id so prefs survive. Keep and move to a core package: Shifts, Pay, Uni, Files,
-   DocText, Documents, Travel, Spending, JarvisBrain (LiteRT), JarvisBackup, SysLog. Existing widgets stay.
-2. Money & Shifts widget (small/medium/large): next payday + amount, week bubbles, period progress; tap a
-   day → small dialog activity over home (shift types, custom, day off, clocked) → calendar sync as now. Pay
-   maths stays code, never AI. Mock up first.
-3. Assistant app: View-based chat UI; Gemini function calling with tools (shifts, pay, calendar, files,
-   notes, alarms, weather, tube, documents); confirm destructive actions; Gemma fallback for simple asks.
-   Must keep: WORK ALARMS like Jarvis (alarm lead before the next shift, the owner's run of N alarms G minutes
-   apart, AlarmClock.ACTION_SET_ALARM + EXTRA_SKIP_UI labelled "Work · HH:MM" — no hands needed; changing or
-   deleting existing alarms can only open the Clock app now). REMINDERS as the app's own notifications, not
-   calendar: AlarmManager exact alarms (USE_EXACT_ALARM), notification with Done / Snooze 10 min / Later,
-   repeats ("every Monday"), re-armed after reboot (BOOT_COMPLETED), list + cancel in the app and by asking.
-   MEMORY ("training"): a remember/forget tool. Routines become structured settings the app code uses
-   (alarm lead / count / gap — reuse JarvisMemory's alarmLead/alarmCount/alarmGap, commute, shift types, pay);
-   everything else is a free-text fact list sent with every request. Corrections ("no, I meant…") are saved
-   too. A "What I know about you" page in settings shows, edits and deletes them. Stored on the phone; Gemma
-   uses the same.
-4. Polish. Same rules: compile + tests here, "build it" before pushing, AGENT.md every build.
+## Crimson 2.0 — what the app is now (13 Nov 2026)
+The launcher is GONE (battery, too much). The app is: the home-screen widgets (dashboard, glance, strip, arcade,
+plus the new Money widget) and an AI assistant with its own icon. Same app id and prefs, so shifts, pay
+settings, notes, habits and memory carried over. No wake word, no accessibility service, no background mic.
+
+Packages (dashboard/src/main/java/com/eldablos/crimson):
+- root — the old widgets, MainActivity (widget settings), RefreshJob (15-min refresh: weather, steps, Shifts/Uni
+  calendar sync, weekly Backup, MoneyWidget.refresh, Reminders.arm), MusicListener (music row only now).
+- `core/` — Shifts, Pay (`nextPaid`, `slipFor`, `span`, `slip`), Uni, Work (set shift + calendar sync, clock
+  in/out, usual shifts, copy fortnight), Memory (routine: set:lead / set:alarm_count / set:alarm_gap /
+  set:commute / set:rate in prefs "jarvis"; facts "fact:<key>"), Lists (notes/habits/countdowns in prefs
+  "deck"), Files, DocText, Documents, Travel (TfL), Spending, Backup, SysLog, Theme, Hud, Ui (code-built views).
+- `money/` — MoneyWidget (ONE bitmap drawn in code + see-through tap areas whose layout weights must match
+  `MoneyWidget.Size`; layouts widget_money{,_medium,_small}.xml), DayActivity (sheet over home: usual shifts,
+  custom, day off, clocked times; also the copy-fortnight confirm).
+- `assistant/` — Gemini (REST, key in prefs "assistant", asks Google for the model list once a day and ranks
+  Flash > Flash-Lite, rests a model on 429), Agent (tool loop ≤10 steps, raw model turns kept so thought
+  signatures survive, `flatten` on a 400, history in files/assistant_chat.json), Tools (≈30 tools; every sum is
+  app code), Reminders (+ReminderReceiver: exact alarms, Done/Snooze/1h, repeat, boot), LocalBrain (LiteRT
+  Gemma fallback: one tool pick, tool's own words as the reply), AssistantActivity (chat UI), SettingsActivity.
+Local compile: same as below but WITHOUT the vosk jars, output `out2.jar`; tests: AssistantTest, DocumentsTest
+(core), WeatherTest, ArcadeTest, FormatTest, CalendarMonthTest. New R ids/layouts must be added to
+scratchpad Rstub.kt. CI can't be read from here (GitHub MCP down), so validate XML by hand before pushing.
+Owner's decisions: Gemini + Gemma backup; tap to talk; light/heater dropped; alarms like Jarvis (routine:
+lead, count, gap) kept; reminders are notifications, not calendar; it must remember what it's told.
 
 ## Release log (newest first)
+- **2.0** — Launcher, Command Deck, rule-based Jarvis, wake word and hands removed (vosk/jna dependencies too).
+  New: Crimson Money widget (full page: next payday, period progress, 14 tappable days with ‹ › fortnights,
+  payslip lines, last 4 payslips, Clock in/out, Copy last fortnight, Ask AI) and its day sheet; the assistant
+  app ("Jarvis", renameable) on Gemini with tools for shifts, pay, work alarms from the routine, alarms/timers,
+  reminders (notifications), calendar, notes, habits, countdowns, spending, file search/read (PDFs and
+  pictures read by Gemini), weather, tube, memory, documents, messages, apps, web search; on-phone Gemma
+  fallback; settings (key, model mode, memory, pay, calendar, theme, permissions, backup, log).
 - **1.75** — Pop-outs everywhere on the deck (`Detail`/`DRow`, `pop()`, `drawDetail()`: a bottom sheet with a
   title, sub line, big figure, scrolling rows — `scrollDetail` takes the scroll — tappable rows and buttons;
   back, swipe, ✕ or a tap outside closes). Briefing card → the whole briefing (every line, each opening what

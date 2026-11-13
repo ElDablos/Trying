@@ -63,6 +63,11 @@ DROPPED (no accessibility service).
    maths stays code, never AI. Mock up first.
 3. Assistant app: View-based chat UI; Gemini function calling with tools (shifts, pay, calendar, files,
    notes, alarms, weather, tube, documents); confirm destructive actions; Gemma fallback for simple asks.
+   Must keep: WORK ALARMS like Jarvis (alarm lead before the next shift, the owner's run of N alarms G minutes
+   apart, AlarmClock.ACTION_SET_ALARM + EXTRA_SKIP_UI labelled "Work · HH:MM" — no hands needed; changing or
+   deleting existing alarms can only open the Clock app now). REMINDERS as the app's own notifications, not
+   calendar: AlarmManager exact alarms (USE_EXACT_ALARM), notification with Done / Snooze 10 min / Later,
+   repeats ("every Monday"), re-armed after reboot (BOOT_COMPLETED), list + cancel in the app and by asking.
 4. Polish. Same rules: compile + tests here, "build it" before pushing, AGENT.md every build.
 
 ## Release log (newest first)

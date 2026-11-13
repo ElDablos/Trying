@@ -76,6 +76,7 @@ class AlarmService : Service() {
         val already = current != null
         current = r
         foreground(r.label, r.shiftTimes)
+        Upcoming.clear(this, id)
         // It's rung: the list moves on (and the next one is set) straight away, so a crash can't make it ring forever.
         Alarms.rang(this, id)
         if (!already) {

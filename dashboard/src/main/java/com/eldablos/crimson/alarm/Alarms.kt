@@ -91,6 +91,8 @@ object Alarms {
     fun soundName(c: Context): String = store(c).getString("sound_name", null) ?: "Phone's alarm sound"
     fun auto(c: Context) = store(c).getBoolean("auto", true)
     fun ringMinutes(c: Context) = store(c).getInt("ring_minutes", 10)
+    /** Minutes before an alarm that a quiet "alarm soon" notification shows (0 = never). */
+    fun headsUp(c: Context) = store(c).getInt("heads_up", 10)
 
     fun set(c: Context, key: String, value: Any?) {
         val e = store(c).edit()
@@ -137,9 +139,10 @@ object Alarms {
     /** Work alarms set for the shift on [date] (on ones only). */
     fun forShift(c: Context, date: LocalDate): List<Alarm> = all(c).filter { it.kind == "work" && it.shift == date && it.enabled }
 
-    /** Adds one of your own alarms at [time] (next time it comes round, or on [days]). */
-    fun addOwn(c: Context, time: LocalTime, label: String, days: Set<DayOfWeek> = emptySet()): Alarm {
-        val a = Alarm(newId(c), nextAt(time, days, LocalDateTime.now()), label.ifBlank { "Alarm" }, true, "own", days)
+    /** Adds one of your own alarms at [time]: on [date] if given, otherwise the next time it comes round (or on [days]). */
+    fun addOwn(c: Context, time: LocalTime, label: String, days: Set<DayOfWeek> = emptySet(), date: LocalDate? = null): Alarm {
+        val at = if (date != null && days.isEmpty()) date.atTime(time) else nextAt(time, days, LocalDateTime.now())
+        val a = Alarm(newId(c), at, label.ifBlank { "Alarm" }, true, "own", days)
         update(c) { it + a }
         return a
     }
@@ -265,6 +268,9 @@ object Alarms {
     private fun fire(c: Context, id: Int, flags: Int = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE): PendingIntent? =
         PendingIntent.getBroadcast(c, id, Intent(c, AlarmReceiver::class.java).setAction(AlarmReceiver.FIRE).setData(Uri.parse("crimson-alarm://$id")).putExtra("id", id), flags)
 
+    private fun pre(c: Context, id: Int, flags: Int = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE): PendingIntent? =
+        PendingIntent.getBroadcast(c, 200_000 + id, Intent(c, AlarmReceiver::class.java).setAction(AlarmReceiver.SOON).setData(Uri.parse("crimson-alarm-soon://$id")).putExtra("id", id), flags)
+
     private fun show(c: Context) = PendingIntent.getActivity(c, 4400, Intent(c, AlarmsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
@@ -294,7 +300,12 @@ object Alarms {
             if (tidy.map { it.json().toString() } != list.map { it.json().toString() }) { save(c, tidy); list = tidy }
             val armed = store(c).getStringSet("armed", emptySet()).orEmpty().mapNotNull { it.toIntOrNull() }.toSet()
             val on = list.filter { it.enabled && it.due(zone) > now - 5_000 }
-            (armed - on.map { it.id }.toSet()).forEach { id -> fire(c, id)?.let { am.cancel(it); it.cancel() } }
+            (armed - on.map { it.id }.toSet()).forEach { id ->
+                fire(c, id)?.let { am.cancel(it); it.cancel() }
+                pre(c, id)?.let { am.cancel(it); it.cancel() }
+                Upcoming.clear(c, id)
+            }
+            val lead = headsUp(c) * 60_000L
             on.forEach { a ->
                 val pi = fire(c, a.id) ?: return@forEach
                 try {
@@ -302,6 +313,13 @@ object Alarms {
                 } catch (e: SecurityException) {
                     am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, a.due(zone), pi)
                 }
+                // The "alarm soon" notification: set for [lead] before, or shown now if it's already that close.
+                val soonPi = pre(c, a.id)
+                if (lead > 0 && soonPi != null) {
+                    val at = a.due(zone) - lead
+                    if (at > now) runCatching { am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, soonPi) }
+                    else { am.cancel(soonPi); Upcoming.show(c, a) }
+                } else if (soonPi != null) { am.cancel(soonPi); Upcoming.clear(c, a.id) }
             }
             store(c).edit().putStringSet("armed", on.map { it.id.toString() }.toSet()).commit()
             store(c).edit().putLong("armed_at", now).apply()
@@ -338,6 +356,17 @@ object Alarms {
             if (l.any { it.id == id }) l.map { if (it.id == id) it.copy(snoozedUntil = until, enabled = true) else it }
             // Already gone (a work one-off): back as a one-off for the snooze.
             else l + Alarm(id, LocalDateTime.ofInstant(Instant.ofEpochMilli(until), ZoneId.systemDefault()), label, true, "own", shiftTimes = times, snoozedUntil = until, brief = brief)
+        }
+    }
+
+    /** Dismissed before it rang (from the "alarm soon" notification): this time only. A repeating one moves on. */
+    fun dismissNext(c: Context, id: Int) = update(c) { l ->
+        l.map { a ->
+            when {
+                a.id != id -> a
+                a.days.isNotEmpty() -> a.copy(at = nextAt(a.time, a.days, a.at.plusMinutes(1)), snoozedUntil = 0)
+                else -> a.copy(enabled = false, userOff = a.kind == "work", snoozedUntil = 0)
+            }
         }
     }
 

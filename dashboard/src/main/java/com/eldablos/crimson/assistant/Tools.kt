@@ -378,12 +378,14 @@ class Tools(private val activity: Activity, private val host: Host) {
             Out(ok("date" to d.toString(), "alarms_on" to on), said = if (on) "Work alarms back on for ${dayName(d)}." else "No work alarms for ${dayName(d)}.")
         },
 
-        Tool("set_alarm", "Sets one of the user's own alarms (Crimson's alarm clock): once at the next time it's that time, or on chosen days.",
-            obj("time" to str("HH:MM, 24-hour"), "label" to str("What it's for"), "days" to list("Days it repeats on (omit for once)", choice("A day", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")),
+        Tool("set_alarm", "Sets a real, ringing alarm (Crimson's alarm clock) for anything: waking up, taking medicine, leaving for an appointment, a reminder that must ring loudly. Once (the next time it's that time, or on a given date) or on chosen days. Always give it a short label saying what it's for.",
+            obj("time" to str("HH:MM, 24-hour"), "label" to str("What it's for, e.g. Dentist, Take meds"), "date" to str("YYYY-MM-DD for a particular day (omit for the next time it comes round)"), "days" to list("Days it repeats on (omit for once)", choice("A day", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")),
                 required = listOf("time"))) { a ->
             val t = time(a.s("time")) ?: return@Tool fail("I couldn't read that time.")
             val days = a.optJSONArray("days")?.let { arr -> (0 until arr.length()).mapNotNull { runCatching { java.time.DayOfWeek.valueOf(arr.getString(it).uppercase()) }.getOrNull() } }.orEmpty().toSet()
-            val al = Alarms.addOwn(activity, t, a.s("label") ?: "Alarm", days)
+            val on = date(a.s("date"))
+            if (on != null && on.atTime(t).isBefore(LocalDateTime.now())) return@Tool fail("${on.format(dayFmt)} at ${t.format(hm)} has already passed.")
+            val al = Alarms.addOwn(activity, t, a.s("label") ?: "Alarm", days, on)
             if (!Reminders.canNotify(activity)) host.requestPermission(Manifest.permission.POST_NOTIFICATIONS)
             val undo = undoable { Alarms.remove(activity, al.id); "Removed the ${t.format(hm)} alarm." }
             Out(ok("set" to t.format(hm), "rings" to Alarms.describe(al)), Card("✓ Alarm set", t.format(hm), listOf(Card.Row(al.label, Alarms.describe(al).substringAfter(' '))), listOf(Act("Alarms", "alarms"), undo), good = true),

@@ -247,6 +247,12 @@ class AlarmsActivity : Activity() {
             line("Vibrate", if (Alarms.vibrate(c)) "On" else "Off") { Alarms.set(c, "vibrate", !Alarms.vibrate(c)); render() }
             line("Snooze", "${Alarms.snoozeMinutes(c)} min") { choose("Snooze for", listOf(3, 5, 9, 10, 15), " min") { Alarms.set(c, "snooze", it) } }
             line("Rings for, then snoozes", "${Alarms.ringMinutes(c)} min") { choose("Ring for", listOf(3, 5, 10, 15, 20), " min") { Alarms.set(c, "ring_minutes", it) } }
+            line("\"Alarm soon\" notification", if (Alarms.headsUp(c) == 0) "Off" else "${Alarms.headsUp(c)} min before") {
+                AlertDialog.Builder(c, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("Notify me before an alarm")
+                    .setItems(arrayOf("Off", "5 min before", "10 min before", "15 min before", "30 min before", "1 hour before")) { _, i ->
+                        Alarms.set(c, "heads_up", listOf(0, 5, 10, 15, 30, 60)[i]); Alarms.arm(c); render()
+                    }.show()
+            }
         }
     }
 
@@ -275,18 +281,29 @@ class AlarmsActivity : Activity() {
         TimePickerDialog(this, android.R.style.Theme_DeviceDefault_Dialog_Alert, { _, h, m -> done(LocalTime.of(h, m)) }, start.hour, start.minute, true).show()
     }
 
+    /** A new alarm: the time, what it's for, then once / on a date / on repeat days. */
     private fun addOwn() {
         pickTime(LocalTime.now().plusHours(1).withMinute(0)) { t ->
-            val names = DayOfWeek.values().map { it.getDisplayName(java.time.format.TextStyle.FULL, Locale.UK) }.toTypedArray()
-            val picked = BooleanArray(7)
-            AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("Repeat on (none = just once)")
-                .setMultiChoiceItems(names, picked) { _, i, on -> picked[i] = on }
-                .setPositiveButton("Save") { _, _ ->
-                    val days = DayOfWeek.values().filterIndexed { i, _ -> picked[i] }.toSet()
-                    val a = Alarms.addOwn(this, t, "Alarm", days)
-                    Toast.makeText(this, "Alarm set for ${Alarms.describe(a)}", Toast.LENGTH_SHORT).show()
-                    render()
-                }.setNegativeButton("Cancel", null).show()
+            val name = android.widget.EditText(this).apply { hint = "What's it for? (optional)"; setTextColor(Color.WHITE); setHintTextColor(Ui.MUTED); setSingleLine() }
+            fun saved(a: Alarms.Alarm) { Toast.makeText(this, "Alarm set for ${Alarms.describe(a)}", Toast.LENGTH_SHORT).show(); render() }
+            AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("Alarm at ${t.format(hm)}").setView(name)
+                .setPositiveButton("Once") { _, _ -> saved(Alarms.addOwn(this, t, name.text.toString(), emptySet())) }
+                .setNeutralButton("On a date") { _, _ ->
+                    val d = java.time.LocalDate.now()
+                    android.app.DatePickerDialog(this, android.R.style.Theme_DeviceDefault_Dialog_Alert, { _, y, m, day ->
+                        val date = java.time.LocalDate.of(y, m + 1, day)
+                        if (date.atTime(t).isBefore(LocalDateTime.now())) Toast.makeText(this, "That's already passed", Toast.LENGTH_SHORT).show()
+                        else saved(Alarms.addOwn(this, t, name.text.toString(), emptySet(), date))
+                    }, d.year, d.monthValue - 1, d.dayOfMonth).apply { datePicker.minDate = System.currentTimeMillis() - 1000 }.show()
+                }
+                .setNegativeButton("Repeat…") { _, _ ->
+                    val names = DayOfWeek.values().map { it.getDisplayName(java.time.format.TextStyle.FULL, Locale.UK) }.toTypedArray()
+                    val picked = BooleanArray(7)
+                    AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("Repeat on")
+                        .setMultiChoiceItems(names, picked) { _, i, on -> picked[i] = on }
+                        .setPositiveButton("Save") { _, _ -> saved(Alarms.addOwn(this, t, name.text.toString(), DayOfWeek.values().filterIndexed { i, _ -> picked[i] }.toSet())) }
+                        .setNegativeButton("Cancel", null).show()
+                }.show()
         }
     }
 

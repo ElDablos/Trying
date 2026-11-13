@@ -16,30 +16,15 @@
         <item name="android:windowNoTitle">true</item>
     </style>
 
-    <!-- The home screen sits over the wallpaper; the launcher draws its own status bar. -->
-    <style name="LauncherTheme" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowShowWallpaper">true</item>
-        <item name="android:windowBackground">@android:color/transparent</item>
-        <item name="android:windowIsTranslucent">false</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
-        <item name="android:colorAccent">@color/crimson</item>
-        <item name="android:enforceNavigationBarContrast">false</item>
-    </style>
-
-    <!-- Crimson Comms over another app: see-through, with the app blurred behind. -->
-    <style name="CommsTheme" parent="android:Theme.Material.NoActionBar">
+    <!-- A sheet over the home screen (the Money widget's day picker): see-through, the home screen dimmed behind. -->
+    <style name="SheetTheme" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowNoTitle">true</item>
-        <item name="android:windowBlurBehindEnabled">true</item>
-        <item name="android:windowBlurBehindRadius">28dp</item>
         <item name="android:backgroundDimEnabled">true</item>
-        <item name="android:backgroundDimAmount">0.35</item>
+        <item name="android:backgroundDimAmount">0.55</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowAnimationStyle">@null</item>
         <item name="android:colorAccent">@color/crimson</item>
     </style>
 </resources>

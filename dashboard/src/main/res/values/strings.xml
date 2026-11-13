@@ -6,8 +6,9 @@
     <string name="strip_name">Crimson App Strip</string>
     <string name="strip_description">A folder of apps. Resize it to show more; scroll for the rest</string>
     <string name="arcade_name">Crimson Arcade</string>
-    <string name="launcher_name">Crimson Launcher</string>
-    <string name="comms_name">Crimson Comms</string>
+    <string name="assistant_name">Jarvis</string>
+    <string name="money_name">Crimson Money</string>
+    <string name="money_description">Your next payday, the fortnight\'s shifts to tap and set, payslip lines and clocking in. Made to fill a page</string>
     <string name="arcade_description">Your games as a HUD and a hexagon hive, most played first</string>
     <string name="buds_default_name">Galaxy Buds</string>
     <string name="buds_channel_name">Earbuds connection</string>
@@ -17,5 +18,4 @@
     <string name="buds_bluetooth_off">Bluetooth is off</string>
     <string name="buds_connect_failed">Couldn\'t reach your Buds. Make sure they\'re out of the case and connected.</string>
     <string name="buds_disconnect">Disconnect</string>
-    <string name="hands_description">Lets Jarvis work your other apps for you, the way you would: switching your Tapo lights on and off, and pressing buttons he has watched you press once. It stays idle, watching no app at all, until you ask him to do something, and nothing leaves your phone.</string>
 </resources>

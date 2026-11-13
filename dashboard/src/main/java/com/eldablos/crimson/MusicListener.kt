@@ -11,15 +11,11 @@ import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import com.eldablos.crimson.launcher.Comms
-import com.eldablos.crimson.launcher.EdgeHandle
-import com.eldablos.crimson.launcher.EdgeLight
-import com.eldablos.crimson.launcher.Theme
+import com.eldablos.crimson.core.Theme
 
 /**
  * Runs while the app has notification access. The access lets it follow the phone's media sessions, so
- * the widget's music row updates as songs change, play or pause, and it hands notifications to the
- * Crimson Launcher's Comms Centre.
+ * the widget's music row updates as songs change, play or pause.
  */
 class MusicListener : NotificationListenerService() {
     private var sessions: MediaSessionManager? = null
@@ -31,17 +27,6 @@ class MusicListener : NotificationListenerService() {
         override fun onSessionDestroyed() = refresh()
     }
 
-    /** Charger in and low battery, for edge lighting. */
-    private val power = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            when (intent.action) {
-                Intent.ACTION_POWER_CONNECTED -> EdgeLight.charging(context)
-                Intent.ACTION_BATTERY_LOW -> EdgeLight.lowBattery(context)
-            }
-        }
-    }
-    private var powerRegistered = false
-
     private val sessionsChanged = MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
         watch(controllers.orEmpty())
         refresh()
@@ -49,15 +34,6 @@ class MusicListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         Theme.load(this)
-        Comms.attach(this)
-        EdgeHandle.update(this)
-        if (!powerRegistered) {
-            registerReceiver(power, IntentFilter().apply {
-                addAction(Intent.ACTION_POWER_CONNECTED)
-                addAction(Intent.ACTION_BATTERY_LOW)
-            }, Context.RECEIVER_NOT_EXPORTED)
-            powerRegistered = true
-        }
         val manager = getSystemService(MediaSessionManager::class.java) ?: return
         sessions = manager
         val component = ComponentName(this, MusicListener::class.java)
@@ -69,26 +45,7 @@ class MusicListener : NotificationListenerService() {
     override fun onListenerDisconnected() {
         sessions?.removeOnActiveSessionsChangedListener(sessionsChanged)
         watch(emptyList())
-        Comms.detach()
-        EdgeHandle.remove(this)
-        if (powerRegistered) {
-            unregisterReceiver(power)
-            powerRegistered = false
-        }
     }
-
-    override fun onNotificationPosted(sbn: StatusBarNotification) {
-        Comms.posted(sbn)
-        EdgeLight.onPosted(this, sbn)
-        com.eldablos.crimson.launcher.Mail.record(this, sbn)
-    }
-
-    override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        Comms.changed()
-        EdgeLight.onRemoved(sbn)
-    }
-
-    override fun onInterruptionFilterChanged(interruptionFilter: Int) = Comms.changed()
 
     private fun watch(controllers: List<MediaController>) {
         watched.forEach { it.unregisterCallback(callback) }

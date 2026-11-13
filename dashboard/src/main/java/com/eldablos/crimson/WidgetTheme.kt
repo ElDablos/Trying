@@ -10,7 +10,7 @@ import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.RemoteViews
-import com.eldablos.crimson.launcher.Theme
+import com.eldablos.crimson.core.Theme
 
 /**
  * The launcher's theme, carried to the home-screen widgets and the app's own screens. Widgets can't be
@@ -91,7 +91,7 @@ object WidgetTheme {
         Theme.load(root.context)
         val dp = root.resources.displayMetrics.density
         val accent = readable(Theme.tint(0xFFE04358.toInt()))
-        val hot = com.eldablos.crimson.launcher.Hud.HOT
+        val hot = com.eldablos.crimson.core.Hud.HOT
         val bone = 0xFFEDE6E6.toInt()
         val dust = 0xFF9A8A8C.toInt()
         fun hud(kind: HudDrawable.Kind) = HudDrawable(kind, dp)
@@ -116,7 +116,7 @@ object WidgetTheme {
                     (v as? TextView)?.apply {
                         setTextColor(bone)
                         setHintTextColor(dust)
-                        highlightColor = com.eldablos.crimson.launcher.Hud.alpha(hot, .35f)
+                        highlightColor = com.eldablos.crimson.core.Hud.alpha(hot, .35f)
                     }
                 }
                 "hud_glow" -> (v as? TextView)?.apply {
@@ -135,7 +135,7 @@ object WidgetTheme {
                     if (v is TextView && v.background == null) v.setTextColor(readable(Theme.tint(v.currentTextColor)))
                     if (v is ProgressBar) {
                         v.progressTintList = ColorStateList.valueOf(hot)
-                        v.progressBackgroundTintList = ColorStateList.valueOf(com.eldablos.crimson.launcher.Hud.alpha(accent, .25f))
+                        v.progressBackgroundTintList = ColorStateList.valueOf(com.eldablos.crimson.core.Hud.alpha(accent, .25f))
                         v.thumbTint(ColorStateList.valueOf(hot), BlendMode.SRC_IN)
                     }
                 }
@@ -157,7 +157,7 @@ object WidgetTheme {
         view.setTextColor(
             when (kind) {
                 HudDrawable.Kind.PILL_ON -> Theme.on(Theme.tint(0xFF7A1222.toInt()))
-                HudDrawable.Kind.PILL_WARN -> readable(com.eldablos.crimson.launcher.Hud.GOLD)
+                HudDrawable.Kind.PILL_WARN -> readable(com.eldablos.crimson.core.Hud.GOLD)
                 else -> 0xFF9A8A8C.toInt()
             },
         )

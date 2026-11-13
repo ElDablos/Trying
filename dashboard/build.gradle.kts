@@ -12,9 +12,9 @@ android {
         // Health Connect is built into Android 14+, so no extra library is needed.
         minSdk = 34
         targetSdk = 34
-        versionCode = 76
-        versionName = "1.75"
-        // "Hey Jarvis" listens with Vosk's native library: the phone's 64-bit ARM build is all it needs.
+        versionCode = 80
+        versionName = "2.0"
+        // The on-phone model's native library: the phone's 64-bit ARM build is all it needs.
         ndk { abiFilters += "arm64-v8a" }
     }
 
@@ -54,10 +54,7 @@ kotlin {
 }
 
 dependencies {
-    // Offline wake word for "Hey Jarvis" (Apache 2.0). The English model is downloaded once, in Jarvis's settings.
-    implementation("com.alphacephei:vosk-android:0.3.47@aar")
-    implementation("net.java.dev.jna:jna:5.13.0@aar")
-    // Jarvis's brain: Google's LiteRT-LM, running Gemma on the phone (GPU). Needs Kotlin 2.3+ (it carries 2.4 metadata).
+    // The assistant's offline back-up: Google's LiteRT-LM, running Gemma on the phone (GPU). Needs Kotlin 2.3+ (it carries 2.4 metadata).
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
     testImplementation("junit:junit:4.13.2")
     // Android's built-in org.json is a stub in local unit tests.

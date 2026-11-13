@@ -10,8 +10,8 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
-import com.eldablos.crimson.launcher.Hud
-import com.eldablos.crimson.launcher.Theme
+import com.eldablos.crimson.core.Hud
+import com.eldablos.crimson.core.Theme
 
 /**
  * The launcher's HUD look for the app's own screens: panels and buttons with cut corners, a thin edge

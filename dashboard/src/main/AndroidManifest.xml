@@ -3,14 +3,14 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Jarvis reads your latest screenshot (a rota, say) with his brain, on the phone. -->
+    <!-- The assistant finds your photos, screenshots, videos and recordings when you ask for them. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <!-- "All files access", asked for once when you first ask Jarvis to find a file: it lets him search your documents. -->
+    <!-- "All files access", offered when you first ask the assistant to find a file: it lets it search your documents. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
-    <!-- The Command Deck saves your work shifts to your calendar. -->
+    <!-- Your work shifts (from the Money widget or the assistant) are saved to your calendar. -->
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -26,25 +26,12 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
-    <!-- Apps the widget opens on tap. Android 11+ hides other apps unless they're listed here. -->
-    <!-- Crimson Launcher: network type in the HUD, brightness and rotation toggles, uninstalling apps. -->
+    <!-- The weather refresh only goes out when there's a connection. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission
-        android:name="android.permission.WRITE_SETTINGS"
-        tools:ignore="ProtectedPermissions" />
-    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
-    <!-- Edge lighting draws over other apps; the Comms Centre can open Samsung's own panel. -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
-    <!-- Jarvis: hearing you (on the phone where it can), finding people to call or message, calling. -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- The assistant: messages to a contact by name; reminders as notifications, on time. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    <!-- Jarvis's heads-ups: no alarm before a shift, rain on the way in, the evening wind-down. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- "Hey Jarvis": listening from a foreground service, with the green mic dot showing. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
@@ -58,8 +45,6 @@
         <package android:name="com.sec.android.daemonapp" />
         <package android:name="com.google.android.deskclock" />
         <package android:name="com.google.android.calendar" />
-        <!-- Ask Claude on the Command Deck starts chats in the Claude app. -->
-        <package android:name="com.anthropic.claude" />
         <intent>
             <action android:name="android.intent.action.SHOW_ALARMS" />
         </intent>
@@ -72,17 +57,11 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="content" android:host="com.android.calendar" />
         </intent>
-        <!-- Reading the briefing aloud: the phone's speech engines, Google's natural voices first. -->
-        <package android:name="com.google.android.tts" />
+        <!-- The assistant: voice typing, and WhatsApp for messages it writes for you. -->
         <intent>
-            <action android:name="android.intent.action.TTS_SERVICE" />
-        </intent>
-        <!-- Jarvis: speech recognition, WhatsApp chats and the Tapo lights app. -->
-        <intent>
-            <action android:name="android.speech.RecognitionService" />
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>
         <package android:name="com.whatsapp" />
-        <package android:name="com.tplink.iot" />
     </queries>
 
     <application
@@ -91,7 +70,7 @@
         android:label="@string/app_name"
         android:theme="@style/AppTheme">
 
-        <!-- Jarvis's brain runs Gemma on the GPU (LiteRT-LM): the phone's OpenCL and vendor support libraries. -->
+        <!-- The on-phone model runs Gemma on the GPU (LiteRT-LM): the phone's OpenCL and vendor support libraries. -->
         <uses-native-library android:name="libvndksupport.so" android:required="false" />
         <uses-native-library android:name="libOpenCL.so" android:required="false" />
 
@@ -116,68 +95,22 @@
             </intent-filter>
         </activity-alias>
 
-        <!-- Crimson Launcher: pick it in Settings → Apps → Default apps → Home app. -->
+        <!-- The assistant: a chat with Gemini (and the on-phone model as a back-up) that works your shifts, pay,
+             alarms, reminders, calendar and files. Its own icon; files and text can be shared to it. -->
         <activity
-            android:name=".launcher.LauncherActivity"
-            android:clearTaskOnLaunch="true"
-            android:excludeFromRecents="true"
+            android:name=".assistant.AssistantActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="true"
-            android:label="@string/launcher_name"
-            android:launchMode="singleTask"
-            android:resizeableActivity="false"
-            android:screenOrientation="portrait"
-            android:stateNotNeeded="true"
-            android:taskAffinity=""
-            android:theme="@style/LauncherTheme"
+            android:icon="@mipmap/ic_comms"
+            android:label="@string/assistant_name"
+            android:launchMode="singleTop"
+            android:taskAffinity="com.eldablos.crimson.assistant"
+            android:theme="@style/AppTheme.NoTitle"
             android:windowSoftInputMode="adjustResize|stateHidden">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.HOME" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-
-        <!-- Jarvis Hands: taps buttons in other apps for him (Tapo lights, anything you teach him). Idle and
-             listening to no app at all until he has a job. -->
-        <service
-            android:name=".launcher.JarvisHands"
-            android:exported="true"
-            android:label="Jarvis Hands"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/jarvis_hands" />
-        </service>
-
-        <!-- "Hey Jarvis" from any app: the wake word (offline), then Jarvis over the app you're in. -->
-        <service
-            android:name=".launcher.JarvisEar"
-            android:exported="false"
-            android:foregroundServiceType="microphone" />
-
-        <!-- Jarvis on his own icon: set the side key's double press to open it and he's straight up, listening. -->
-        <activity-alias
-            android:name=".launcher.JarvisShortcut"
-            android:exported="true"
-            android:label="Jarvis"
-            android:targetActivity=".launcher.LauncherActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity-alias>
-
-        <!-- "Share to Jarvis": files and text from any app, read in his chat. -->
-        <activity
-            android:name=".launcher.ShareActivity"
-            android:exported="true"
-            android:excludeFromRecents="true"
-            android:label="Jarvis"
-            android:noHistory="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -190,38 +123,44 @@
         </activity>
 
         <activity
-            android:name=".launcher.NodeEditActivity"
-            android:excludeFromRecents="true"
+            android:name=".assistant.SettingsActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false"
-            android:taskAffinity=""
+            android:label="@string/assistant_name"
+            android:taskAffinity="com.eldablos.crimson.assistant"
             android:theme="@style/AppTheme.NoTitle"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- The sheet over the home screen when a day on the Money widget is tapped. -->
         <activity
-            android:name=".launcher.LauncherSettingsActivity"
+            android:name=".money.DayActivity"
             android:excludeFromRecents="true"
             android:exported="false"
-            android:label="Launcher settings"
-            android:taskAffinity=""
-            android:theme="@style/AppTheme.NoTitle" />
-
-        <!-- Crimson Comms on its own: add it to the Edge Panel to open it over any app. -->
-        <activity
-            android:name=".launcher.CommsActivity"
-            android:excludeFromRecents="true"
-            android:exported="true"
-            android:icon="@mipmap/ic_comms"
-            android:label="@string/comms_name"
-            android:launchMode="singleTask"
             android:noHistory="true"
-            android:taskAffinity="com.eldablos.crimson.comms"
-            android:theme="@style/CommsTheme"
-            android:windowSoftInputMode="adjustResize">
+            android:taskAffinity="com.eldablos.crimson.money"
+            android:theme="@style/SheetTheme" />
+
+        <!-- Reminders: rings them, handles Done and Snooze, and sets them again after a restart or an update. -->
+        <receiver
+            android:name=".assistant.ReminderReceiver"
+            android:exported="false">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
-        </activity>
+        </receiver>
+
+        <receiver
+            android:name=".money.MoneyWidget"
+            android:exported="true"
+            android:label="@string/money_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/crimson_money_info" />
+        </receiver>
 
         <!-- The widget's queue pop-up. -->
         <activity
@@ -306,11 +245,6 @@
             android:name=".ArcadeService"
             android:exported="false"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
-
-        <!-- Ends a Command Deck focus session on time: Do Not Disturb back off, minutes counted. -->
-        <receiver
-            android:name=".launcher.FocusTimer$Receiver"
-            android:exported="false" />
 
         <receiver
             android:name=".ArcadeWidgetProvider"

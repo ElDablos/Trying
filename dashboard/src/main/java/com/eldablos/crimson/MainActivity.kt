@@ -87,9 +87,11 @@ class MainActivity : Activity() {
         }
         findViewById<Button>(R.id.goal_button).setOnClickListener { saveGoal() }
         findViewById<Button>(R.id.add_widget_button).setOnClickListener { pinWidget() }
-        findViewById<Button>(R.id.launcher_button).setOnClickListener { chooseLauncher() }
+        findViewById<Button>(R.id.launcher_button).setOnClickListener {
+            startActivity(android.content.Intent(this, com.eldablos.crimson.assistant.AssistantActivity::class.java))
+        }
         findViewById<Button>(R.id.launcher_settings_button).setOnClickListener {
-            startActivity(android.content.Intent(this, com.eldablos.crimson.launcher.LauncherSettingsActivity::class.java))
+            startActivity(android.content.Intent(this, com.eldablos.crimson.assistant.SettingsActivity::class.java))
         }
         goalInput.setText(DashboardStore.goal(this).toString())
 
@@ -362,14 +364,6 @@ class MainActivity : Activity() {
     }
 
     /** Opens the home app setting, where Crimson Launcher can be picked. */
-    private fun chooseLauncher() {
-        try {
-            startActivity(android.content.Intent(android.provider.Settings.ACTION_HOME_SETTINGS))
-            toast("Pick Crimson Launcher")
-        } catch (e: Exception) {
-            toast("Settings → Apps → Default apps → Home app → Crimson Launcher")
-        }
-    }
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 

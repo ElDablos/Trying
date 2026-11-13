@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Money widget: one picture with see-through tap areas over it, in the same proportions (see MoneyWidget.Size). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/money_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/money_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="Money and shifts"
+        android:scaleType="fitXY" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:weightSum="1000">
+        <FrameLayout
+            android:id="@+id/money_header"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="215" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="60"
+            android:baselineAligned="false"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
+            <FrameLayout
+                android:id="@+id/money_prev"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_title"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="5" />
+            <FrameLayout
+                android:id="@+id/money_next"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="105"
+            android:baselineAligned="false"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
+            <FrameLayout
+                android:id="@+id/money_d0"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d1"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d2"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d3"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d4"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d5"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d6"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="105"
+            android:baselineAligned="false"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
+            <FrameLayout
+                android:id="@+id/money_d7"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d8"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d9"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d10"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d11"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d12"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_d13"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+        </LinearLayout>
+        <FrameLayout
+            android:id="@+id/money_slip"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="225" />
+        <FrameLayout
+            android:id="@+id/money_history"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="185" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="105"
+            android:baselineAligned="false"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
+            <FrameLayout
+                android:id="@+id/money_b0"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_b1"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+            <FrameLayout
+                android:id="@+id/money_b2"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

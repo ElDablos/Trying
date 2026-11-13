@@ -113,7 +113,7 @@ class MoneyWidget : AppWidgetProvider() {
 
         /** The sections of each size, top to bottom, as parts of a thousand: the same as the layouts' weights. */
         private enum class Size(val layout: Int, val header: Int, val nav: Int, val row: Int, val slip: Int, val history: Int, val buttons: Int) {
-            FULL(R.layout.widget_money, 215, 60, 105, 225, 185, 105),
+            FULL(R.layout.widget_money, 215, 60, 130, 220, 140, 105),
             MEDIUM(R.layout.widget_money_medium, 330, 100, 185, 0, 0, 200),
             SMALL(R.layout.widget_money_small, 560, 0, 0, 0, 0, 440),
         }
@@ -305,33 +305,38 @@ class MoneyWidget : AppWidgetProvider() {
                         }
                         if (d == today) K.brackets(c, RectF(cell.left - 3 * u, cell.top - 3 * u, cell.right + 3 * u, cell.bottom + 3 * u), 7 * u * k2, K.GOLD, u)
                         val cx = cell.centerX()
-                        val kk = k2.coerceAtLeast(.8f)
-                        // Top line: the date, with its weekday letter beside it, and a tick once worked.
-                        val numP = K.sans(14 * u * kk, if (past && s == null && uni == null) MUTED else Color.WHITE, Hud.MEDIUM)
-                        val ty = cell.top + 16 * u * kk
-                        c.drawText("${d.dayOfMonth}", cell.left + 6 * u, ty, numP)
-                        c.drawText(d.dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, Locale.UK), cell.left + 6 * u + numP.measureText("${d.dayOfMonth}") + 3 * u, ty,
-                            K.mono(7.5f * u * kk, if (past && s == null) FAINT else K.DUST, bold = true))
-                        if (finished) c.drawText("✓", cell.right - 6 * u, ty, K.sans(10 * u * kk, GOOD, Hud.BOLD, Paint.Align.RIGHT))
-                        // The rest of the tile: the shift's times, big and on two lines (start over end), so they read at a glance.
+                        val kk = k2.coerceIn(.8f, 1.15f)
+                        // Header strip: the date, big and always bright, with its weekday; a tick once worked.
+                        val headH = minOf(cell.height() * .36f, 24 * u * kk)
+                        val head = RectF(cell.left, cell.top, cell.right - 7 * u * k2, cell.top + headH)
+                        c.drawRect(head, Paint().apply { color = if (s != null) K.a(Color.BLACK, .22f) else K.a(Color.BLACK, .12f) })
+                        c.drawLine(cell.left + 4 * u, cell.top + headH, cell.right - 4 * u, cell.top + headH, Paint().apply { color = K.a(K.CRIMSON, if (s != null) .55f else .25f); strokeWidth = u * .8f })
+                        val numP = K.sans(16 * u * kk, if (past && s == null && uni == null) 0xFFC9BFC1.toInt() else Color.WHITE, Hud.BOLD)
+                        val dateY = cell.top + headH / 2 + numP.textSize * .36f
+                        val num = "${d.dayOfMonth}"
+                        c.drawText(num, cell.left + 5 * u, dateY, numP)
+                        c.drawText(d.dayOfWeek.getDisplayName(java.time.format.TextStyle.NARROW, Locale.UK), cell.left + 5 * u + numP.measureText(num) + 3 * u, dateY,
+                            K.mono(8 * u * kk, if (past && s == null) 0xFF8A7F81.toInt() else K.DUST, bold = true))
+                        if (finished) c.drawText("✓", cell.right - 5 * u, dateY, K.sans(11 * u * kk, GOOD, Hud.BOLD, Paint.Align.RIGHT))
+                        // Below: the shift's start over its end, as 9:00 / 17:00.
+                        val bodyTop = cell.top + headH
                         val shown = s?.let { actual[d]?.takeIf { finished } ?: it }
                         if (shown != null) {
-                            fun t(x: java.time.LocalTime) = if (x.minute == 0) "${x.hour}" else "${x.hour}:${"%02d".format(x.minute)}"
+                            fun t(x: java.time.LocalTime) = "${x.hour}:${"%02d".format(x.minute)}"
                             val a = t(shown.start)
                             val b = t(shown.end)
-                            val tp = K.sans(15 * u * kk, Color.WHITE, Hud.MEDIUM, Paint.Align.CENTER)
-                            K.fit(if (a.length >= b.length) a else b, tp, cw - 8 * u)
-                            val gapY = tp.textSize * 1.08f
-                            val mid = (ty + 4 * u + cell.bottom) / 2
-                            c.drawText(a, cx, mid - 1 * u, tp)
-                            c.drawText(b, cx, mid - 1 * u + gapY, tp.apply { color = 0xFFF0E4E6.toInt() })
-                            // A small rule between start and end.
-                            c.drawLine(cx - 6 * u, mid + gapY * .18f, cx + 6 * u, mid + gapY * .18f, Paint().apply { color = K.a(K.HOT, .6f); strokeWidth = u })
+                            val tp = K.sans(14.5f * u * kk, Color.WHITE, Hud.MEDIUM, Paint.Align.CENTER)
+                            K.fit(if (a.length >= b.length) a else b, tp, cw - 6 * u)
+                            val line = tp.textSize * 1.12f
+                            val mid = (bodyTop + cell.bottom) / 2
+                            val y1 = mid - line * .5f + tp.textSize * .36f
+                            c.drawText(a, cx, y1, tp)
+                            c.drawText(b, cx, y1 + line, tp.apply { color = 0xFFF0E4E6.toInt() })
                         } else {
                             val label = when { uni != null -> "UNI"; past -> "OFF"; else -> "+" }
                             val lc = when (label) { "+" -> K.HOT; "OFF" -> FAINT; else -> UNI }
-                            val lp = if (label == "+") K.sans(20 * u * kk, lc, Hud.LIGHT, Paint.Align.CENTER) else K.mono(9 * u * kk, lc, bold = true, spacing = .12f, align = Paint.Align.CENTER)
-                            c.drawText(label, cx, (ty + cell.bottom) / 2 + lp.textSize * .45f, lp)
+                            val lp = if (label == "+") K.sans(22 * u * kk, lc, Hud.LIGHT, Paint.Align.CENTER) else K.mono(9.5f * u * kk, lc, bold = true, spacing = .12f, align = Paint.Align.CENTER)
+                            c.drawText(label, cx, (bodyTop + cell.bottom) / 2 + lp.textSize * .36f, lp)
                         }
                     }
                 }

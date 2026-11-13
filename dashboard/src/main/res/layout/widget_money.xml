@@ -49,7 +49,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="105"
+            android:layout_weight="130"
             android:baselineAligned="false"
             android:orientation="horizontal"
             android:paddingStart="16dp"
@@ -93,7 +93,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="105"
+            android:layout_weight="130"
             android:baselineAligned="false"
             android:orientation="horizontal"
             android:paddingStart="16dp"
@@ -138,12 +138,12 @@
             android:id="@+id/money_slip"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="225" />
+            android:layout_weight="220" />
         <FrameLayout
             android:id="@+id/money_history"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="185" />
+            android:layout_weight="140" />
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"

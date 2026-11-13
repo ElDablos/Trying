@@ -78,6 +78,10 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.2.2 (code 87) — taller day tiles, 9:00 times, clear dates
+- FULL Money widget bands are now 215/60/130/130/220/140/105 (day rows taller; the payslip chart gave up the room). widget_money.xml weights match.
+- Each day tile has a header strip (bold date + weekday letter, tick on the right, crimson rule under it) and the shift below as start over end in H:MM ("9:00 / 17:00"). Past days off keep a readable date.
+
 ### 2.2.1 (code 86) — readable shift times
 - Money widget day tiles: date + weekday letter on the top line (tick on the right), the shift's start and end below on two lines in 15sp medium with a small rule between (was one line of 8sp mono). Off/Uni/+ centred below the date.
 

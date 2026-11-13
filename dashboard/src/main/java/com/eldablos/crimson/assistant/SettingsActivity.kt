@@ -138,7 +138,7 @@ class SettingsActivity : Activity() {
         val key = Gemini.key(this)
         section("Gemini (online brain)", if (key == null) "Free from Google AI Studio. Paste your key here: it stays on this phone and is only ever sent to Google."
             else "Key saved (…${key.takeLast(4)}). Answers come from ${Gemini.lastModel ?: "the best free Flash model"}.").apply {
-            val f = field("Paste your key (starts with AIza…)")
+            val f = field("Paste your key (starts with AQ. or AIza)")
             addView(f, Ui.lp(top = dp(10)))
             buttons(Ui.button(context, "Save and test", primary = true) {
                 val k = f.text.toString().trim()

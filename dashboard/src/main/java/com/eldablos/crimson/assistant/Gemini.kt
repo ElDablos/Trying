@@ -92,7 +92,7 @@ object Gemini {
         try {
             when (val code = conn.responseCode) {
                 200 -> null
-                400, 401, 403 -> "Google didn't accept that key. Copy it again from AI Studio (it starts with \"AIza\")."
+                400, 401, 403 -> "Google didn't accept that key. Copy it again from AI Studio with the Copy key button (it starts with \"AQ.\" or \"AIza\")."
                 else -> "Google answered with an error ($code). Try again in a moment."
             }
         } finally {

@@ -64,7 +64,7 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
         // The widget's padding, the panel's share of the height (its layout weight), the gap under it, and
         // the letter rail's width.
         const val PADDING_DP = 8f
-        private const val PANEL_SHARE = 0.58f
+        private const val PANEL_SHARE = 0.46f
         private const val GAP_DP = 4f
         const val RAIL_DP = 20f
         const val RECOMMENDED = 6
@@ -115,6 +115,10 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.widget_arcade)
             WidgetTheme.apply(context, views, images = intArrayOf(R.id.arcade_bg))
             views.setTextColor(R.id.arcade_empty, WidgetTheme.text(context, R.color.crimson))
+            // "◆ ALL GAMES  // A–Z": the label in bone, the rest in the theme's hot red, as on the panel.
+            views.setTextViewText(R.id.arcade_all_label, android.text.SpannableString("◆ ALL GAMES  // A–Z").apply {
+                setSpan(android.text.style.ForegroundColorSpan(com.eldablos.crimson.core.HudKit.HOT), 13, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            })
             views.setInt(R.id.arcade_bg, "setImageAlpha", DashboardStore.opacity(context) * 255 / 100)
             // Taps that miss everything do nothing, rather than opening this app.
             views.setOnClickPendingIntent(R.id.arcade_root, broadcast(context, widgetId, CODE_NOTHING, Intent(ACTION_NOTHING)))

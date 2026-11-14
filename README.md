@@ -48,3 +48,42 @@ You don't need the Galaxy Wearable app open.
 ```
 
 Every push to GitHub builds the APK automatically (`.github/workflows/build.yml`).
+
+---
+
+# Home Controls
+
+A second app in this repo: one home-screen widget for a **Tapo colour bulb** and a
+**Philips Air+ heater** (tested protocol-wise against the CX5120).
+
+- **Light:** on/off, a 10-step brightness bar (tap a step to jump to it), and your colour
+  presets read from the bulb itself
+- **Heater:** on/off, target temperature − / +, and the current room temperature
+
+It talks to both devices directly over your home Wi-Fi. There's no cloud and no hub, so it
+only works while your phone is on that Wi-Fi.
+
+## Install
+
+1. Download `HomeControls.apk` from the **Latest builds** release on this repo's Releases page and open it.
+2. Open **Home Controls**:
+   - Enter your Tapo email and password, tap **Find** under the light and pick it, then **Test**.
+   - Tap **Find** under the heater, then **Test**.
+3. Tap **Add widget to home screen**.
+
+## How it works
+
+- **Light:** TP-Link's local "KLAP" protocol, as documented by the open-source
+  [python-kasa](https://github.com/python-kasa/python-kasa) project.
+- **Heater:** Philips's encrypted local CoAP protocol, as documented by
+  aioairctrl and
+  [philips-airpurifier-coap](https://github.com/kongo09/philips-airpurifier-coap).
+
+## Troubleshooting
+
+- **Light says the email/password weren't accepted:** in the Tapo app go to
+  Me → Third-Party Services and turn on **Third-Party Compatibility**.
+- **"Can't reach…":** check your phone is on home Wi-Fi. If your router restarted, the device's
+  IP may have changed: open the app and tap **Find** again. Reserving the IPs in your router stops this.
+- **Heater test shows "different settings than expected":** copy the raw status it shows and
+  pass it on so the key mapping can be fixed.

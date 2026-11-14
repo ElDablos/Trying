@@ -1,0 +1,10 @@
+<resources>
+    <color name="widget_background">#E61F1F23</color>
+    <color name="widget_text">#FFFFFFFF</color>
+    <color name="widget_text_dim">#99FFFFFF</color>
+    <color name="widget_error">#FFF28B82</color>
+    <color name="light_accent">#FFFFC043</color>
+    <color name="heater_accent">#FFF5813A</color>
+    <color name="on_accent">#FF1F1F23</color>
+    <color name="ic_launcher_background">#FF1F1F23</color>
+</resources>

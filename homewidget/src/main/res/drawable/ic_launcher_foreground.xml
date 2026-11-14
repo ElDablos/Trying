@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- house outline -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M54,30L30,50v28h48V50L54,30zM72,72H36V53l18,-15l18,15V72z" />
+    <!-- bulb -->
+    <path android:fillColor="#FFFFC043"
+        android:pathData="M47,52a7,7 0,1 1,10 6.3V62h-6v-3.7A7,7 0,0 1,47 52z" />
+    <!-- flame -->
+    <path android:fillColor="#FFF5813A"
+        android:pathData="M63,58c0,-4 4,-6 3,-10c3,2 6,6 6,10a4.5,4.5 0,0 1,-9 0z" />
+</vector>

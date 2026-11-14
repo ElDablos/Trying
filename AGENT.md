@@ -78,6 +78,11 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.4 (code 91) — Jarvis keeps working in the background
+- `assistant/AgentRunner` (process-level) runs each request on its own thread with `AgentService` (FGS type dataSync, "working on it" notification showing the current step, Stop action) keeping the process alive when the app's minimised or swiped away. Agent and Tools now take a Context (screens opened with NEW_TASK; background activity starts may be blocked by Android while the app isn't visible).
+- The runner saves every step ("step" items with sid/running), card, kept partial text and the final answer to Chat as they happen; the chat screen attaches as `AgentRunner.Ui` in onResume (detaches in onPause), redraws from Chat (running steps get spinners keyed by sid) and follows live. Finished with no screen: a "Jarvis · done" notification (opens the chat with EXTRA_RESUME, which stops it starting a new chat). Yes/no questions wait up to 10 min (notification if the screen's closed); permissions asked while closed are asked on return.
+- New chat on open is skipped while a request is running or when opened from those notifications.
+
 ### 2.3.2 (code 90) — replies no longer stall on swamped models
 - Seen on 14 Nov: 3.8/3.7 Flash timing out (60 s read timeout, and a timeout counted as 503 so it was retried: up to 2 min per model) and free daily quota exhausted (429 cooled only 90 s, in memory).
 - Now: everyday (non-deep) requests in Fast mode go Flash-Lite → flash-latest → full Flash (`Gemini.order(simple = true)`); read timeout 15 s (40 s deep/Smart), timeout = code 408, never retried; a quick 503 gets one retry after 0.8 s; rests persisted in prefs ("cool:<model>"): 429 → 1 h, 503/500/408 → 10 min, 404 → 24 h; 50 s budget for the whole reply. The chat shows "<model> busy · trying <next>" as a step.

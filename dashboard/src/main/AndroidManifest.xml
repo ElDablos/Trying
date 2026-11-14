@@ -34,6 +34,8 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- Crimson's own alarms: ring loud and full screen, even straight after a restart. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <!-- Jarvis keeps working when the app's minimised or closed. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -147,6 +149,12 @@
             android:noHistory="true"
             android:taskAffinity="com.eldablos.crimson.money"
             android:theme="@style/SheetTheme" />
+
+        <!-- Jarvis at work in the background (a request carries on with the app closed). -->
+        <service
+            android:name=".assistant.AgentService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- Crimson's alarms. Direct-boot aware: set again and rung after a restart, before the phone's unlocked. -->
         <receiver

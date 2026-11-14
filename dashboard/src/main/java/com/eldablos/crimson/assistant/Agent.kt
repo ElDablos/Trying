@@ -123,7 +123,7 @@ object Chat {
  * a reminder) are answered by the tool itself, which saves a second trip. With no connection or no free
  * requests left, the model on the phone takes over, with the conversation so far.
  */
-class Agent(private val activity: Activity, private val tools: Tools, private val listener: Listener) {
+class Agent(private val activity: android.content.Context, private val tools: Tools, private val listener: Listener) {
     interface Listener {
         /** A step has started ("Setting work alarms"); returns its number for [stepDone]. */
         fun step(label: String): Int

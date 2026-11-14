@@ -74,7 +74,10 @@ class Act(val label: String, val kind: String, val data: String = "") {
  * app code: the model decides what's wanted and fills in the details, the code does it. Sums (pay, tax,
  * dates, alarm times) are always worked out here, never by the model.
  */
-class Tools(private val activity: Activity, private val host: Host) {
+/**
+ * [activity] is any Context (the app's, while Jarvis works in the background): screens are opened as new tasks.
+ */
+class Tools(private val activity: android.content.Context, private val host: Host) {
     interface Host {
         /** Asks you yes or no before something that removes or overwrites; blocks until you answer. */
         fun confirm(question: String): Boolean
@@ -134,7 +137,7 @@ class Tools(private val activity: Activity, private val host: Host) {
         else -> d.format(dayFmt)
     }
     private fun start(intent: Intent): Boolean = try {
-        activity.startActivity(intent)
+        activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         true
     } catch (e: Exception) {
         false
@@ -629,7 +632,7 @@ class Tools(private val activity: Activity, private val host: Host) {
         Tool("open_file", "Opens one of the numbered search results on the phone, or shares it to another app.",
             obj("number" to int("The file's number from search_files"), "share" to bool("True to share it instead of opening")) ) { a ->
             val f = found.getOrNull(a.optInt("number", 1) - 1) ?: return@Tool fail("There's no result with that number: search first.")
-            activity.runOnUiThread { if (a.optBoolean("share")) Files.share(activity, f) else Files.open(activity, f) }
+            android.os.Handler(android.os.Looper.getMainLooper()).post { if (a.optBoolean("share")) Files.share(activity, f) else Files.open(activity, f) }
             Out(ok("opened" to f.name), said = "Opened ${f.name}.")
         },
 

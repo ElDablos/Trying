@@ -70,7 +70,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * it streams in, with Copy, Retry and Read aloud under it. Earlier chats are kept (☰). Opened from its icon,
  * the Money and Ask widgets, a reminder, or by sharing a file or text to it.
  */
-class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
+class AssistantActivity : Activity(), AgentRunner.Ui {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var list: LinearLayout
     private lateinit var scroll: ScrollView
@@ -82,7 +82,6 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
     private lateinit var chips: LinearLayout
     private lateinit var chipScroll: HorizontalScrollView
     private lateinit var attachRow: LinearLayout
-    private lateinit var agent: Agent
     private val attached = ArrayList<DocText.Picked>()
     private val everAttached = ArrayList<DocText.Picked>()
     private var busy = false
@@ -124,12 +123,12 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         window.setDecorFitsSystemWindows(false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
-        agent = Agent(this, Tools(this, this), this)
         shot = savedInstanceState?.getString("shot")?.let { Uri.parse(it) }
         build()
         Chat.load(this)
         // Opened afresh (not brought back from Recents or recreated): a new chat; the last one goes to ☰.
-        if (savedInstanceState == null && (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0) Chat.archive(this)
+        // Not while Jarvis is still working on something, or when opened to see what he finished.
+        if (savedInstanceState == null && (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0 && !AgentRunner.busy && !intent.getBooleanExtra(EXTRA_RESUME, false)) Chat.archive(this)
         redraw()
         refreshStatus()
         // Only when freshly opened: a screen brought back from Recents mustn't repeat what it was opened to do.
@@ -140,7 +139,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         super.onNewIntent(intent)
         setIntent(intent)
         // Opened again from its icon, a widget or a reminder: a new chat too (unless it's still answering).
-        if (!busy && Chat.items.length() > 0) {
+        if (!busy && !AgentRunner.busy && !intent.getBooleanExtra(EXTRA_RESUME, false) && Chat.items.length() > 0) {
             Chat.archive(this)
             everAttached.clear()
             redraw()
@@ -150,8 +149,27 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
 
     override fun onResume() {
         super.onResume()
+        // Back to the screen: catch up with whatever Jarvis did while it was away, then follow along live.
+        AgentRunner.ui = this
+        AgentRunner.cancelNotification()
+        val working = AgentRunner.busy
+        if (working || busy || Chat.items.length() == 0) {
+            busy = working
+            redraw()
+            if (working) {
+                AgentRunner.partialText.takeIf { it.isNotBlank() }?.let { onPartial(it) }
+                AgentRunner.question?.let { onConfirm(it) }
+                chipScroll.visibility = View.GONE
+            }
+        }
+        AgentRunner.takeWaitingPermissions().takeIf { it.isNotEmpty() }?.let { onPermission(it) }
+        updateSend()
         refreshStatus()
-        if (Chat.items.length() == 0 && !busy) redraw()
+    }
+
+    override fun onPause() {
+        if (AgentRunner.ui === this) AgentRunner.ui = null
+        super.onPause()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -324,7 +342,7 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
             gravity = Gravity.CENTER
             setOnClickListener {
                 when {
-                    busy -> agent.stop()
+                    busy -> AgentRunner.stop()
                     input.text.isBlank() && attached.isEmpty() -> listen()
                     else -> send(input.text.toString())
                 }
@@ -656,7 +674,13 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
                 addView(userBubble(item.optString("text"), item.optLong("at")), animate, end = true, top = 16)
             }
             "ai" -> addView(aiRow(aiBlock(item)), animate, indent = true)
-            "step", "tool" -> addView(aiRow(stepRow(item.optString("text"), item.optString("done").ifEmpty { null }, item.optBoolean("ok", true), running = false)), animate, top = 6, indent = true)
+            "step", "tool" -> {
+                // Still going (Jarvis is at work in the background): a spinner, ticked off when it's done.
+                val running = item.optBoolean("running") && AgentRunner.busy
+                val row = aiRow(stepRow(item.optString("text"), item.optString("done").ifEmpty { null }, item.optBoolean("ok", true), running = running))
+                addView(row, animate, top = 6, indent = true)
+                if (running) steps[item.optInt("sid")] = row to item
+            }
             "card" -> item.optJSONObject("card")?.let { addView(aiRow(cardView(Card.from(it))), animate, top = 8, indent = true) }
             "note" -> addView(aiRow(noteView(item.optString("text"))), animate, indent = true)
         }
@@ -901,59 +925,44 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         refreshStatus()
         chipScroll.visibility = View.GONE
         val ask = said.ifEmpty { "Have a look at what I've attached." }
-        Thread {
-            val reply = try {
-                agent.send(ask, files)
-            } catch (e: Throwable) {
-                // Including running out of memory on a big file: say so rather than close.
-                SysLog.error("Assistant", "${e.javaClass.simpleName}: ${e.message.orEmpty().take(140)}")
-                Agent.Reply(if (e is OutOfMemoryError) "That was too big for the phone's memory. Try a smaller file." else "Something went wrong inside the app (${e.javaClass.simpleName}). It's in the log in settings.", "", failed = true)
-            }
-            main.post { finish(reply, ask) }
-        }.start()
+        // Jarvis works apart from the screen: minimise or close the app and he carries on (Stop cancels).
+        if (!AgentRunner.start(this, ask, files, everAttached.toList())) {
+            busy = false
+            updateSend()
+            Toast.makeText(this, "Still finishing the last thing", Toast.LENGTH_SHORT).show()
+        }
     }
 
-    private fun finish(reply: Agent.Reply, asked: String) {
+    /** Jarvis has finished: the answer (already saved) is shown, and the box is ready again. */
+    private fun finish(item: JSONObject, reply: Agent.Reply) {
         // Steps still spinning (it was stopped): marked as not done.
         steps.keys.toList().forEach { markDone(it, false, "") }
         dropLive()
         busy = false
-        val toolsUsed = reply.tools.joinToString(",")
-        if (reply.failed) {
-            record("note", reply.text) { if (toolsUsed.isNotEmpty()) it.put("tools", toolsUsed) }
-        } else {
-            record("ai", reply.text) { it.put("via", reply.via).put("asked", asked); if (toolsUsed.isNotEmpty()) it.put("tools", toolsUsed) }
-        }
-        Chat.save(this)
+        show(item)
         updateSend()
         refreshStatus()
         if (reply.failed && Gemini.key(this) == null) suggest(OPEN_SETTINGS) else suggest(*lastSuggestions())
     }
 
-    // --- What the agent tells the screen while it works (from its own thread) ---
+    // --- What Jarvis does while he works (from his own thread: everything's posted to the screen) ---
 
-    override fun step(label: String): Int {
-        val id = stepIds.getAndIncrement()
+    override fun onStep(id: Int, item: JSONObject) {
         main.post {
-            freezeLive()
-            val item = JSONObject().put("t", "step").put("text", label).put("at", System.currentTimeMillis())
-            Chat.add(item)
-            val row = stepRow(label, null, true, running = true)
-            val wrapped = aiRow(row)
+            dropLive()
+            val wrapped = aiRow(stepRow(item.optString("text"), null, true, running = true))
             addView(wrapped, top = 6, indent = true)
             steps[id] = wrapped to item
         }
-        return id
     }
 
-    override fun stepDone(id: Int, ok: Boolean, summary: String) {
-        main.post { markDone(id, ok, summary) }
+    override fun onStepDone(id: Int, item: JSONObject) {
+        main.post { markDone(id, item.optBoolean("ok", true), item.optString("done")) }
     }
 
     /** Turns a step's spinner into a tick (or a cross) in place, with what it found. */
     private fun markDone(id: Int, ok: Boolean, summary: String) {
         val (view, item) = steps.remove(id) ?: return
-        item.put("done", summary).put("ok", ok)
         view.findViewWithTag<TextView>("mark")?.apply {
             animate().cancel()
             rotation = 0f
@@ -968,14 +977,14 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         }
     }
 
-    override fun card(card: Card) {
+    override fun onItem(item: JSONObject) {
         main.post {
-            freezeLive()
-            record("card", card = card)
+            dropLive()
+            show(item)
         }
     }
 
-    override fun partial(text: String) {
+    override fun onPartial(text: String) {
         main.post {
             if (!busy) return@post
             val v = live ?: Ui.text(this, "", 15.5f, 0xFFECEEF2.toInt()).apply { setLineSpacing(0f, 1.35f) }.also {
@@ -988,14 +997,8 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         }
     }
 
-    /** Words that streamed in before a step began stay as they were (saved with the chat). */
-    private fun freezeLive() {
-        val v = live ?: return
-        live = null
-        val text = v.text.toString().removeSuffix(" ▍").trim()
-        live = v
-        dropLive()
-        if (text.isNotEmpty()) record("ai", text)
+    override fun onFinished(item: JSONObject, reply: Agent.Reply) {
+        main.post { finish(item, reply) }
     }
 
     /** Takes the streaming line off the screen (its words are shown again, saved, by whoever calls this). */
@@ -1181,13 +1184,11 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
 
     // --- What the tools need from the screen ---
 
-    override fun attachments(): List<DocText.Picked> = everAttached.toList()
-
     /** Permissions the tools ask for are collected and asked for together (Android drops a second request while one's showing). */
     private val wanted = LinkedHashSet<String>()
     private var asking = false
 
-    override fun requestPermission(vararg permissions: String) {
+    override fun onPermission(permissions: Array<out String>) {
         main.post {
             wanted += permissions.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
             askNext()
@@ -1210,29 +1211,26 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         askNext()
     }
 
-    /** A yes/no card; the tool waits (off the main thread) until one is tapped, or two minutes (no). */
-    override fun confirm(question: String): Boolean {
-        val latch = CountDownLatch(1)
-        var answer = false
+    /** A yes/no card: Jarvis waits (in the background) until one's tapped. */
+    override fun onConfirm(question: String) {
         main.post {
-            freezeLive()
+            dropLive()
             val box = Ui.column(this).apply {
                 background = hud(HudDrawable.Kind.CARD)
                 setPadding(dp(14), dp(12), dp(14), dp(12))
             }
             box.addView(Ui.text(this, question, 15f, Ui.TEXT).apply { setLineSpacing(0f, 1.25f) })
+            var answered = false
             fun done(yes: Boolean) {
-                if (latch.count == 0L) return
-                answer = yes
+                if (answered) return
+                answered = true
                 box.removeViewAt(1)
                 box.addView(Ui.text(this, if (yes) "Yes" else "No, leave it", 13f, Ui.MUTED), Ui.lp(top = dp(6)))
-                latch.countDown()
+                AgentRunner.answer(yes)
             }
             box.addView(Ui.row(this, Ui.button(this, "Yes", light = true) { done(true) }, Ui.button(this, "No") { done(false) }), Ui.lp(top = dp(10)))
             addView(aiRow(box), top = 8, indent = true)
         }
-        if (!latch.await(120, java.util.concurrent.TimeUnit.SECONDS)) latch.countDown()
-        return answer
     }
 
     companion object {
@@ -1242,6 +1240,8 @@ class AssistantActivity : Activity(), Tools.Host, Agent.Listener {
         const val EXTRA_VOICE = "voice"
         const val EXTRA_ATTACH = "attach"
         const val EXTRA_ROTA = "rota"
+        /** Opened to see what Jarvis did in the background: keep the chat, don't start a new one. */
+        const val EXTRA_RESUME = "resume"
         private const val OPEN_SETTINGS = "Open settings"
         private const val REQ_SPEECH = 1
         private const val REQ_FILE = 2

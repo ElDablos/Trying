@@ -15,11 +15,16 @@ import kotlin.math.roundToInt
 class HomeWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        manager.updateAppWidget(ids, buildViews(context))
+        ids.forEach { manager.updateAppWidget(it, buildViews(context, manager, it)) }
         // Periodic refresh. Android may block network for background apps, so this is
         // best-effort: failures keep the last known state instead of showing an error.
         val pending = goAsync()
         HomeController.submit(context, onDone = { pending.finish() }) { HomeController.refreshAll(it, quiet = true) }
+    }
+
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, options: android.os.Bundle) {
+        // Resized: redraw the frame at the new size.
+        manager.updateAppWidget(id, buildViews(context, manager, id))
     }
 
     companion object {
@@ -42,11 +47,24 @@ class HomeWidgetProvider : AppWidgetProvider() {
         fun renderAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context) ?: return
             val ids = manager.getAppWidgetIds(ComponentName(context, HomeWidgetProvider::class.java))
-            if (ids.isNotEmpty()) manager.updateAppWidget(ids, buildViews(context))
+            ids.forEach { manager.updateAppWidget(it, buildViews(context, manager, it)) }
         }
 
-        private fun buildViews(context: Context): RemoteViews {
+        /** The frame picture at this widget's size; a little smaller than the screen if it would be too big to send. */
+        private fun frame(context: Context, manager: AppWidgetManager, id: Int): android.graphics.Bitmap? = runCatching {
+            val dm = context.resources.displayMetrics
+            val options = manager.getAppWidgetOptions(id)
+            val wDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: 360
+            val hDp = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 440
+            var scale = dm.density
+            val limit = dm.widthPixels.toLong() * dm.heightPixels / 2
+            while ((wDp * scale).toLong() * (hDp * scale).toLong() > limit && scale > 1f) scale *= .9f
+            HudFrame.render(wDp, hDp, scale)
+        }.getOrNull()
+
+        private fun buildViews(context: Context, manager: AppWidgetManager, widgetId: Int): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_home)
+            frame(context, manager, widgetId)?.let { views.setImageViewBitmap(R.id.widget_bg, it) }
             val config = HomeStore.config(context)
             val light = HomeStore.light(context)
             val heater = HomeStore.heater(context)

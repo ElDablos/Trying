@@ -122,7 +122,7 @@ class MainActivity : Activity() {
             if (found.isEmpty()) return@background "✗ No Philips devices found. Is the heater plugged in and on Wi-Fi?"
             val labelled = found.map { ip ->
                 val name = runCatching {
-                    val s = PhilipsClient(ip).status()
+                    val s = PhilipsClient(ip).use { it.status() }
                     "${s.optString(PhilipsClient.KEY_NAME, "Philips")} (${s.optString(PhilipsClient.KEY_MODEL, "?")})"
                 }.getOrNull()
                 ip to (name ?: "Philips device")
@@ -179,7 +179,7 @@ class MainActivity : Activity() {
         save()
         background(heaterResult, "Connecting to the heater…") {
             try {
-                val status = PhilipsClient(cfg.heaterIp).status()
+                val status = PhilipsClient(cfg.heaterIp).use { it.status() }
                 HomeController.submit(this) { HomeController.refreshHeater(it) }
                 val summary = if (status.has(PhilipsClient.KEY_POWER)) {
                     "✓ Connected to ${status.optString(PhilipsClient.KEY_NAME)} (${status.optString(PhilipsClient.KEY_MODEL)})\n" +
@@ -191,7 +191,7 @@ class MainActivity : Activity() {
                 }
                 "$summary\n\nRaw status:\n${status.toString(1)}"
             } catch (e: Exception) {
-                "✗ " + HomeController.friendlyError("heater", e)
+                "✗ " + HomeController.friendlyError("heater", e) + "\n\nDetails: " + (e.message ?: e.javaClass.simpleName)
             }
         }
     }

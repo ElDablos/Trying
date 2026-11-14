@@ -1,12 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Crimson Home Controls. Rows use weights so the widget fills whatever size it's given. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- The Crimson console frame, drawn in code (HudFrame) at the widget's size. -->
+    <ImageView
+        android:id="@+id/widget_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_background" />
+
+<LinearLayout
+    android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/widget_background"
     android:orientation="vertical"
-    android:padding="18dp">
+    android:paddingHorizontal="18dp"
+    android:paddingTop="20dp"
+    android:paddingBottom="16dp">
 
     <TextView
         android:id="@+id/setup_text"
@@ -42,14 +56,12 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/tag"
-                    android:fontFamily="sans-serif-medium"
-                    android:letterSpacing="0.2"
-                    android:paddingHorizontal="6dp"
-                    android:paddingVertical="1dp"
-                    android:text="LIGHT"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.22"
+                    android:text="◆ LIGHT"
                     android:textColor="@color/bone"
-                    android:textSize="10sp" />
+                    android:textStyle="bold"
+                    android:textSize="11sp" />
 
                 <TextView
                     android:id="@+id/light_name"
@@ -93,10 +105,10 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:fontFamily="sans-serif-medium"
-                android:letterSpacing="0.15"
-                android:text="BRIGHTNESS"
-                android:textColor="@color/dust"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.22"
+                android:text="// BRIGHTNESS"
+                android:textColor="@color/hot"
                 android:textSize="11sp" />
 
             <TextView
@@ -392,14 +404,12 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/tag"
-                    android:fontFamily="sans-serif-medium"
-                    android:letterSpacing="0.2"
-                    android:paddingHorizontal="6dp"
-                    android:paddingVertical="1dp"
-                    android:text="HEATER"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.22"
+                    android:text="◆ HEATER"
                     android:textColor="@color/bone"
-                    android:textSize="10sp" />
+                    android:textStyle="bold"
+                    android:textSize="11sp" />
 
                 <TextView
                     android:id="@+id/heater_name"
@@ -463,10 +473,10 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:fontFamily="sans-serif-medium"
-                    android:letterSpacing="0.15"
-                    android:text="TARGET"
-                    android:textColor="@color/dust"
+                    android:fontFamily="monospace"
+                    android:letterSpacing="0.22"
+                    android:text="// TARGET"
+                    android:textColor="@color/hot"
                     android:textSize="11sp" />
 
                 <TextView
@@ -529,3 +539,4 @@
             android:src="@drawable/ic_settings" />
     </LinearLayout>
 </LinearLayout>
+</FrameLayout>

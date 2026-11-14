@@ -142,7 +142,7 @@ object HomeController {
         if (!config.heaterConfigured) return
         val current = HomeStore.heater(context)
         HomeStore.saveHeater(context, try {
-            readHeater(PhilipsClient(config.heaterIp), current)
+            PhilipsClient(config.heaterIp).use { readHeater(it, current) }
         } catch (e: Exception) {
             if (quiet) return
             current.copy(error = friendlyError("heater", e))
@@ -172,10 +172,11 @@ object HomeController {
         HomeStore.saveHeater(context, after)
         HomeWidgetProvider.renderAll(context)
         try {
-            val client = PhilipsClient(config.heaterIp)
-            client.control(values(before))
-            Thread.sleep(400) // give the heater a moment to report its new state
-            HomeStore.saveHeater(context, runCatching { readHeater(client, after) }.getOrDefault(after))
+            PhilipsClient(config.heaterIp).use { client ->
+                client.control(values(before))
+                Thread.sleep(400) // give the heater a moment to report its new state
+                HomeStore.saveHeater(context, runCatching { readHeater(client, after) }.getOrDefault(after))
+            }
         } catch (e: Exception) {
             HomeStore.saveHeater(context, before.copy(error = friendlyError("heater", e)))
         }
@@ -208,7 +209,7 @@ object HomeController {
             // Android blocked the network for us (the app was in the background).
             "EPERM" in messages -> "Android blocked the connection to the $device. Tap again, or open the app."
             e is TapoAuthException -> e.message ?: "Tapo login failed"
-            e is SocketTimeoutException || e is ConnectException || e is NoRouteToHostException ->
+            e is SocketTimeoutException || e is ConnectException || e is NoRouteToHostException || e.cause is SocketTimeoutException ->
                 "Can't reach the $device. Are you on home Wi-Fi?"
             else -> e.message ?: "Couldn't talk to the $device"
         }

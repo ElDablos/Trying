@@ -52,22 +52,38 @@ internal object PhilipsCrypto {
     }
 }
 
-class PhilipsClient(private val host: String, port: Int = PORT, timeoutMs: Int = 2500) {
+class PhilipsClient(private val host: String, port: Int = PORT, timeoutMs: Int = 4000) : java.io.Closeable {
     private val coap = CoapClient(host, port, timeoutMs)
     private var key: String? = null
 
-    /** Agrees a message counter with the device; needed before sending commands. */
+    override fun close() = coap.close()
+
+    /** Handshake: agrees a message counter with the device. Must come first, from the same port. */
     fun sync() {
-        val reply = coap.request(CoapMessage.POST, SYNC_PATH, Bytes.hex(Bytes.random(4)).toByteArray())
+        val reply = try {
+            coap.request(CoapMessage.POST, SYNC_PATH, Bytes.hex(Bytes.random(4)).toByteArray())
+        } catch (e: IOException) {
+            throw IOException("Heater didn't answer the handshake (${e.message})", e)
+        }
         val text = String(reply, Charsets.US_ASCII).trim()
-        if (!text.matches(Regex("[0-9A-Fa-f]{8}"))) throw IOException("Unexpected sync reply from heater")
+        if (!text.matches(Regex("[0-9A-Fa-f]{8}"))) throw IOException("Unexpected handshake reply from heater: ${text.take(40)}")
         key = text.uppercase()
     }
 
     /** The device's full reported state, e.g. {"D03102":1,"D0310E":22,"D03224":160,...}. */
     fun status(): JSONObject {
-        val reply = coap.request(CoapMessage.GET, STATUS_PATH, observe = true)
-        val json = JSONObject(PhilipsCrypto.decrypt(String(reply, Charsets.US_ASCII)))
+        if (key == null) sync()
+        val reply = try {
+            coap.request(CoapMessage.GET, STATUS_PATH, observe = true)
+        } catch (e: IOException) {
+            throw IOException("Handshake OK, but the heater didn't send its status (${e.message})", e)
+        }
+        val text = String(reply, Charsets.US_ASCII)
+        val json = try {
+            JSONObject(PhilipsCrypto.decrypt(text))
+        } catch (e: Exception) {
+            throw IOException("Couldn't read the heater's status (${e.message}). Reply started: ${text.take(60)}", e)
+        }
         return json.getJSONObject("state").getJSONObject("reported")
     }
 

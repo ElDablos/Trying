@@ -114,12 +114,26 @@ internal class CoapMessage(
     }
 }
 
-internal class CoapClient(private val host: String, private val port: Int = 5683, private val timeoutMs: Int = 2500) {
+/**
+ * One CoAP "session": every request goes out from the same local port, because Philips devices
+ * tie the sync handshake to the address and port it came from.
+ */
+internal class CoapClient(private val host: String, private val port: Int = 5683, private val timeoutMs: Int = 2500) :
+    java.io.Closeable {
+    private var socket: DatagramSocket? = null
+
+    private fun socket(): DatagramSocket = socket ?: DatagramSocket().also { socket = it }
+
+    override fun close() {
+        socket?.close()
+        socket = null
+    }
 
     /** Sends a NON request and returns the (reassembled) response payload. */
     fun request(code: Int, path: String, payload: ByteArray = ByteArray(0), observe: Boolean = false): ByteArray {
         val address = InetAddress.getByName(host)
-        DatagramSocket().use { socket ->
+        val socket = socket()
+        run {
             val out = ByteArrayOutputStream()
             var blockNumber = 0
             var blockSizeExp = 6 // 1024 bytes

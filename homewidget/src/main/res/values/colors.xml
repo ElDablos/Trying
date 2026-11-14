@@ -7,6 +7,7 @@
     <color name="bone">#FFE8DCDC</color>
     <color name="dust">#FF9A8A8C</color>
     <color name="track">#33E8DCDC</color>
+    <color name="hot">#FFFF5A6E</color>
     <color name="error">#FFFF6B7A</color>
     <color name="ic_launcher_background">#FF0A0708</color>
 </resources>

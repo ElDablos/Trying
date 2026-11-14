@@ -16,40 +16,13 @@ class HomeWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         manager.updateAppWidget(ids, buildViews(context))
+        // Periodic refresh. Android may block network for background apps, so this is
+        // best-effort: failures keep the last known state instead of showing an error.
         val pending = goAsync()
-        HomeController.submit(context, onDone = { pending.finish() }) { HomeController.refreshAll(it) }
-    }
-
-    override fun onReceive(context: Context, intent: Intent) {
-        val action = intent.action ?: return
-        if (!action.startsWith(PREFIX)) {
-            super.onReceive(context, intent)
-            return
-        }
-        val value = intent.getIntExtra(EXTRA_VALUE, 0)
-        val pending = goAsync()
-        HomeController.submit(context, onDone = { pending.finish() }) { ctx ->
-            when (action) {
-                ACTION_REFRESH -> HomeController.refreshAll(ctx)
-                ACTION_LIGHT_TOGGLE -> HomeController.toggleLight(ctx)
-                ACTION_BRIGHTNESS -> HomeController.setBrightness(ctx, value)
-                ACTION_PRESET -> HomeController.applyPreset(ctx, value)
-                ACTION_HEATER_TOGGLE -> HomeController.toggleHeater(ctx)
-                ACTION_TEMP -> HomeController.changeTargetTemp(ctx, value)
-            }
-        }
+        HomeController.submit(context, onDone = { pending.finish() }) { HomeController.refreshAll(it, quiet = true) }
     }
 
     companion object {
-        private const val PREFIX = "com.eldablos.homewidget."
-        const val ACTION_REFRESH = PREFIX + "REFRESH"
-        const val ACTION_LIGHT_TOGGLE = PREFIX + "LIGHT_TOGGLE"
-        const val ACTION_BRIGHTNESS = PREFIX + "BRIGHTNESS"
-        const val ACTION_PRESET = PREFIX + "PRESET"
-        const val ACTION_HEATER_TOGGLE = PREFIX + "HEATER_TOGGLE"
-        const val ACTION_TEMP = PREFIX + "TEMP"
-        private const val EXTRA_VALUE = "value"
-
         private val SEGMENTS = intArrayOf(
             R.id.seg_1, R.id.seg_2, R.id.seg_3, R.id.seg_4, R.id.seg_5,
             R.id.seg_6, R.id.seg_7, R.id.seg_8, R.id.seg_9, R.id.seg_10,
@@ -60,6 +33,10 @@ class HomeWidgetProvider : AppWidgetProvider() {
         private val PRESET_DOTS = intArrayOf(
             R.id.preset_dot_1, R.id.preset_dot_2, R.id.preset_dot_3, R.id.preset_dot_4,
             R.id.preset_dot_5, R.id.preset_dot_6, R.id.preset_dot_7,
+        )
+        private val PRESET_RINGS = intArrayOf(
+            R.id.preset_ring_1, R.id.preset_ring_2, R.id.preset_ring_3, R.id.preset_ring_4,
+            R.id.preset_ring_5, R.id.preset_ring_6, R.id.preset_ring_7,
         )
 
         fun renderAll(context: Context) {
@@ -99,17 +76,22 @@ class HomeWidgetProvider : AppWidgetProvider() {
             ).distinct()
             if (errors.isNotEmpty()) {
                 views.setTextViewText(R.id.footer_text, errors.joinToString("\n"))
-                views.setTextColor(R.id.footer_text, context.getColor(R.color.widget_error))
+                views.setTextColor(R.id.footer_text, context.getColor(R.color.error))
             } else {
                 val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date())
                 views.setTextViewText(R.id.footer_text, "Updated $time · tap to refresh")
-                views.setTextColor(R.id.footer_text, context.getColor(R.color.widget_text_dim))
+                views.setTextColor(R.id.footer_text, context.getColor(R.color.dust))
             }
-            val refresh = action(context, ACTION_REFRESH, 0, 1)
+            val refresh = action(context, WidgetActionService.ACTION_REFRESH, 0, 1)
             views.setOnClickPendingIntent(R.id.footer_text, refresh)
             views.setOnClickPendingIntent(R.id.light_header, refresh)
             views.setOnClickPendingIntent(R.id.heater_header, refresh)
             return views
+        }
+
+        private fun bindPower(context: Context, views: RemoteViews, id: Int, on: Boolean) {
+            views.setInt(id, "setBackgroundResource", if (on) R.drawable.circle_on else R.drawable.circle_off)
+            views.setInt(id, "setColorFilter", context.getColor(if (on) R.color.bone else R.color.crimson))
         }
 
         private fun bindLight(context: Context, views: RemoteViews, light: LightState) {
@@ -118,19 +100,19 @@ class HomeWidgetProvider : AppWidgetProvider() {
                 R.id.light_status,
                 when {
                     !light.known -> "Tap to refresh"
-                    light.on -> "On · ${light.brightness}%"
+                    light.on -> "On"
                     else -> "Off"
                 },
             )
-            views.setInt(R.id.light_power, "setBackgroundResource", if (light.on) R.drawable.circle_light_on else R.drawable.circle_off)
-            views.setInt(R.id.light_power, "setColorFilter", context.getColor(if (light.on) R.color.on_accent else R.color.widget_text))
-            views.setOnClickPendingIntent(R.id.light_power, action(context, ACTION_LIGHT_TOGGLE, 0, 2))
+            views.setTextViewText(R.id.brightness_value, if (light.known && light.on) "${light.brightness}%" else "--")
+            bindPower(context, views, R.id.light_power, light.on)
+            views.setOnClickPendingIntent(R.id.light_power, action(context, WidgetActionService.ACTION_LIGHT_TOGGLE, 0, 2))
 
-            // 10 segments act as a brightness slider: tap the Nth to set N×10%.
+            // 10 bars act as a brightness slider: tap the Nth to set N×10%.
             val filled = if (light.on) (light.brightness / 10.0).roundToInt().coerceIn(1, 10) else 0
             SEGMENTS.forEachIndexed { i, id ->
                 views.setInt(id, "setBackgroundResource", if (i < filled) R.drawable.segment_on else R.drawable.segment_off)
-                views.setOnClickPendingIntent(id, action(context, ACTION_BRIGHTNESS, (i + 1) * 10, 100 + i))
+                views.setOnClickPendingIntent(id, action(context, WidgetActionService.ACTION_BRIGHTNESS, (i + 1) * 10, 100 + i))
             }
 
             PRESETS.forEachIndexed { i, id ->
@@ -140,41 +122,40 @@ class HomeWidgetProvider : AppWidgetProvider() {
                 } else {
                     views.setViewVisibility(id, View.VISIBLE)
                     views.setInt(PRESET_DOTS[i], "setColorFilter", preset.swatchColor)
-                    views.setOnClickPendingIntent(id, action(context, ACTION_PRESET, i, 200 + i))
+                    val active = light.on && isActive(light, preset)
+                    views.setViewVisibility(PRESET_RINGS[i], if (active) View.VISIBLE else View.INVISIBLE)
+                    views.setOnClickPendingIntent(id, action(context, WidgetActionService.ACTION_PRESET, i, 200 + i))
                 }
             }
         }
 
+        private fun isActive(light: LightState, preset: LightPreset): Boolean =
+            if (preset.colorTemp > 0) light.colorTemp == preset.colorTemp
+            else light.colorTemp == 0 && light.hue == preset.hue && light.saturation == preset.saturation
+
         private fun bindHeater(context: Context, views: RemoteViews, heater: HeaterState) {
             views.setTextViewText(R.id.heater_name, heater.name)
-            val room = heater.roomTemp?.let { "Room ${formatTemp(it)}" }
             views.setTextViewText(
                 R.id.heater_status,
                 when {
                     !heater.known -> "Tap to refresh"
-                    heater.on -> listOfNotNull(room, "On").joinToString(" · ")
-                    else -> listOfNotNull(room, "Off").joinToString(" · ")
+                    heater.on -> "On"
+                    else -> "Off"
                 },
             )
-            views.setInt(R.id.heater_power, "setBackgroundResource", if (heater.on) R.drawable.circle_heater_on else R.drawable.circle_off)
-            views.setInt(R.id.heater_power, "setColorFilter", context.getColor(if (heater.on) R.color.on_accent else R.color.widget_text))
-            views.setOnClickPendingIntent(R.id.heater_power, action(context, ACTION_HEATER_TOGGLE, 0, 3))
-            views.setTextViewText(R.id.temp_target, if (heater.known) "${heater.targetTemp}°C" else "--°C")
-            views.setTextColor(R.id.temp_target, context.getColor(if (heater.on) R.color.heater_accent else R.color.widget_text_dim))
-            views.setOnClickPendingIntent(R.id.temp_down, action(context, ACTION_TEMP, -1, 4))
-            views.setOnClickPendingIntent(R.id.temp_up, action(context, ACTION_TEMP, 1, 5))
+            bindPower(context, views, R.id.heater_power, heater.on)
+            views.setOnClickPendingIntent(R.id.heater_power, action(context, WidgetActionService.ACTION_HEATER_TOGGLE, 0, 3))
+            views.setTextViewText(R.id.temp_target, if (heater.known) "${heater.targetTemp}°" else "--°")
+            views.setTextColor(R.id.temp_target, context.getColor(if (heater.on) R.color.crimson else R.color.dust))
+            views.setTextViewText(R.id.temp_room, "Room " + (heater.roomTemp?.let { formatTemp(it) } ?: "--"))
+            views.setOnClickPendingIntent(R.id.temp_down, action(context, WidgetActionService.ACTION_TEMP, -1, 4))
+            views.setOnClickPendingIntent(R.id.temp_up, action(context, WidgetActionService.ACTION_TEMP, 1, 5))
         }
 
         private fun formatTemp(value: Double): String =
             if (value % 1.0 == 0.0) "${value.toInt()}°C" else String.format("%.1f°C", value)
 
-        private fun action(context: Context, action: String, value: Int, requestCode: Int): PendingIntent {
-            val intent = Intent(context, HomeWidgetProvider::class.java)
-                .setAction(action)
-                .putExtra(EXTRA_VALUE, value)
-            return PendingIntent.getBroadcast(
-                context, requestCode, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
-        }
+        private fun action(context: Context, action: String, value: Int, requestCode: Int): PendingIntent =
+            WidgetActionService.pendingIntent(context, action, value, requestCode)
     }
 }

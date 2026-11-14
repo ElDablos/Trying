@@ -54,7 +54,7 @@ Every push to GitHub builds the APK automatically (`.github/workflows/build.yml`
 # Home Controls
 
 A second app in this repo: one home-screen widget for a **Tapo colour bulb** and a
-**Philips Air+ heater** (tested protocol-wise against the CX5120).
+**Philips Air+ heater** (built for the CX5120), styled to match Crimson.
 
 - **Light:** on/off, a 10-step brightness bar (tap a step to jump to it), and your colour
   presets read from the bulb itself

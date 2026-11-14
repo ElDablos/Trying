@@ -41,13 +41,14 @@ object HomeController {
         return tapo!!
     }
 
-    fun refreshLight(context: Context) {
+    fun refreshLight(context: Context, quiet: Boolean = false) {
         val config = HomeStore.config(context)
         if (!config.lightConfigured) return
         val current = HomeStore.light(context)
         HomeStore.saveLight(context, try {
             readLight(tapoClient(config), current)
         } catch (e: Exception) {
+            if (quiet) return
             current.copy(error = friendlyError("light", e))
         })
     }
@@ -136,13 +137,14 @@ object HomeController {
 
     // ---- Heater ----
 
-    fun refreshHeater(context: Context) {
+    fun refreshHeater(context: Context, quiet: Boolean = false) {
         val config = HomeStore.config(context)
         if (!config.heaterConfigured) return
         val current = HomeStore.heater(context)
         HomeStore.saveHeater(context, try {
             readHeater(PhilipsClient(config.heaterIp), current)
         } catch (e: Exception) {
+            if (quiet) return
             current.copy(error = friendlyError("heater", e))
         })
     }
@@ -195,15 +197,20 @@ object HomeController {
         )
     }
 
-    fun refreshAll(context: Context) {
-        refreshLight(context)
-        refreshHeater(context)
+    fun refreshAll(context: Context, quiet: Boolean = false) {
+        refreshLight(context, quiet)
+        refreshHeater(context, quiet)
     }
 
-    fun friendlyError(device: String, e: Throwable): String = when (e) {
-        is TapoAuthException -> e.message ?: "Tapo login failed"
-        is SocketTimeoutException, is ConnectException, is NoRouteToHostException ->
-            "Can't reach the $device. Are you on home Wi-Fi?"
-        else -> e.message ?: "Couldn't talk to the $device"
+    fun friendlyError(device: String, e: Throwable): String {
+        val messages = generateSequence(e) { it.cause }.mapNotNull { it.message }.joinToString(" ")
+        return when {
+            // Android blocked the network for us (the app was in the background).
+            "EPERM" in messages -> "Android blocked the connection to the $device. Tap again, or open the app."
+            e is TapoAuthException -> e.message ?: "Tapo login failed"
+            e is SocketTimeoutException || e is ConnectException || e is NoRouteToHostException ->
+                "Can't reach the $device. Are you on home Wi-Fi?"
+            else -> e.message ?: "Couldn't talk to the $device"
+        }
     }
 }

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Crimson Home Controls. Rows use weights so the widget fills whatever size it's given. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_background"
     android:orientation="vertical"
-    android:paddingHorizontal="14dp"
-    android:paddingVertical="12dp">
+    android:padding="18dp">
 
     <TextView
         android:id="@+id/setup_text"
@@ -14,8 +14,8 @@
         android:layout_height="match_parent"
         android:gravity="center"
         android:text="Tap to set up your light and heater"
-        android:textColor="@color/widget_text"
-        android:textSize="14sp"
+        android:textColor="@color/bone"
+        android:textSize="15sp"
         android:visibility="gone" />
 
     <!-- Light -->
@@ -40,15 +40,28 @@
                 android:orientation="vertical">
 
                 <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/tag"
+                    android:fontFamily="sans-serif-medium"
+                    android:letterSpacing="0.2"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="1dp"
+                    android:text="LIGHT"
+                    android:textColor="@color/bone"
+                    android:textSize="10sp" />
+
+                <TextView
                     android:id="@+id/light_name"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
                     android:ellipsize="end"
+                    android:fontFamily="sans-serif-medium"
                     android:singleLine="true"
                     android:text="Light"
-                    android:textColor="@color/widget_text"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
+                    android:textColor="@color/bone"
+                    android:textSize="20sp" />
 
                 <TextView
                     android:id="@+id/light_status"
@@ -56,24 +69,51 @@
                     android:layout_height="wrap_content"
                     android:singleLine="true"
                     android:text="--"
-                    android:textColor="@color/widget_text_dim"
-                    android:textSize="12sp" />
+                    android:textColor="@color/dust"
+                    android:textSize="13sp" />
             </LinearLayout>
 
             <ImageView
                 android:id="@+id/light_power"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="60dp"
+                android:layout_height="60dp"
                 android:background="@drawable/circle_off"
                 android:contentDescription="Light on/off"
-                android:padding="9dp"
+                android:padding="15dp"
                 android:src="@drawable/ic_power" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="22dp"
-            android:layout_marginTop="10dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.15"
+                android:text="BRIGHTNESS"
+                android:textColor="@color/dust"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/brightness_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium"
+                android:text="--"
+                android:textColor="@color/bone"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="6dp"
+            android:layout_weight="1.2"
             android:orientation="horizontal">
 
             <TextView
@@ -81,77 +121,78 @@
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="2dp"
+                android:layout_marginHorizontal="2.5dp"
                 android:background="@drawable/segment_off" />
             <TextView
                 android:id="@+id/seg_2"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="2dp"
+                android:layout_marginHorizontal="2.5dp"
                 android:background="@drawable/segment_off" />
             <TextView
                 android:id="@+id/seg_3"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="2dp"
+                android:layout_marginHorizontal="2.5dp"
                 android:background="@drawable/segment_off" />
             <TextView
                 android:id="@+id/seg_4"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="2dp"
+                android:layout_marginHorizontal="2.5dp"
                 android:background="@drawable/segment_off" />
             <TextView
                 android:id="@+id/seg_5"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="2dp"
+                android:layout_marginHorizontal="2.5dp"
                 android:background="@drawable/segment_off" />
             <TextView
                 android:id="@+id/seg_6"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="2dp"
+                android:layout_marginHorizontal="2.5dp"
                 android:background="@drawable/segment_off" />
             <TextView
                 android:id="@+id/seg_7"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="2dp"
+                android:layout_marginHorizontal="2.5dp"
                 android:background="@drawable/segment_off" />
             <TextView
                 android:id="@+id/seg_8"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="2dp"
+                android:layout_marginHorizontal="2.5dp"
                 android:background="@drawable/segment_off" />
             <TextView
                 android:id="@+id/seg_9"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="2dp"
+                android:layout_marginHorizontal="2.5dp"
                 android:background="@drawable/segment_off" />
             <TextView
                 android:id="@+id/seg_10"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginHorizontal="2dp"
+                android:layout_marginHorizontal="2.5dp"
                 android:background="@drawable/segment_off" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="38dp"
-            android:layout_marginTop="8dp"
+            android:layout_height="0dp"
+            android:layout_marginTop="6dp"
+            android:layout_weight="1"
             android:orientation="horizontal">
 
             <FrameLayout
@@ -161,9 +202,18 @@
                 android:layout_weight="1">
 
                 <ImageView
+                    android:id="@+id/preset_ring_1"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/swatch_ring"
+                    android:visibility="invisible" />
+
+                <ImageView
                     android:id="@+id/preset_dot_1"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:layout_gravity="center"
                     android:contentDescription="Preset 1"
                     android:src="@drawable/swatch" />
@@ -175,9 +225,18 @@
                 android:layout_weight="1">
 
                 <ImageView
+                    android:id="@+id/preset_ring_2"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/swatch_ring"
+                    android:visibility="invisible" />
+
+                <ImageView
                     android:id="@+id/preset_dot_2"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:layout_gravity="center"
                     android:contentDescription="Preset 2"
                     android:src="@drawable/swatch" />
@@ -189,9 +248,18 @@
                 android:layout_weight="1">
 
                 <ImageView
+                    android:id="@+id/preset_ring_3"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/swatch_ring"
+                    android:visibility="invisible" />
+
+                <ImageView
                     android:id="@+id/preset_dot_3"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:layout_gravity="center"
                     android:contentDescription="Preset 3"
                     android:src="@drawable/swatch" />
@@ -203,9 +271,18 @@
                 android:layout_weight="1">
 
                 <ImageView
+                    android:id="@+id/preset_ring_4"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/swatch_ring"
+                    android:visibility="invisible" />
+
+                <ImageView
                     android:id="@+id/preset_dot_4"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:layout_gravity="center"
                     android:contentDescription="Preset 4"
                     android:src="@drawable/swatch" />
@@ -217,9 +294,18 @@
                 android:layout_weight="1">
 
                 <ImageView
+                    android:id="@+id/preset_ring_5"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/swatch_ring"
+                    android:visibility="invisible" />
+
+                <ImageView
                     android:id="@+id/preset_dot_5"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:layout_gravity="center"
                     android:contentDescription="Preset 5"
                     android:src="@drawable/swatch" />
@@ -231,9 +317,18 @@
                 android:layout_weight="1">
 
                 <ImageView
+                    android:id="@+id/preset_ring_6"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/swatch_ring"
+                    android:visibility="invisible" />
+
+                <ImageView
                     android:id="@+id/preset_dot_6"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:layout_gravity="center"
                     android:contentDescription="Preset 6"
                     android:src="@drawable/swatch" />
@@ -245,9 +340,18 @@
                 android:layout_weight="1">
 
                 <ImageView
+                    android:id="@+id/preset_ring_7"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/swatch_ring"
+                    android:visibility="invisible" />
+
+                <ImageView
                     android:id="@+id/preset_dot_7"
-                    android:layout_width="30dp"
-                    android:layout_height="30dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:layout_gravity="center"
                     android:contentDescription="Preset 7"
                     android:src="@drawable/swatch" />
@@ -259,17 +363,17 @@
         android:id="@+id/divider"
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:layout_marginVertical="8dp"
+        android:layout_marginVertical="14dp"
         android:importantForAccessibility="no"
-        android:src="@drawable/divider"
-        android:scaleType="fitXY" />
+        android:scaleType="fitXY"
+        android:src="@drawable/divider_horizontal" />
 
     <!-- Heater -->
     <LinearLayout
         android:id="@+id/heater_section"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_weight="0.9"
         android:orientation="vertical">
 
         <LinearLayout
@@ -286,15 +390,28 @@
                 android:orientation="vertical">
 
                 <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/tag"
+                    android:fontFamily="sans-serif-medium"
+                    android:letterSpacing="0.2"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="1dp"
+                    android:text="HEATER"
+                    android:textColor="@color/bone"
+                    android:textSize="10sp" />
+
+                <TextView
                     android:id="@+id/heater_name"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
                     android:ellipsize="end"
+                    android:fontFamily="sans-serif-medium"
                     android:singleLine="true"
                     android:text="Heater"
-                    android:textColor="@color/widget_text"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
+                    android:textColor="@color/bone"
+                    android:textSize="20sp" />
 
                 <TextView
                     android:id="@+id/heater_status"
@@ -302,24 +419,25 @@
                     android:layout_height="wrap_content"
                     android:singleLine="true"
                     android:text="--"
-                    android:textColor="@color/widget_text_dim"
-                    android:textSize="12sp" />
+                    android:textColor="@color/dust"
+                    android:textSize="13sp" />
             </LinearLayout>
 
             <ImageView
                 android:id="@+id/heater_power"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="60dp"
+                android:layout_height="60dp"
                 android:background="@drawable/circle_off"
                 android:contentDescription="Heater on/off"
-                android:padding="9dp"
+                android:padding="15dp"
                 android:src="@drawable/ic_power" />
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="40dp"
-            android:layout_marginTop="10dp"
+            android:layout_height="0dp"
+            android:layout_marginTop="14dp"
+            android:layout_weight="1"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -328,35 +446,58 @@
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:background="@drawable/pill"
+                android:background="@drawable/button_outline"
                 android:contentDescription="Lower temperature"
                 android:gravity="center"
                 android:text="−"
-                android:textColor="@color/widget_text"
-                android:textSize="22sp" />
+                android:textColor="@color/bone"
+                android:textSize="34sp" />
 
-            <TextView
-                android:id="@+id/temp_target"
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1.2"
+                android:layout_weight="1.3"
                 android:gravity="center"
-                android:text="--°C"
-                android:textColor="@color/heater_accent"
-                android:textSize="22sp"
-                android:textStyle="bold" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:letterSpacing="0.15"
+                    android:text="TARGET"
+                    android:textColor="@color/dust"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/temp_target"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="--°"
+                    android:textColor="@color/crimson"
+                    android:textSize="46sp" />
+
+                <TextView
+                    android:id="@+id/temp_room"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Room --"
+                    android:textColor="@color/dust"
+                    android:textSize="13sp" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/temp_up"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:background="@drawable/pill"
+                android:background="@drawable/button_outline"
                 android:contentDescription="Raise temperature"
                 android:gravity="center"
                 android:text="+"
-                android:textColor="@color/widget_text"
-                android:textSize="22sp" />
+                android:textColor="@color/bone"
+                android:textSize="34sp" />
         </LinearLayout>
     </LinearLayout>
 
@@ -364,7 +505,7 @@
         android:id="@+id/footer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="12dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -376,15 +517,15 @@
             android:ellipsize="end"
             android:maxLines="2"
             android:text="Tap to refresh"
-            android:textColor="@color/widget_text_dim"
+            android:textColor="@color/dust"
             android:textSize="11sp" />
 
         <ImageView
             android:id="@+id/settings"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
             android:contentDescription="Settings"
-            android:padding="2dp"
+            android:padding="3dp"
             android:src="@drawable/ic_settings" />
     </LinearLayout>
 </LinearLayout>

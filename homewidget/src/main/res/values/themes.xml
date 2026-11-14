@@ -1,5 +1,10 @@
 <resources>
     <style name="AppTheme" parent="android:Theme.Material">
-        <item name="android:colorAccent">@color/light_accent</item>
+        <item name="android:colorAccent">@color/crimson</item>
+        <item name="android:colorPrimary">@color/blood</item>
+        <item name="android:colorPrimaryDark">@color/void_black</item>
+        <item name="android:windowBackground">@color/void_black</item>
+        <item name="android:textColorPrimary">@color/bone</item>
+        <item name="android:textColorSecondary">@color/dust</item>
     </style>
 </resources>

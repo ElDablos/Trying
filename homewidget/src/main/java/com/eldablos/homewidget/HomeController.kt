@@ -174,8 +174,12 @@ object HomeController {
         try {
             PhilipsClient(config.heaterIp).use { client ->
                 client.control(values(before))
+                // The command went through, so show it even if the status read-back is slow.
+                val confirmed = after.copy(known = true)
+                HomeStore.saveHeater(context, confirmed)
+                HomeWidgetProvider.renderAll(context)
                 Thread.sleep(400) // give the heater a moment to report its new state
-                HomeStore.saveHeater(context, runCatching { readHeater(client, after) }.getOrDefault(after))
+                HomeStore.saveHeater(context, runCatching { readHeater(client, confirmed) }.getOrDefault(confirmed))
             }
         } catch (e: Exception) {
             HomeStore.saveHeater(context, before.copy(error = friendlyError("heater", e)))

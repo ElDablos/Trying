@@ -130,7 +130,10 @@ internal class CoapClient(private val host: String, private val port: Int = 5683
     }
 
     /** Sends a NON request and returns the (reassembled) response payload. */
-    fun request(code: Int, path: String, payload: ByteArray = ByteArray(0), observe: Boolean = false): ByteArray {
+    fun request(
+        code: Int, path: String, payload: ByteArray = ByteArray(0), observe: Boolean = false,
+        waitsMs: List<Long> = listOf(timeoutMs.toLong(), timeoutMs.toLong()),
+    ): ByteArray {
         val address = InetAddress.getByName(host)
         val socket = socket()
         run {
@@ -144,7 +147,7 @@ internal class CoapClient(private val host: String, private val port: Int = 5683
                 if (blockNumber > 0) {
                     options += CoapMessage.OPTION_BLOCK2 to CoapMessage.uint((blockNumber shl 4) or blockSizeExp)
                 }
-                val response = exchange(socket, address, code, options, if (blockNumber == 0) payload else ByteArray(0))
+                val response = exchange(socket, address, code, options, if (blockNumber == 0) payload else ByteArray(0), waitsMs)
                 if (response.codeClass != 2) throw IOException("Heater replied ${response.codeText}")
                 out.write(response.payload)
                 val block = response.option(CoapMessage.OPTION_BLOCK2) ?: break
@@ -157,15 +160,26 @@ internal class CoapClient(private val host: String, private val port: Int = 5683
         }
     }
 
+    /**
+     * Sends the request, re-sending it (with a fresh ID and token) after each wait in [waitsMs]
+     * until something answers. Anything else the device sends meanwhile is noted for the error.
+     */
     private fun exchange(
         socket: DatagramSocket, address: InetAddress, code: Int, options: List<Pair<Int, ByteArray>>, payload: ByteArray,
+        waitsMs: List<Long>,
     ): CoapMessage {
-        val token = Bytes.random(4)
-        val request = CoapMessage(CoapMessage.NON, code, Random.nextInt(0x10000), token, options, payload).encode()
-        repeat(ATTEMPTS) {
+        val tokens = mutableListOf<ByteArray>()
+        val sentIds = mutableSetOf<Int>()
+        val notes = linkedSetOf<String>()
+        val buffer = ByteArray(65_535)
+        for (wait in waitsMs) {
+            val token = Bytes.random(4)
+            val messageId = Random.nextInt(0x10000)
+            tokens += token
+            sentIds += messageId
+            val request = CoapMessage(CoapMessage.NON, code, messageId, token, options, payload).encode()
             socket.send(DatagramPacket(request, request.size, address, port))
-            val deadline = System.currentTimeMillis() + timeoutMs
-            val buffer = ByteArray(8192)
+            val deadline = System.currentTimeMillis() + wait
             while (true) {
                 val remaining = deadline - System.currentTimeMillis()
                 if (remaining <= 0) break
@@ -179,20 +193,31 @@ internal class CoapClient(private val host: String, private val port: Int = 5683
                 val message = try {
                     CoapMessage.decode(packet.data, packet.length)
                 } catch (_: IOException) {
+                    notes += "unreadable packet"
                     continue
                 }
                 if (message.type == CoapMessage.CON) {
                     val ack = CoapMessage(CoapMessage.ACK, 0, message.messageId, ByteArray(0)).encode()
                     socket.send(DatagramPacket(ack, ack.size, packet.address, packet.port))
                 }
-                if (message.code == 0 || !message.token.contentEquals(token)) continue
-                return message
+                when {
+                    message.type == CoapMessage.RST ->
+                        notes += if (message.messageId in sentIds) "request rejected (RST)" else "RST"
+                    message.code == 0 -> notes += "empty ${typeName(message.type)}"
+                    tokens.none { it.contentEquals(message.token) } -> notes += "${message.codeText} for another request"
+                    else -> return message
+                }
             }
         }
-        throw SocketTimeoutException("Heater didn't answer")
+        val extra = if (notes.isEmpty()) "nothing came back" else "got: " + notes.joinToString(", ")
+        throw SocketTimeoutException("Heater didn't answer in ${waitsMs.sum() / 1000}s; $extra")
     }
 
-    companion object {
-        private const val ATTEMPTS = 2
+    private fun typeName(type: Int) = when (type) {
+        CoapMessage.CON -> "CON"
+        CoapMessage.NON -> "NON"
+        CoapMessage.ACK -> "ACK"
+        else -> "RST"
     }
+
 }

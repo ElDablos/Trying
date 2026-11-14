@@ -177,9 +177,9 @@ class MainActivity : Activity() {
             return
         }
         save()
-        background(heaterResult, "Connecting to the heater…") {
+        background(heaterResult, "Connecting to the heater… (it can take up to 25 seconds)") {
             try {
-                val status = PhilipsClient(cfg.heaterIp).use { it.status() }
+                val status = PhilipsClient(cfg.heaterIp).use { it.status(patient = true) }
                 HomeController.submit(this) { HomeController.refreshHeater(it) }
                 val summary = if (status.has(PhilipsClient.KEY_POWER)) {
                     "✓ Connected to ${status.optString(PhilipsClient.KEY_NAME)} (${status.optString(PhilipsClient.KEY_MODEL)})\n" +

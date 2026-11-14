@@ -70,13 +70,27 @@ class PhilipsClient(private val host: String, port: Int = PORT, timeoutMs: Int =
         key = text.uppercase()
     }
 
-    /** The device's full reported state, e.g. {"D03102":1,"D0310E":22,"D03224":160,...}. */
-    fun status(): JSONObject {
+    /**
+     * The device's full reported state, e.g. {"D03102":1,"D0310E":22,"D03224":160,...}.
+     * Philips devices can be slow to answer this (Home Assistant allows 30 s), so [patient]
+     * waits up to 25 s; the widget uses a shorter wait so taps stay snappy.
+     */
+    fun status(patient: Boolean = false): JSONObject {
         if (key == null) sync()
+        val waits = if (patient) listOf(6_000L, 8_000L) else listOf(4_000L, 5_000L)
         val reply = try {
-            coap.request(CoapMessage.GET, STATUS_PATH, observe = true)
-        } catch (e: IOException) {
-            throw IOException("Handshake OK, but the heater didn't send its status (${e.message})", e)
+            coap.request(CoapMessage.GET, STATUS_PATH, observe = true, waitsMs = waits)
+        } catch (observed: IOException) {
+            if (!patient) throw IOException("Handshake OK, but the heater didn't send its status (${observed.message})", observed)
+            // Last try: a plain read, without asking to be kept updated.
+            try {
+                coap.request(CoapMessage.GET, STATUS_PATH, observe = false, waitsMs = listOf(11_000L))
+            } catch (plain: IOException) {
+                throw IOException(
+                    "Handshake OK, but the heater didn't send its status. Observe: ${observed.message}. Plain: ${plain.message}",
+                    plain,
+                )
+            }
         }
         val text = String(reply, Charsets.US_ASCII)
         val json = try {

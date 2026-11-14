@@ -101,6 +101,9 @@ class AssistantTest {
         assertEquals("gemini-3.8-flash-preview", Gemini.order(ranked, "smart").first())
         assertEquals("gemini-3.8-flash-lite", Gemini.order(ranked, "lite").first())
         assertEquals(Gemini.order(ranked, "fast").distinct(), Gemini.order(ranked, "fast"))
+        // Everyday requests: Flash-Lite first, then the stable alias.
+        assertEquals(listOf("gemini-3.8-flash-lite", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.8-flash-preview"), Gemini.order(ranked, "fast", simple = true))
+        assertEquals("gemini-3.8-flash-preview", Gemini.order(ranked, "smart", simple = true).first())
     }
 
     @Test

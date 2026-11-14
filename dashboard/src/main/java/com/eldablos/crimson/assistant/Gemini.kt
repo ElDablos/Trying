@@ -36,8 +36,16 @@ object Gemini {
     var lastModel: String? = null
         private set
 
-    /** Models resting (overloaded, out of requests, or gone): name to when they may be tried again. */
+    /** Models resting (overloaded, out of requests, or gone): name to when they may be tried again. Kept across restarts. */
     private val cool = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun restingUntil(context: Context, model: String): Long = cool[model] ?: prefs(context).getLong("cool:$model", 0L).also { if (it > 0) cool[model] = it }
+
+    private fun rest(context: Context, model: String, millis: Long) {
+        val until = System.currentTimeMillis() + millis
+        cool[model] = until
+        prefs(context).edit().putLong("cool:$model", until).apply()
+    }
     /** Models that refused the thinking setting: sent without it from then on. */
     private val noThinking = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
@@ -56,20 +64,24 @@ object Gemini {
         return best(false) + best(true)
     }
 
-    /** The order to try models in for [mode], from the ranked list. Pure, for tests. */
-    fun order(ranked: List<String>, mode: String): List<String> {
+    /**
+     * The order to try models in for [mode], from the ranked list. A [simple] request in Fast mode (no files,
+     * nothing to explain or write) goes to Flash-Lite first: quick, rarely overloaded, and good at actions.
+     * Pure, for tests.
+     */
+    fun order(ranked: List<String>, mode: String, simple: Boolean = false): List<String> {
         val full = ranked.filter { !it.contains("lite") }
         val lite = ranked.filter { it.contains("lite") }
-        return when (mode) {
-            "smart" -> full + ALIAS + lite
-            "lite" -> lite + ALIAS + full
+        return when {
+            mode == "smart" -> full + ALIAS + lite
+            mode == "lite" || simple -> lite + ALIAS + full.sortedBy { if (it.contains("preview")) 1 else 0 }
             // Stable before preview: previews are the ones that get overloaded.
             else -> listOf(ALIAS) + full.sortedBy { if (it.contains("preview")) 1 else 0 } + lite
         }.distinct()
     }
 
     /** The models to try, in order: asked of Google once a day, remembered in between; resting ones last. */
-    fun candidates(context: Context): List<String> {
+    fun candidates(context: Context, simple: Boolean = false): List<String> {
         val p = prefs(context)
         val saved = p.getString("models", null)?.split(',')?.filter { it.isNotBlank() }.orEmpty()
         val list = if (saved.isNotEmpty() && System.currentTimeMillis() - p.getLong("models_at", 0) < 24 * 3_600_000L) saved else {
@@ -78,7 +90,7 @@ object Gemini {
             found.ifEmpty { saved.ifEmpty { FALLBACK } }
         }
         val now = System.currentTimeMillis()
-        return order(list, mode(context)).sortedBy { if ((cool[it] ?: 0) > now) 1 else 0 }
+        return order(list, mode(context), simple).sortedBy { if (restingUntil(context, it) > now) 1 else 0 }
     }
 
     private fun discover(key: String): List<String> = try {
@@ -136,18 +148,27 @@ object Gemini {
      * take it, streaming: [onText] gets the reply's words so far as they arrive. An overloaded model gets one quick
      * second try, then rests for ten minutes while the next one answers. Blocking: call off the main thread.
      */
-    fun generate(context: Context, body: JSONObject, deep: Boolean = false, cancel: java.util.concurrent.atomic.AtomicBoolean? = null, onText: ((String) -> Unit)? = null): Result {
+    fun generate(context: Context, body: JSONObject, deep: Boolean = false, cancel: java.util.concurrent.atomic.AtomicBoolean? = null,
+                 onSwitch: ((String, String) -> Unit)? = null, onText: ((String) -> Unit)? = null): Result {
         val key = key(context) ?: return Result(null, "No Gemini key yet.")
         val mode = mode(context)
         var last = Result(null, "Gemini didn't answer.")
-        for (model in candidates(context).take(4)) {
+        val started = System.currentTimeMillis()
+        // A model that's said nothing by then is skipped (it's swamped): short for everyday requests.
+        val wait = if (deep || mode == "smart") 40_000 else 15_000
+        val models = candidates(context, simple = !deep).take(4)
+        for ((n, model) in models.withIndex()) {
+            // The whole reply has a budget: past it, say so rather than keep trying.
+            if (System.currentTimeMillis() - started > 50_000) break
+            if (n > 0) onSwitch?.invoke(pretty(models[n - 1]), pretty(model))
             var tries = 0
             while (true) {
                 if (cancel?.get() == true) return Result(null, "Stopped.")
                 val b = JSONObject(body.toString())
                 val config = b.optJSONObject("generationConfig") ?: JSONObject().also { b.put("generationConfig", it) }
                 thinking(model, mode, deep)?.let { config.put("thinkingConfig", it) }
-                val r = stream(key, model, b, cancel, onText)
+                val t0 = System.currentTimeMillis()
+                val r = stream(key, model, b, cancel, onText, wait)
                 if (r.json != null) {
                     lastModel = pretty(model)
                     return r
@@ -159,18 +180,18 @@ object Gemini {
                     noThinking += model
                     continue
                 }
-                // Overloaded: one more go in a moment, then let it rest.
-                if ((r.code == 503 || r.code == 500) && tries++ == 0) {
-                    Thread.sleep(1200)
+                // Overloaded and said so straight away: one more go in a moment. (A silent one isn't tried again.)
+                if ((r.code == 503 || r.code == 500) && tries++ == 0 && System.currentTimeMillis() - t0 < 5_000) {
+                    Thread.sleep(800)
                     continue
                 }
                 break
             }
             val r = last
             when {
-                r.quota -> cool[model] = System.currentTimeMillis() + (if (r.error.orEmpty().contains("day", true)) 6 * 3_600_000L else 90_000L)
-                r.code == 404 -> cool[model] = System.currentTimeMillis() + 24 * 3_600_000L
-                r.code == 503 || r.code == 500 -> cool[model] = System.currentTimeMillis() + 10 * 60_000L
+                r.quota -> rest(context, model, 60 * 60_000L)          // out of free requests: an hour off
+                r.code == 404 -> rest(context, model, 24 * 3_600_000L)
+                r.code == 503 || r.code == 500 || r.code == 408 -> rest(context, model, 10 * 60_000L)
                 else -> return r
             }
         }
@@ -190,12 +211,12 @@ object Gemini {
      * One streamed request. The pieces are joined back into a single reply: text runs merged (keeping any
      * signature the model attached), tool calls kept exactly as sent, the model's private thoughts left out.
      */
-    private fun stream(key: String, model: String, body: JSONObject, cancel: java.util.concurrent.atomic.AtomicBoolean?, onText: ((String) -> Unit)?): Result = try {
+    private fun stream(key: String, model: String, body: JSONObject, cancel: java.util.concurrent.atomic.AtomicBoolean?, onText: ((String) -> Unit)?, wait: Int = 40_000): Result = try {
         val conn = URL("$BASE/models/$model:streamGenerateContent?alt=sse").openConnection() as HttpURLConnection
         current = conn
         conn.requestMethod = "POST"
-        conn.connectTimeout = 12_000
-        conn.readTimeout = 60_000
+        conn.connectTimeout = 8_000
+        conn.readTimeout = wait
         conn.doOutput = true
         conn.setRequestProperty("Content-Type", "application/json")
         conn.setRequestProperty("x-goog-api-key", key)
@@ -254,7 +275,7 @@ object Gemini {
         }
     } catch (e: java.io.IOException) {
         if (cancel?.get() == true) Result(null, "Stopped.")
-        else if (e is java.net.SocketTimeoutException) { SysLog.warn("Gemini", "$model: timed out"); Result(null, "503 $model took too long to answer.", code = 503) }
+        else if (e is java.net.SocketTimeoutException) { SysLog.warn("Gemini", "$model: timed out"); Result(null, "$model took too long to answer.", code = 408) }
         else Result(null, "Couldn't reach Gemini (${e.javaClass.simpleName}).", offline = true)
     } catch (e: Exception) {
         SysLog.warn("Gemini", "$model: ${e.javaClass.simpleName} ${e.message.orEmpty().take(120)}")

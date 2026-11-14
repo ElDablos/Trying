@@ -78,6 +78,10 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.3.2 (code 90) — replies no longer stall on swamped models
+- Seen on 14 Nov: 3.8/3.7 Flash timing out (60 s read timeout, and a timeout counted as 503 so it was retried: up to 2 min per model) and free daily quota exhausted (429 cooled only 90 s, in memory).
+- Now: everyday (non-deep) requests in Fast mode go Flash-Lite → flash-latest → full Flash (`Gemini.order(simple = true)`); read timeout 15 s (40 s deep/Smart), timeout = code 408, never retried; a quick 503 gets one retry after 0.8 s; rests persisted in prefs ("cool:<model>"): 429 → 1 h, 503/500/408 → 10 min, 404 → 24 h; 50 s budget for the whole reply. The chat shows "<model> busy · trying <next>" as a step.
+
 ### 2.3.1 (code 89) — Crimson Weather is back
 - The launcher's Crimson Weather (WeatherView + WeatherArt, removed in 2.0) restored as `weather/WeatherActivity` (wallpaper theme, Hud.u = width/412, Back steps out of hour/day pages, its Samsung button opens the phone's weather app via OpenAppActivity). The clock widget's and glance widget's weather now open it instead of the Samsung app. `EXTRA_DAY` opens on a day's page.
 

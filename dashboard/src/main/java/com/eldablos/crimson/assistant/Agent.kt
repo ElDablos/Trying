@@ -278,7 +278,9 @@ How to work:
         for (step in 0 until 10) {
             if (cancel.get()) break
             val body = JSONObject().put("systemInstruction", system).put("contents", contents).put("tools", toolSpec)
-            val r = Gemini.generate(activity, body, deep, cancel) { listener.partial(it) }
+            val r = Gemini.generate(activity, body, deep, cancel, onSwitch = { from, to ->
+                listener.stepDone(listener.step("$from busy · trying $to"), true, "")
+            }) { listener.partial(it) }
             val json = r.json
             if (json == null) {
                 if (cancel.get()) break
@@ -297,6 +299,7 @@ How to work:
                     r.offline -> "I can't reach Gemini: no connection."
                     r.quota -> "Gemini's free requests have run out for now. They come back later today."
                     r.code == 503 || r.code == 500 -> "Gemini's busy right now (Google's servers are overloaded). Try again in a minute."
+                    r.code == 408 -> "Gemini didn't answer in time: Google's servers are swamped just now. Try again in a minute."
                     r.code == 403 || r.code == 401 || r.error.orEmpty().contains("API key", true) -> "Gemini didn't accept the key. Check it in settings."
                     r.code == 400 -> "Gemini turned that request down (${r.error.orEmpty().take(160)})."
                     else -> "Gemini didn't answer (${r.error.orEmpty().take(120)})."

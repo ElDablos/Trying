@@ -140,7 +140,7 @@ class Agent(private val activity: android.content.Context, private val tools: To
     /** Stops the answer being worked on (what's already been done stays done). */
     fun stop() {
         cancel.set(true)
-        Gemini.abort()
+        Brains.abort()
     }
 
     private val labels = mapOf(
@@ -254,7 +254,7 @@ How to work:
         val turn = JSONObject().put("role", "user").put("parts", parts)
         val deep = attached.isNotEmpty() || Regex("\\b(check|compare|explain|why|plan|write|letter|essay|document|summar)", RegexOption.IGNORE_CASE).containsMatchIn(text)
 
-        val reply = if (Gemini.key(activity) != null) gemini(turn, text, deep) else null
+        val reply = if (Brains.available(activity)) gemini(turn, text, deep) else null
         if (cancel.get()) return Reply("Stopped.", "", failed = true, tools = used.toList())
         // Once it has done something, a failure isn't retried on the phone's model (that would do it twice).
         if (reply != null && (!reply.failed || acted)) return reply
@@ -274,11 +274,11 @@ How to work:
         val single = !Regex("\\b(and|then|also|plus)\\b|,|;", RegexOption.IGNORE_CASE).containsMatchIn(said)
         var flattened = false
         var emptyTries = 0
-        fun via() = (Gemini.lastModel ?: "Gemini") + " · " + "%.1fs".format(Locale.ROOT, (System.currentTimeMillis() - started) / 1000.0)
+        fun via() = (Brains.lastModel ?: "AI") + " · " + "%.1fs".format(Locale.ROOT, (System.currentTimeMillis() - started) / 1000.0)
         for (step in 0 until 10) {
             if (cancel.get()) break
             val body = JSONObject().put("systemInstruction", system).put("contents", contents).put("tools", toolSpec)
-            val r = Gemini.generate(activity, body, deep, cancel, onSwitch = { from, to ->
+            val r = Brains.generate(activity, body, said, deep, cancel, onSwitch = { from, to ->
                 listener.stepDone(listener.step("$from busy · trying $to"), true, "")
             }) { listener.partial(it) }
             val json = r.json
@@ -295,14 +295,15 @@ How to work:
                     remember(contents)
                 }
                 return Reply(when {
-                    acted -> "That's done (see above), but I lost Gemini before I could say more: " + (if (r.offline) "no connection." else if (r.quota) "the free requests ran out for now." else "it stopped answering.")
-                    r.offline -> "I can't reach Gemini: no connection."
-                    r.quota -> "Gemini's free requests have run out for now. They come back later today."
-                    r.code == 503 || r.code == 500 -> "Gemini's busy right now (Google's servers are overloaded). Try again in a minute."
-                    r.code == 408 -> "Gemini didn't answer in time: Google's servers are swamped just now. Try again in a minute."
-                    r.code == 403 || r.code == 401 || r.error.orEmpty().contains("API key", true) -> "Gemini didn't accept the key. Check it in settings."
-                    r.code == 400 -> "Gemini turned that request down (${r.error.orEmpty().take(160)})."
-                    else -> "Gemini didn't answer (${r.error.orEmpty().take(120)})."
+                    acted -> "That's done (see above), but I lost the AI before I could say more: " + (if (r.offline) "no connection." else if (r.quota) "the free requests ran out for now." else "it stopped answering.")
+                    r.offline -> "I can't reach the AI: no connection."
+                    r.quota -> "The free requests have run out for now (on every key I have). They come back later today." + if (Groq.key(activity) == null || Gemini.key(activity) == null) " Adding the other free key in settings doubles them." else ""
+                    r.code == 503 || r.code == 500 || r.code == 502 -> "The AI's busy right now (its servers are overloaded). Try again in a minute."
+                    r.code == 408 -> "The AI didn't answer in time: its servers are swamped just now. Try again in a minute."
+                    r.code == 403 || r.code == 401 || r.error.orEmpty().contains("API key", true) -> "A key wasn't accepted. Check it in settings."
+                    r.code == 413 -> "That was too big to send in one go. Try a shorter message or a smaller file."
+                    r.code == 400 -> "The AI turned that request down (${r.error.orEmpty().take(160)})."
+                    else -> "The AI didn't answer (${r.error.orEmpty().take(120)})."
                 }, "", failed = true, tools = used.toList())
             }
             val parts = Gemini.parts(json)

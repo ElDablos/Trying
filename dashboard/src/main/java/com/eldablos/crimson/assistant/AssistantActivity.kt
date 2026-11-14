@@ -392,9 +392,9 @@ class AssistantActivity : Activity(), AgentRunner.Ui {
         val mode = if (Gemini.mode(this) == "smart") "Smart" else if (Gemini.mode(this) == "lite") "Lite" else "Fast"
         val (text, color) = when {
             busy -> "● WORKING ON IT…" to Ui.WARN
-            Gemini.key(this) != null -> "● ONLINE // ${(Gemini.lastModel?.let { Gemini.pretty(it) } ?: "Gemini").uppercase(Locale.UK)} · ${mode.uppercase(Locale.UK)} ⇄" to Ui.GOOD
+            Brains.available(this) -> "● ONLINE // ${(Brains.lastModel ?: Brains.name(Brains.first(this))).uppercase(Locale.UK)} · ${mode.uppercase(Locale.UK)} ⇄" to Ui.GOOD
             LocalBrain.installed(this) -> "● ON-PHONE ONLY // ADD A KEY IN ⚙" to Ui.WARN
-            else -> "● NEEDS A FREE GEMINI KEY // TAP ⚙" to Ui.WARN
+            else -> "● NEEDS A FREE KEY (GROQ OR GEMINI) // TAP ⚙" to Ui.WARN
         }
         status.text = text
         status.setTextColor(color)
@@ -445,9 +445,13 @@ class AssistantActivity : Activity(), AgentRunner.Ui {
         }.orEmpty()
         v.addView(Ui.text(this, now.format(DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault())) + weather, 14f, Ui.MUTED), Ui.lp(top = dp(6)))
 
-        if (Gemini.key(this) == null) {
-            v.addView(cardView(Card("One-time setup", null, listOf(Card.Row("1. Get a free key from Google AI Studio"), Card.Row("2. Paste it into settings")),
-                listOf(Act("Open settings", "intent", "settings"), Act("Get a key", "url", "https://aistudio.google.com/apikey")))), Ui.lp(top = dp(16)))
+        if (!Brains.available(this)) {
+            v.addView(cardView(Card("One-time setup", null, listOf(Card.Row("1. Get a free Groq key (no card) at console.groq.com"), Card.Row("2. Paste it into settings")),
+                listOf(Act("Open settings", "intent", "settings"), Act("Get a key", "url", "https://console.groq.com/keys")))), Ui.lp(top = dp(16)))
+        } else if (Groq.key(this) == null || Gemini.key(this) == null) {
+            v.addView(Ui.text(this, "Tip: add a free ${if (Groq.key(this) == null) "Groq" else "Gemini"} key in ⚙ too: when one runs out of free requests, the other takes over.", 12.5f, Ui.MUTED).apply {
+                setPadding(dp(4), 0, 0, 0); setOnClickListener { startActivity(Intent(context, SettingsActivity::class.java)) }
+            }, Ui.lp(top = dp(10)))
         }
 
         // Today at a glance: the next shift (and whether its alarms are on), the next payslip, reminders.
@@ -942,7 +946,7 @@ class AssistantActivity : Activity(), AgentRunner.Ui {
         show(item)
         updateSend()
         refreshStatus()
-        if (reply.failed && Gemini.key(this) == null) suggest(OPEN_SETTINGS) else suggest(*lastSuggestions())
+        if (reply.failed && !Brains.available(this)) suggest(OPEN_SETTINGS) else suggest(*lastSuggestions())
     }
 
     // --- What Jarvis does while he works (from his own thread: everything's posted to the screen) ---

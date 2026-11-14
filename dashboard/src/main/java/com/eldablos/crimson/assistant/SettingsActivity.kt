@@ -134,6 +134,43 @@ class SettingsActivity : Activity() {
         head.addView(Ui.text(this, "Settings", 24f, Ui.TEXT, Hud.MEDIUM))
         page.addView(head)
 
+        // Groq: free, fast, no card.
+        val gk = Groq.key(this)
+        section("Groq (free, fast)", if (gk == null) "Free from console.groq.com, no card needed. Paste your key here: it stays on this phone and is only ever sent to Groq."
+            else "Key saved (…${gk.takeLast(4)}). ${Groq.lastModel?.let { "Last answer from $it." } ?: "Jarvis picks the best free model by himself."}").apply {
+            val f = field("Paste your key (starts with gsk_)")
+            addView(f, Ui.lp(top = dp(10)))
+            buttons(Ui.button(context, "Save and test", primary = true) {
+                val k = f.text.toString().trim()
+                if (k.length < 20) { toast("That doesn't look like a key yet"); return@button }
+                toast("Checking with Groq…")
+                Thread {
+                    val problem = Groq.check(k)
+                    main.post {
+                        if (problem == null) { Groq.setKey(this@SettingsActivity, k); Brains.setFirst(this@SettingsActivity, "groq"); toast("Groq key works. Jarvis uses Groq first now."); render() } else toast(problem)
+                    }
+                }.start()
+            }, Ui.button(context, "Get a free key") { open(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.groq.com/keys"))) })
+            if (gk != null) {
+                line("Models available", "tap to see") {
+                    Thread {
+                        val list = Groq.rank(Groq.available(this@SettingsActivity))
+                        main.post {
+                            android.app.AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("Groq models, in the order Jarvis tries them")
+                                .setMessage(list.mapIndexed { i, m -> "${i + 1}. ${Groq.pretty(m)}" + (if (Groq.sees(m)) "  (sees pictures)" else "") }.joinToString("\n").ifBlank { "Couldn't list them just now." })
+                                .setPositiveButton("OK", null).show()
+                        }
+                    }.start()
+                }
+                line("Remove the Groq key", "", Ui.BAD) { Groq.setKey(context, null); render() }
+            }
+        }
+
+        // Which goes first, when both keys are there.
+        if (Groq.key(this) != null && Gemini.key(this) != null) section("Which brain first", "The other takes over when the first one's free requests run out or it's busy, so you get both allowances.").apply {
+            line("Ask first", Brains.name(Brains.first(context))) { Brains.setFirst(context, if (Brains.first(context) == "groq") "gemini" else "groq"); render() }
+        }
+
         // Gemini.
         val key = Gemini.key(this)
         section("Gemini (online brain)", if (key == null) "Free from Google AI Studio. Paste your key here: it stays on this phone and is only ever sent to Google."

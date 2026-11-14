@@ -621,11 +621,18 @@ class Tools(private val activity: android.content.Context, private val host: Hos
             if (picked.file.length() > 7_000_000) return@Tool fail("That file's too big to read (over 7 MB).")
             val text = DocText.text(picked)
             if (text != null) return@Tool Out(ok("name" to picked.name, "text" to text.take(24_000), "cut_short" to (text.length > 24_000)), said = "Read ${picked.name}.")
-            if (Gemini.key(activity) == null) return@Tool fail("Reading PDFs and pictures needs Gemini (a key and a connection).")
+            // A PDF's own words when the phone can pull them out: no AI needed.
+            if (picked.isPdf) DocText.pdfText(picked)?.let { t -> return@Tool Out(ok("name" to picked.name, "text" to t.take(24_000), "cut_short" to (t.length > 24_000)), said = "Read ${picked.name}.") }
             val mime = if (picked.isPdf) "application/pdf" else picked.mime.takeIf { it.contains('/') && !it.endsWith("*") } ?: "image/jpeg"
             val ask = a.s("question") ?: "Write out everything in this file as plain text: every heading, figure, date, name and table row, in order. Don't summarise."
-            val answer = Gemini.ask(activity, "You read files for an assistant. Be exact with every number, date and name. Plain text, no commentary.",
-                JSONArray().put(Gemini.inline(picked.file.readBytes(), mime)).put(JSONObject().put("text", ask))) ?: return@Tool fail("I couldn't read that file just now.")
+            val sys = "You read files for an assistant. Be exact with every number, date and name. Plain text, no commentary."
+            val answer = (if (Gemini.key(activity) != null) Gemini.ask(activity, sys, JSONArray().put(Gemini.inline(picked.file.readBytes(), mime)).put(JSONObject().put("text", ask))) else null)
+                // Groq: pictures to a model that can see (a PDF as its first page, as a picture).
+                ?: run {
+                    val img = if (picked.isPdf) DocText.pdfPages(activity, picked, 1).firstOrNull()?.readBytes() else picked.file.readBytes()
+                    img?.let { Groq.ask(activity, sys, ask, android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP), if (picked.isPdf) "image/jpeg" else mime) }
+                }
+                ?: return@Tool fail("I couldn't read that file just now.")
             Out(ok("name" to picked.name, "text" to answer.take(24_000)), said = "Read ${picked.name}.")
         },
 
@@ -739,8 +746,11 @@ class Tools(private val activity: android.content.Context, private val host: Hos
 
         Tool("web_search", "Looks something up on Google for current or factual information (news, prices, opening times, how-tos, anything after your training). Returns an answer with what it found.",
             obj("query" to str("What to find out, as a full question"), required = listOf("query"))) { a ->
-            val answer = Gemini.ask(activity, "Answer from what you find on Google. Be accurate and specific: give dates, figures and names, and say where they're from. Plain text, short.",
-                JSONArray().put(JSONObject().put("text", a.optString("query"))), search = true) ?: return@Tool fail("The search didn't work just now.")
+            val q = a.optString("query")
+            val answer = (if (Gemini.key(activity) != null) Gemini.ask(activity, "Answer from what you find on Google. Be accurate and specific: give dates, figures and names, and say where they're from. Plain text, short.",
+                JSONArray().put(JSONObject().put("text", q)), search = true) else null)
+                ?: Groq.search(activity, q)
+                ?: return@Tool fail("The search didn't work just now.")
             Out(ok("answer" to answer.take(6000)), said = answer.take(600))
         },
     )

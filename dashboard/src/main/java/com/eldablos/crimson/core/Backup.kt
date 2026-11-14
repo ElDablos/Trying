@@ -29,7 +29,7 @@ object Backup {
             val p = JSONObject()
             for ((k, v) in context.getSharedPreferences(name, Context.MODE_PRIVATE).all) {
                 // The Gemini key stays on the phone: backups sit in Downloads, where other apps can read.
-                if (k == "gemini_key") continue
+                if (k == "gemini_key" || k == "groq_key") continue
                 val e = JSONObject()
                 when (v) {
                     is String -> e.put("t", "s").put("v", v)
@@ -79,8 +79,10 @@ object Backup {
             val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
             // The Gemini key isn't in backups, so the one on the phone is kept.
             val key = prefs.getString("gemini_key", null)
+            val groq = prefs.getString("groq_key", null)
             val ed = prefs.edit().clear()
             if (key != null) ed.putString("gemini_key", key)
+            if (groq != null) ed.putString("groq_key", groq)
             for ((k, v) in values) {
                 @Suppress("UNCHECKED_CAST")
                 when (v) {

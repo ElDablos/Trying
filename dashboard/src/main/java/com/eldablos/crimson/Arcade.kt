@@ -215,6 +215,12 @@ object Arcade {
         }
     }
 
+    /** A game's own icon, exactly as it is (its own logo and tile shape: nothing clipped or reshaped). */
+    fun drawIcon(canvas: Canvas, icon: Bitmap?, accent: Int, bounds: RectF) {
+        if (icon == null) return drawTile(canvas, null, accent, bounds, lit = false)
+        canvas.drawBitmap(icon, Rect(0, 0, icon.width, icon.height), bounds, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+    }
+
     /** A game's icon for the A–Z grid, with room around it for the halo when it's the selected one. */
     fun tileBitmap(icon: Bitmap?, accent: Int, sizePx: Int, selected: Boolean): Bitmap {
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
@@ -284,10 +290,7 @@ object Arcade {
         // The icon, with a shadow under it.
         val s = w * .48f
         val ib = RectF((w - s) / 2, h * .15f, (w + s) / 2, h * .15f + s)
-        c.drawRoundRect(RectF(ib.left, ib.top + s * .06f, ib.right, ib.bottom + s * .06f), s * .24f, s * .24f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(110, 0, 0, 0); maskFilter = BlurMaskFilter(s * .1f, BlurMaskFilter.Blur.NORMAL)
-        })
-        drawTile(c, icon, accent, ib, lit = false)
+        drawIcon(c, icon, accent, ib)
         // The name.
         val tp = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.argb(240, 255, 255, 255); textSize = w * .118f; textAlign = Paint.Align.CENTER

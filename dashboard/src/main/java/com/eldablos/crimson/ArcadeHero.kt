@@ -144,10 +144,8 @@ object ArcadeHero {
             val icon = (by - banner.top - 30f).coerceAtMost(bh * .38f).coerceIn(44f, 84f)
             val iy = by - 14f - icon
             val ib = RectF(banner.left + 16f, iy, banner.left + 16f + icon, iy + icon)
-            c.drawRoundRect(RectF(ib.left - 3f, ib.top - 3f, ib.right + 3f, ib.bottom + 3f), icon * .28f, icon * .28f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.argb(60, 255, 255, 255); setShadowLayer(12f, 0f, 4f, Color.argb(110, 0, 0, 0))
-            })
-            Arcade.drawTile(c, selected.icon, selected.accent, ib, lit = false)
+
+            Arcade.drawIcon(c, selected.icon, selected.accent, ib)
             val tx = ib.right + 14f
             val tw = banner.right - 16f - tx
             val kicker = if (scene.lastPlayed != null) "CONTINUE" else "READY TO PLAY"
@@ -190,7 +188,7 @@ object ArcadeHero {
             c.drawRoundRect(cb, 16f, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1f; color = Color.argb(40, 255, 255, 255) })
             val isz = minOf(cw * .44f, chh * .42f)
             val ib = RectF(cb.centerX() - isz / 2, cb.top + chh * .12f, cb.centerX() + isz / 2, cb.top + chh * .12f + isz)
-            Arcade.drawTile(c, t.icon, t.accent, ib, lit = false)
+            Arcade.drawIcon(c, t.icon, t.accent, ib)
             val np = tp(10.5f, Color.WHITE, medium, Paint.Align.CENTER)
             c.drawText(fit(t.game.label, np, cw - 10f), cb.centerX(), ib.bottom + 15f, np)
             // Time played, in a lighter shade of its colour, with a small bar against the most played.

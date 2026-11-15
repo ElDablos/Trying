@@ -54,6 +54,8 @@ object ArcadeHero {
         val games: Int,
         val newGames: Int,
         val stats: Boolean,
+        /** Time played in the stats window, by package. */
+        val playtimes: Map<String, Long> = emptyMap(),
     )
 
     private const val MAX_SCALE = 2f
@@ -66,130 +68,150 @@ object ArcadeHero {
         c.scale(s, s)
         val w = widthDp
         val h = heightDp
-        val K = HudKit
         val hits = mutableListOf<Hit>()
         val selected = scene.selected
-        val accent = selected?.accent ?: K.CRIMSON
-        val pad = 14f
+        val pad = 10f
+        val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        val bold = Typeface.create("sans-serif", Typeface.BOLD)
+        fun tp(size: Float, color: Int, face: Typeface = Typeface.DEFAULT, align: Paint.Align = Paint.Align.LEFT, spacing: Float = 0f) =
+            TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = size; this.color = color; typeface = face; textAlign = align; letterSpacing = spacing }
+        val muted = 0xFFB9ACAE.toInt()
 
-        // The console frame, its glow coloured by the selected game.
-        K.frame(c, w, h, 1f, glowX = w * .2f, glowY = h * .3f)
-        c.drawCircle(w * .18f, h * .32f, w * .45f, Paint().apply {
-            shader = RadialGradient(w * .18f, h * .32f, w * .45f, K.a(accent, .22f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
-        })
-
-        // Header.
+        // --- Header: "Arcade", and how many games (or the switch for play stats) ---
         val headY = 22f
-        K.label(c, pad + 2f, headY, "ARCADE", if (scene.newGames > 0) "${scene.games} GAMES · ${scene.newGames} NEW" else "${scene.games} GAMES", 8f)
+        c.drawText("Arcade", pad + 4f, headY, tp(17f, Color.WHITE, bold))
         if (!scene.stats) {
-            val prompt = "◈ TURN ON PLAY STATS"
-            val p = K.mono(7.5f, K.HOT, bold = true, align = Paint.Align.RIGHT)
-            c.drawText(prompt, w - pad - 2f, headY, p)
-            hits += Hit(RectF(w - pad - 10f - p.measureText(prompt), headY - 14f, w - pad + 4f, headY + 8f), Action.UsageAccess)
-        } else c.drawText("TAP A GAME · LAUNCH TO PLAY", w - pad - 2f, headY, K.mono(7f, K.DUST, align = Paint.Align.RIGHT, spacing = .16f))
+            val p = tp(11f, 0xFFFF6B7F.toInt(), medium, Paint.Align.RIGHT)
+            val t = "Turn on play stats ›"
+            c.drawText(t, w - pad - 4f, headY, p)
+            hits += Hit(RectF(w - pad - 12f - p.measureText(t), headY - 16f, w - pad + 2f, headY + 8f), Action.UsageAccess)
+        } else c.drawText("${scene.games} games" + if (scene.newGames > 0) " · ${scene.newGames} new" else "", w - pad - 4f, headY, tp(11.5f, muted, medium, Paint.Align.RIGHT))
 
-        // The two sections share what's left: the game on top, up next below.
         val top = headY + 12f
-        val bottom = h - 10f
-        val space = bottom - top
-        val railH = (space * .40f).coerceIn(70f, 130f)
-        val heroBox = RectF(pad, top, w - pad, bottom - railH - 6f)
-        val railBox = RectF(pad, heroBox.bottom + 6f, w - pad, bottom)
+        val rowLabelH = 20f
+        val cardsH = ((h - top) * .34f).coerceIn(70f, 112f)
+        val banner = RectF(pad, top, w - pad, h - cardsH - rowLabelH - 6f)
 
-        // --- The selected game ---
+        // --- The banner: the selected game in its own colours ---
         if (selected == null) {
-            c.drawText("NO GAMES YET", heroBox.centerX(), heroBox.centerY(), K.mono(11f, K.HOT, bold = true, align = Paint.Align.CENTER))
-            c.drawText("Games you install appear here", heroBox.centerX(), heroBox.centerY() + 16f, K.sans(10f, K.DUST, align = Paint.Align.CENTER))
+            c.drawRoundRect(banner, 22f, 22f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2A0A10.toInt() })
+            c.drawText("No games yet", banner.centerX(), banner.centerY(), tp(16f, Color.WHITE, bold, Paint.Align.CENTER))
+            c.drawText("Games you install appear here", banner.centerX(), banner.centerY() + 18f, tp(11f, muted, Typeface.DEFAULT, Paint.Align.CENTER))
         } else {
-            val hh = heroBox.height()
-            val coverSize = min(hh - 18f, w * .30f).coerceAtLeast(40f)
-            val cover = RectF(heroBox.left + 10f, heroBox.centerY() - coverSize / 2, heroBox.left + 10f + coverSize, heroBox.centerY() + coverSize / 2)
-            // A soft pool of the game's colour under the icon, the icon, and gold brackets round it.
-            c.drawOval(RectF(cover.left - 6f, cover.bottom - 4f, cover.right + 6f, cover.bottom + 8f), Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = RadialGradient(cover.centerX(), cover.bottom + 2f, coverSize * .6f, K.a(accent, .5f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            val v = Arcade.vivid(selected.accent)
+            val bh = banner.height()
+            val r = 22f
+            c.save()
+            c.clipPath(android.graphics.Path().apply { addRoundRect(banner, r, r, android.graphics.Path.Direction.CW) })
+            c.drawRect(banner, Paint().apply { shader = LinearGradient(banner.left, banner.top, banner.right, banner.bottom, v, Arcade.shade(v, .78f), Shader.TileMode.CLAMP) })
+            c.drawCircle(banner.left + bh * .3f, banner.top, bh * 1.1f, Paint().apply {
+                shader = RadialGradient(banner.left + bh * .3f, banner.top, bh * 1.1f, Color.argb(60, 255, 255, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             })
-            Arcade.drawTile(c, selected.icon, accent, cover, lit = false)
-            c.drawRoundRect(cover, coverSize * .24f, coverSize * .24f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = K.a(accent, .4f); maskFilter = BlurMaskFilter(coverSize * .14f, BlurMaskFilter.Blur.OUTER)
-            })
-            K.brackets(c, RectF(cover.left - 6f, cover.top - 6f, cover.right + 6f, cover.bottom + 6f), min(14f, coverSize * .18f), K.GOLD, 1f)
-
-            // Name, readouts and buttons, stacked and centred beside the icon.
-            val ix = cover.right + 18f
-            val iw = heroBox.right - ix
-            val titleSize = (hh * .17f).coerceIn(16f, 30f)
-            val boxH = (hh * .22f).coerceIn(26f, 40f)
-            val btnH = (hh * .22f).coerceIn(28f, 42f)
-            val gap = (hh * .06f).coerceIn(5f, 12f)
-            val block = 10f + gap * .6f + titleSize + gap + boxH + gap + btnH
-            var y = heroBox.centerY() - block / 2 + 8f
-            val kicker = if (scene.lastPlayed != null) "▸ RESUME" else "▸ READY"
-            c.drawText(kicker, ix, y, K.mono(8f, if (scene.lastPlayed != null) K.HOT else K.DUST, bold = true, spacing = .3f))
-            y += gap * .6f + titleSize
-            val title = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                typeface = Typeface.create("sans-serif", Typeface.BOLD); color = Color.WHITE
-                setShadowLayer(10f, 0f, 0f, K.a(accent, .6f))
+            // The icon again, huge and faint, tilted off the right edge.
+            selected.icon?.let { icon ->
+                val big = bh * 1.25f
+                c.save()
+                c.rotate(-12f, banner.right - big * .3f, banner.centerY())
+                val dst = RectF(banner.right - big * .8f, banner.centerY() - big / 2, banner.right + big * .2f, banner.centerY() + big / 2)
+                c.drawBitmap(icon, android.graphics.Rect(0, 0, icon.width, icon.height), dst, Paint(Paint.FILTER_BITMAP_FLAG).apply { alpha = 46 })
+                c.restore()
             }
-            c.drawText(fitTitle(selected.game.label, title, iw, titleSize), ix, y - titleSize * .12f, title)
-            y += gap
-            // Three readouts: time played, rank, last played (or when it was installed).
+            // A diagonal sheen, and a dark fade at the bottom so the words always read.
+            c.drawPath(android.graphics.Path().apply {
+                moveTo(banner.left + banner.width() * .45f, banner.top); lineTo(banner.left + banner.width() * .62f, banner.top)
+                lineTo(banner.left + banner.width() * .42f, banner.bottom); lineTo(banner.left + banner.width() * .25f, banner.bottom); close()
+            }, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(14, 255, 255, 255) })
+            c.drawRect(banner, Paint().apply { shader = LinearGradient(0f, banner.top + bh * .25f, 0f, banner.bottom, Color.TRANSPARENT, Color.argb(170, 0, 0, 0), Shader.TileMode.CLAMP) })
+            c.restore()
+            c.drawRoundRect(banner, r, r, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1f; color = Color.argb(46, 255, 255, 255) })
+
+            // Buttons along the bottom, then the game above them.
+            val btnH = (bh * .2f).coerceIn(32f, 42f)
+            val by = banner.bottom - 16f - btnH
+            val play = RectF(banner.left + 16f, by, banner.left + 16f + (banner.width() * .34f).coerceIn(104f, 150f), by + btnH)
+            c.drawRoundRect(play, btnH / 2, btnH / 2, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; setShadowLayer(10f, 0f, 3f, Color.argb(90, 0, 0, 0)) })
+            val pt = tp(btnH * .4f, Arcade.shade(v, .55f), bold, Paint.Align.CENTER, .06f)
+            c.drawText("▶  PLAY", play.centerX(), play.centerY() + pt.textSize * .36f, pt)
+            val st = tp(btnH * .36f, Color.WHITE, medium, Paint.Align.CENTER)
+            val surprise = RectF(play.right + 10f, by, play.right + 10f + st.measureText("⚄  Surprise me") + btnH * .9f, by + btnH)
+            c.drawRoundRect(surprise, btnH / 2, btnH / 2, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(48, 255, 255, 255) })
+            c.drawRoundRect(surprise, btnH / 2, btnH / 2, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1f; color = Color.argb(70, 255, 255, 255) })
+            c.drawText("⚄  Surprise me", surprise.centerX(), surprise.centerY() + st.textSize * .36f, st)
+            hits += Hit(play, Action.Play)
+            hits += Hit(surprise, Action.Random)
+
+            // The icon in a glass frame, the name, how much it's played, and a bar for it.
+            val icon = (by - banner.top - 30f).coerceAtMost(bh * .38f).coerceIn(44f, 84f)
+            val iy = by - 14f - icon
+            val ib = RectF(banner.left + 16f, iy, banner.left + 16f + icon, iy + icon)
+            c.drawRoundRect(RectF(ib.left - 3f, ib.top - 3f, ib.right + 3f, ib.bottom + 3f), icon * .28f, icon * .28f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(60, 255, 255, 255); setShadowLayer(12f, 0f, 4f, Color.argb(110, 0, 0, 0))
+            })
+            Arcade.drawTile(c, selected.icon, selected.accent, ib, lit = false)
+            val tx = ib.right + 14f
+            val tw = banner.right - 16f - tx
+            val kicker = if (scene.lastPlayed != null) "CONTINUE" else "READY TO PLAY"
+            val kp = tp(9f, Color.WHITE, bold, spacing = .16f)
+            val kw = kp.measureText(kicker) + 14f
+            val ky = ib.top + 4f
+            c.drawRoundRect(RectF(tx, ky, tx + kw, ky + 16f), 8f, 8f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(56, 255, 255, 255) })
+            c.drawText(kicker, tx + 7f, ky + 11.5f, kp)
+            val nameSize = (icon * .38f).coerceIn(18f, 30f)
+            val np = tp(nameSize, Color.WHITE, bold).apply { setShadowLayer(8f, 0f, 2f, Color.argb(120, 0, 0, 0)) }
+            c.drawText(fitTitle(selected.game.label, np, tw, nameSize), tx, ky + 16f + 4f + nameSize * .92f, np)
             val now = System.currentTimeMillis()
             val played = scene.played
-            val boxes = listOf(
-                Triple(played?.let { Arcade.playtime(it.millis) } ?: if (scene.stats) "0M" else "—", "PLAYED ${Arcade.STATS_DAYS}D",
-                    played?.let { it.millis.toFloat() / scene.longest.coerceAtLeast(1) } ?: 0f),
-                Triple(scene.rank?.let { "#%02d".format(it) } ?: "—", "RANK", scene.rank?.let { 1f - (it - 1f) / scene.games.coerceAtLeast(1) } ?: 0f),
-                scene.lastPlayed?.let { last -> Triple(Arcade.ago(last, now).removeSuffix(" AGO"), "LAST PLAYED", 1f - (now - last).toFloat() / (Arcade.STATS_DAYS * DAY)) }
-                    ?: Triple(installed(selected.game.installed), "INSTALLED", 0f),
+            val bits = listOfNotNull(
+                played?.let { "${Arcade.playtime(it.millis).lowercase()} this fortnight" },
+                scene.rank?.let { "#$it" },
+                scene.lastPlayed?.let { "played ${Arcade.ago(it, now).lowercase()}" } ?: "installed ${installed(selected.game.installed).lowercase()}",
             )
-            val bw = (iw - 12f) / 3
-            boxes.forEachIndexed { i, (value, label, fill) ->
-                val b = RectF(ix + i * (bw + 6f), y, ix + i * (bw + 6f) + bw, y + boxH)
-                K.box(c, K.cornerPath(b, 5f), K.a(K.CRIMSON, .08f), K.a(K.CRIMSON, .45f), 1f)
-                c.drawText(fit(value, K.sans(boxH * .36f, Color.WHITE, Typeface.create("sans-serif-medium", Typeface.NORMAL)), b.width() - 10f), b.left + 6f, b.top + boxH * .48f,
-                    K.sans(boxH * .36f, Color.WHITE, Typeface.create("sans-serif-medium", Typeface.NORMAL)))
-                c.drawText(label, b.left + 6f, b.top + boxH * .74f, K.fit(label, K.mono(boxH * .16f, K.DUST, spacing = .14f), b.width() - 10f))
-                val track = RectF(b.left + 6f, b.bottom - 5f, b.right - 6f, b.bottom - 3.5f)
-                c.drawRect(track, Paint().apply { color = K.a(K.CRIMSON, .25f) })
-                if (fill > 0f) c.drawRect(track.left, track.top, track.left + track.width() * fill.coerceIn(0f, 1f), track.bottom,
-                    Paint().apply { color = accent; setShadowLayer(3f, 0f, 0f, accent) })
+            val lineY = ib.bottom - 4f
+            c.drawText(fit(bits.joinToString(" · "), tp(11.5f, 0xFFF4E4E7.toInt()), tw), tx, lineY, tp(11.5f, 0xFFF4E4E7.toInt()))
+            if (played != null && scene.longest > 0) {
+                val track = RectF(tx, lineY + 6f, tx + minOf(tw, 160f), lineY + 9f)
+                c.drawRoundRect(track, 2f, 2f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 255, 255, 255) })
+                c.drawRoundRect(RectF(track.left, track.top, track.left + track.width() * (played.millis.toFloat() / scene.longest).coerceIn(.04f, 1f), track.bottom), 2f, 2f,
+                    Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
             }
-            y += boxH + gap
-            // Launch, and the dice for a random game.
-            val play = RectF(ix, y, heroBox.right - btnH - 6f, y + btnH)
-            val dice = RectF(play.right + 6f, y, heroBox.right, y + btnH)
-            K.launch(c, play, "LAUNCH", 1f)
-            K.box(c, K.slantPath(dice, btnH * .25f), K.a(K.CRIMSON, .12f), K.a(K.CRIMSON, .7f), 1f)
-            c.drawText("⚄", dice.centerX(), dice.centerY() + btnH * .2f, K.sans(btnH * .52f, K.BONE, Typeface.DEFAULT, Paint.Align.CENTER))
-            hits += Hit(play, Action.Play)
-            hits += Hit(dice, Action.Random)
         }
 
-        // --- Up next: the six you play most (or the newest), with their names ---
-        c.drawLine(railBox.left, railBox.top, railBox.right, railBox.top, Paint().apply {
-            shader = LinearGradient(railBox.left, 0f, railBox.right, 0f, K.a(K.CRIMSON, .6f), Color.TRANSPARENT, Shader.TileMode.CLAMP); strokeWidth = 1f
-        })
-        val labelY = railBox.top + 14f
-        K.label(c, railBox.left + 2f, labelY, "UP NEXT", if (scene.stats) "MOST PLAYED" else "NEWEST", 7.5f)
-        val tiles = scene.recommended.take(6)
-        if (tiles.isNotEmpty()) {
-            val slot = railBox.width() / 6
-            val nameH = 12f
-            val rowTop = labelY + 8f
-            val size = min(slot * .66f, railBox.bottom - rowTop - nameH - 6f).coerceAtLeast(24f)
-            tiles.forEachIndexed { i, tile ->
-                val on = tile.game == selected?.game
-                val cx = railBox.left + slot * (i + .5f)
-                val box = RectF(cx - size / 2, rowTop, cx + size / 2, rowTop + size)
-                Arcade.drawTile(c, tile.icon, tile.accent, box, lit = on, alpha = if (on) 255 else 200)
-                if (on) c.drawRect(cx - size * .3f, box.bottom + 3f, cx + size * .3f, box.bottom + 5f, Paint().apply { color = K.HOT; setShadowLayer(4f, 0f, 0f, K.HOT) })
-                val np = K.sans(8.5f, if (on) Color.WHITE else 0xFFCDBFC1.toInt(), Typeface.create("sans-serif-medium", Typeface.NORMAL), Paint.Align.CENTER)
-                c.drawText(fit(tile.game.label, np, slot - 4f), cx, box.bottom + nameH + 2f, np)
-                hits += Hit(RectF(cx - slot / 2, rowTop - 4f, cx + slot / 2, box.bottom + nameH + 6f), Action.Select(tile.game.component))
+        // --- Jump back in: four more you play a lot, each in its colours, with time played ---
+        val labelY = banner.bottom + 6f + 13f
+        c.drawText(if (scene.stats) "JUMP BACK IN" else "NEWEST", pad + 4f, labelY, tp(9.5f, muted, bold, spacing = .18f))
+        val others = scene.recommended.filter { it.game != selected?.game }.take(4)
+        val cardsTop = labelY + 7f
+        val cw = (w - 2 * pad - 3 * 8f) / 4
+        val chh = h - cardsTop - 2f
+        others.forEachIndexed { i, t ->
+            val cb = RectF(pad + i * (cw + 8f), cardsTop, pad + i * (cw + 8f) + cw, cardsTop + chh)
+            val v = Arcade.vivid(t.accent)
+            c.drawRoundRect(cb, 16f, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = LinearGradient(cb.left, cb.top, cb.right, cb.bottom, Arcade.shade(v, .3f), Arcade.shade(v, .78f), Shader.TileMode.CLAMP) })
+            c.drawRoundRect(cb, 16f, 16f, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1f; color = Color.argb(40, 255, 255, 255) })
+            val isz = minOf(cw * .44f, chh * .42f)
+            val ib = RectF(cb.centerX() - isz / 2, cb.top + chh * .12f, cb.centerX() + isz / 2, cb.top + chh * .12f + isz)
+            Arcade.drawTile(c, t.icon, t.accent, ib, lit = false)
+            val np = tp(10.5f, Color.WHITE, medium, Paint.Align.CENTER)
+            c.drawText(fit(t.game.label, np, cw - 10f), cb.centerX(), ib.bottom + 15f, np)
+            // Time played, in a lighter shade of its colour, with a small bar against the most played.
+            val millis = scene.playtimes[t.game.component.packageName] ?: 0L
+            if (millis > 0 && ib.bottom + 30f < cb.bottom) {
+                c.drawText(Arcade.playtime(millis).lowercase(), cb.centerX(), ib.bottom + 29f, tp(9.5f, blend(v, Color.WHITE, .55f), medium, Paint.Align.CENTER))
+                val bw = cw * .5f
+                val track = RectF(cb.centerX() - bw / 2, cb.bottom - 9f, cb.centerX() + bw / 2, cb.bottom - 6.5f)
+                if (track.top > ib.bottom + 32f) {
+                    c.drawRoundRect(track, 1.5f, 1.5f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(50, 255, 255, 255) })
+                    c.drawRoundRect(RectF(track.left, track.top, track.left + track.width() * (millis.toFloat() / scene.longest.coerceAtLeast(1)).coerceIn(.06f, 1f), track.bottom), 1.5f, 1.5f,
+                        Paint(Paint.ANTI_ALIAS_FLAG).apply { color = blend(v, Color.WHITE, .4f) })
+                }
             }
+            hits += Hit(cb, Action.Select(t.game.component))
         }
         return Art(bitmap, hits)
     }
+
+    private fun blend(a: Int, b: Int, t: Float) = Color.rgb(
+        (Color.red(a) + (Color.red(b) - Color.red(a)) * t).toInt(), (Color.green(a) + (Color.green(b) - Color.green(a)) * t).toInt(), (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t).toInt())
 
     private fun installed(time: Long): String =
         if (time <= 0) "—" else SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(time)).uppercase()

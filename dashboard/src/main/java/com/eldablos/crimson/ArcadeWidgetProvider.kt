@@ -64,7 +64,7 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
         // The widget's padding, the panel's share of the height (its layout weight), the gap under it, and
         // the letter rail's width.
         const val PADDING_DP = 8f
-        private const val PANEL_SHARE = 0.46f
+        private const val PANEL_SHARE = 0.50f
         private const val GAP_DP = 4f
         const val RAIL_DP = 20f
         const val RECOMMENDED = 6
@@ -115,10 +115,7 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.widget_arcade)
             WidgetTheme.apply(context, views, images = intArrayOf(R.id.arcade_bg))
             views.setTextColor(R.id.arcade_empty, WidgetTheme.text(context, R.color.crimson))
-            // "◆ ALL GAMES  // A–Z": the label in bone, the rest in the theme's hot red, as on the panel.
-            views.setTextViewText(R.id.arcade_all_label, android.text.SpannableString("◆ ALL GAMES  // A–Z").apply {
-                setSpan(android.text.style.ForegroundColorSpan(com.eldablos.crimson.core.HudKit.HOT), 13, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            })
+            views.setTextViewText(R.id.arcade_all_label, "LIBRARY  ·  A–Z")
             views.setInt(R.id.arcade_bg, "setImageAlpha", DashboardStore.opacity(context) * 255 / 100)
             // Taps that miss everything do nothing, rather than opening this app.
             views.setOnClickPendingIntent(R.id.arcade_root, broadcast(context, widgetId, CODE_NOTHING, Intent(ACTION_NOTHING)))
@@ -174,6 +171,7 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
                 games = games.size,
                 newGames = games.count { Arcade.isNew(it) },
                 stats = Arcade.hasUsageAccess(context),
+                playtimes = stats.mapValues { it.value.millis },
             )
             val (width, height) = panelSizeDp(context, manager, widgetId)
             val art = ArcadeHero.draw(width, height, context.resources.displayMetrics.density, scene)
@@ -246,7 +244,7 @@ class ArcadeWidgetProvider : AppWidgetProvider() {
         }
 
         /** Games per grid row: five on a full-width widget, fewer when it's narrower. */
-        fun columns(widthDp: Float) = ((widthDp - 2 * PADDING_DP - RAIL_DP) / 64f).toInt().coerceIn(3, 5)
+        fun columns(widthDp: Float) = ((widthDp - 2 * PADDING_DP - RAIL_DP) / 84f).toInt().coerceIn(3, 4)
 
         /** Scrolls the grid to the first game under [letter], or the next letter that has one. */
         private fun jump(context: Context, manager: AppWidgetManager, widgetId: Int, letter: Char) {

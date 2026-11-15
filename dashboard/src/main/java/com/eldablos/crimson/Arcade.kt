@@ -10,6 +10,9 @@ import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
@@ -234,6 +237,80 @@ object Arcade {
             }, p)
         }
         return bitmap
+    }
+
+    /** [accent] made rich enough to carry a card or banner (dull or near-black icons still get colour). */
+    fun vivid(accent: Int): Int {
+        val hsv = FloatArray(3)
+        Color.colorToHSV(accent, hsv)
+        hsv[1] = hsv[1].coerceAtLeast(.55f)
+        hsv[2] = hsv[2].coerceIn(.55f, .85f)
+        return Color.HSVToColor(hsv)
+    }
+
+    /** [color] mixed towards black by [amount] (0–1). */
+    fun shade(color: Int, amount: Float): Int = Color.rgb(
+        (Color.red(color) * (1 - amount)).toInt(), (Color.green(color) * (1 - amount)).toInt(), (Color.blue(color) * (1 - amount)).toInt())
+
+    /**
+     * A game's card for the library: a rounded card in the game's own colour, its icon, its name, a NEW badge
+     * when it's just installed, the letter on the first game under each letter, and a white outline when
+     * it's the one selected.
+     */
+    fun cardBitmap(icon: Bitmap?, accent: Int, label: String, wPx: Int, hPx: Int, selected: Boolean, new: Boolean, letter: Char?): Bitmap {
+        val bmp = Bitmap.createBitmap(wPx, hPx, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val w = wPx.toFloat()
+        val h = hPx.toFloat()
+        val inset = w * .03f
+        val box = RectF(inset, inset, w - inset, h - inset)
+        val r = w * .17f
+        val v = vivid(accent)
+        if (selected) c.drawRoundRect(box, r, r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = v; maskFilter = BlurMaskFilter(inset * 1.5f, BlurMaskFilter.Blur.OUTER) })
+        c.drawRoundRect(box, r, r, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(0f, box.top, 0f, box.bottom, shade(v, .45f), shade(v, .82f), Shader.TileMode.CLAMP)
+        })
+        // A soft light from the top left, and a hairline edge.
+        c.save()
+        c.clipPath(Path().apply { addRoundRect(box, r, r, Path.Direction.CW) })
+        c.drawCircle(box.left + w * .2f, box.top, w * .7f, Paint().apply {
+            shader = RadialGradient(box.left + w * .2f, box.top, w * .7f, Color.argb(46, 255, 255, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+        })
+        c.restore()
+        c.drawRoundRect(box, r, r, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = if (selected) w * .025f else w * .008f
+            color = if (selected) Color.WHITE else Color.argb(38, 255, 255, 255)
+        })
+        // The icon, with a shadow under it.
+        val s = w * .48f
+        val ib = RectF((w - s) / 2, h * .15f, (w + s) / 2, h * .15f + s)
+        c.drawRoundRect(RectF(ib.left, ib.top + s * .06f, ib.right, ib.bottom + s * .06f), s * .24f, s * .24f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(110, 0, 0, 0); maskFilter = BlurMaskFilter(s * .1f, BlurMaskFilter.Blur.NORMAL)
+        })
+        drawTile(c, icon, accent, ib, lit = false)
+        // The name.
+        val tp = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(240, 255, 255, 255); textSize = w * .118f; textAlign = Paint.Align.CENTER
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        }
+        c.drawText(android.text.TextUtils.ellipsize(label, tp, box.width() - w * .1f, android.text.TextUtils.TruncateAt.END).toString(), w / 2, h - h * .11f, tp)
+        if (new) {
+            val np = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = w * .085f; typeface = android.graphics.Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER; letterSpacing = .08f }
+            val bw = np.measureText("NEW") + w * .09f
+            val b = RectF(box.right - bw - w * .05f, box.top + w * .05f, box.right - w * .05f, box.top + w * .05f + w * .13f)
+            c.drawRoundRect(b, b.height() / 2, b.height() / 2, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE0405A.toInt() })
+            c.drawText("NEW", b.centerX(), b.centerY() + np.textSize * .36f, np)
+        }
+        if (letter != null) {
+            val lp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = w * .1f; typeface = android.graphics.Typeface.DEFAULT_BOLD; textAlign = Paint.Align.CENTER }
+            val cr = w * .085f
+            val cx = box.left + w * .05f + cr
+            val cy = box.top + w * .05f + cr
+            c.drawCircle(cx, cy, cr, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 0, 0, 0) })
+            c.drawCircle(cx, cy, cr, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = w * .008f; color = Color.argb(90, 255, 255, 255) })
+            c.drawText(letter.toString(), cx, cy + lp.textSize * .36f, lp)
+        }
+        return bmp
     }
 
     // --- Sessions, for the player stats page ---

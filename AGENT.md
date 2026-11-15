@@ -78,6 +78,11 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.6 (code 94) — Arcade "Spotlight" redesign (replaces the 2.5.1 console panel)
+- Owner rejected a restyle; picked concept A (Spotlight) from two mock-ups (A Spotlight / B Orbit) and asked for it improved.
+- `ArcadeHero.draw` (same contract): header "Arcade" + "N games · N new" (or "Turn on play stats ›" → UsageAccess); a banner in the selected game's own colour (`Arcade.vivid` of its accent → `Arcade.shade`), top-left light, the icon huge and faint tilted off the right edge, a diagonal sheen and a dark fade; icon in a glass frame, "CONTINUE/READY TO PLAY" chip, bold name, "3h 23m this fortnight · #1 · played 23h ago" with a playtime bar; white PLAY pill (label in the game's dark shade) and a glass "Surprise me" (Random). Then "JUMP BACK IN": four more of the most played (selected excluded) as cards in their colours with name, time played and a bar (Scene.playtimes, new). Proportional to the panel size.
+- Library: `Arcade.cardBitmap` draws each game as a tinted card (gradient in its colour, light, hairline/white outline when selected with glow, icon with shadow, name, NEW badge, letter badge on the first game of each letter); the row's TextViews are hidden. 4 columns (3 when narrow, `columns()` /84dp). Panel/library 50/50. Label "LIBRARY · A–Z".
+
 ### 2.5.1 (code 93) — Arcade rebuilt
 - `ArcadeHero.draw` rewritten from scratch (same Scene/Hit/Art contract, so taps and the provider are unchanged): HudKit frame (as Money/Ask), header "◆ ARCADE // N GAMES" with the hint or "TURN ON PLAY STATS" (UsageAccess hit), then two sections laid out in proportion to the real panel size (no more empty band on tall widgets): the selected game (icon in gold brackets with an accent glow, "▸ RESUME/READY", name, three readouts with fill bars, HudKit launch button + dice) vertically centred, and "◆ UP NEXT // MOST PLAYED" with six tiles and their names (selected one lit with an underline).
 - Panel/grid split 58/42 → 46/54 (layout weights and PANEL_SHARE) so more games show; list header "◆ ALL GAMES // A–Z" styled to match (id arcade_all_label, span set in code).

@@ -77,20 +77,36 @@ class PhilipsClient(private val host: String, port: Int = PORT, timeoutMs: Int =
      */
     fun status(patient: Boolean = false): JSONObject {
         if (key == null) sync()
-        val waits = if (patient) listOf(6_000L, 8_000L) else listOf(4_000L, 5_000L)
-        val reply = try {
-            coap.request(CoapMessage.GET, STATUS_PATH, observe = true, waitsMs = waits)
-        } catch (observed: IOException) {
-            if (!patient) throw IOException("Handshake OK, but the heater didn't send its status (${observed.message})", observed)
-            // Last try: a plain read, without asking to be kept updated.
+        // Normal request first. If nothing comes back, ask for the reply in small chunks
+        // (512, then 256 bytes) in case one big reply is being lost on the Wi-Fi.
+        val attempts = if (patient) {
+            listOf(
+                StatusAttempt("observe", true, null, listOf(5_000L, 5_000L)),
+                StatusAttempt("512-byte blocks", true, 5, listOf(5_000L)),
+                StatusAttempt("256-byte blocks", true, 4, listOf(5_000L)),
+                StatusAttempt("plain read", false, null, listOf(5_000L)),
+            )
+        } else {
+            listOf(
+                StatusAttempt("observe", true, null, listOf(4_000L)),
+                StatusAttempt("512-byte blocks", true, 5, listOf(4_000L)),
+            )
+        }
+        val failures = mutableListOf<String>()
+        var reply: ByteArray? = null
+        for (attempt in attempts) {
             try {
-                coap.request(CoapMessage.GET, STATUS_PATH, observe = false, waitsMs = listOf(11_000L))
-            } catch (plain: IOException) {
-                throw IOException(
-                    "Handshake OK, but the heater didn't send its status. Observe: ${observed.message}. Plain: ${plain.message}",
-                    plain,
+                reply = coap.request(
+                    CoapMessage.GET, STATUS_PATH, observe = attempt.observe,
+                    waitsMs = attempt.waitsMs, blockSizeExp = attempt.blockSizeExp,
                 )
+                break
+            } catch (e: IOException) {
+                failures += "${attempt.name}: ${e.message}"
             }
+        }
+        if (reply == null) {
+            throw IOException("Handshake OK, but the heater didn't send its status.\n" + failures.joinToString("\n"))
         }
         val text = String(reply, Charsets.US_ASCII)
         val json = try {
@@ -168,3 +184,5 @@ class PhilipsClient(private val host: String, port: Int = PORT, timeoutMs: Int =
         }
     }
 }
+
+private class StatusAttempt(val name: String, val observe: Boolean, val blockSizeExp: Int?, val waitsMs: List<Long>)

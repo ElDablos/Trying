@@ -133,19 +133,22 @@ internal class CoapClient(private val host: String, private val port: Int = 5683
     fun request(
         code: Int, path: String, payload: ByteArray = ByteArray(0), observe: Boolean = false,
         waitsMs: List<Long> = listOf(timeoutMs.toLong(), timeoutMs.toLong()),
+        blockSizeExp: Int? = null,
     ): ByteArray {
         val address = InetAddress.getByName(host)
         val socket = socket()
         run {
             val out = ByteArrayOutputStream()
             var blockNumber = 0
-            var blockSizeExp = 6 // 1024 bytes
+            // Asking for small blocks up front keeps each reply in one Wi-Fi packet.
+            val askSmall = blockSizeExp != null
+            var szx = blockSizeExp ?: 6
             while (true) {
                 val options = mutableListOf<Pair<Int, ByteArray>>()
                 if (observe && blockNumber == 0) options += CoapMessage.OPTION_OBSERVE to CoapMessage.uint(0)
                 path.trim('/').split('/').forEach { options += CoapMessage.OPTION_URI_PATH to it.toByteArray() }
-                if (blockNumber > 0) {
-                    options += CoapMessage.OPTION_BLOCK2 to CoapMessage.uint((blockNumber shl 4) or blockSizeExp)
+                if (blockNumber > 0 || askSmall) {
+                    options += CoapMessage.OPTION_BLOCK2 to CoapMessage.uint((blockNumber shl 4) or szx)
                 }
                 val response = exchange(socket, address, code, options, if (blockNumber == 0) payload else ByteArray(0), waitsMs)
                 if (response.codeClass != 2) throw IOException("Heater replied ${response.codeText}")
@@ -154,7 +157,7 @@ internal class CoapClient(private val host: String, private val port: Int = 5683
                 val value = CoapMessage.uintValue(block)
                 if (value and 0x8 == 0) break
                 blockNumber = (value ushr 4) + 1
-                blockSizeExp = value and 0x7
+                szx = value and 0x7
             }
             return out.toByteArray()
         }

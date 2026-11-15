@@ -67,7 +67,6 @@ class HomeWidgetProvider : AppWidgetProvider() {
             frame(context, manager, widgetId)?.let { views.setImageViewBitmap(R.id.widget_bg, it) }
             val config = HomeStore.config(context)
             val light = HomeStore.light(context)
-            val heater = HomeStore.heater(context)
 
             val openApp = PendingIntent.getActivity(
                 context, 0, Intent(context, MainActivity::class.java),
@@ -75,22 +74,16 @@ class HomeWidgetProvider : AppWidgetProvider() {
             )
             views.setOnClickPendingIntent(R.id.settings, openApp)
 
-            val nothingSetUp = !config.lightConfigured && !config.heaterConfigured
+            val nothingSetUp = !config.lightConfigured
             views.setViewVisibility(R.id.setup_text, if (nothingSetUp) View.VISIBLE else View.GONE)
             views.setOnClickPendingIntent(R.id.setup_text, openApp)
             views.setViewVisibility(R.id.light_section, if (config.lightConfigured) View.VISIBLE else View.GONE)
-            views.setViewVisibility(R.id.heater_section, if (config.heaterConfigured) View.VISIBLE else View.GONE)
-            views.setViewVisibility(
-                R.id.divider, if (config.lightConfigured && config.heaterConfigured) View.VISIBLE else View.GONE
-            )
             views.setViewVisibility(R.id.footer, if (nothingSetUp) View.GONE else View.VISIBLE)
 
             if (config.lightConfigured) bindLight(context, views, light)
-            if (config.heaterConfigured) bindHeater(context, views, heater)
 
             val errors = listOfNotNull(
                 light.error?.takeIf { config.lightConfigured },
-                heater.error?.takeIf { config.heaterConfigured },
             ).distinct()
             if (errors.isNotEmpty()) {
                 views.setTextViewText(R.id.footer_text, errors.joinToString("\n"))
@@ -103,7 +96,6 @@ class HomeWidgetProvider : AppWidgetProvider() {
             val refresh = action(context, WidgetActionService.ACTION_REFRESH, 0, 1)
             views.setOnClickPendingIntent(R.id.footer_text, refresh)
             views.setOnClickPendingIntent(R.id.light_header, refresh)
-            views.setOnClickPendingIntent(R.id.heater_header, refresh)
             return views
         }
 
@@ -150,28 +142,6 @@ class HomeWidgetProvider : AppWidgetProvider() {
         private fun isActive(light: LightState, preset: LightPreset): Boolean =
             if (preset.colorTemp > 0) light.colorTemp == preset.colorTemp
             else light.colorTemp == 0 && light.hue == preset.hue && light.saturation == preset.saturation
-
-        private fun bindHeater(context: Context, views: RemoteViews, heater: HeaterState) {
-            views.setTextViewText(R.id.heater_name, heater.name)
-            views.setTextViewText(
-                R.id.heater_status,
-                when {
-                    !heater.known -> "Tap to refresh"
-                    heater.on -> "On"
-                    else -> "Off"
-                },
-            )
-            bindPower(context, views, R.id.heater_power, heater.on)
-            views.setOnClickPendingIntent(R.id.heater_power, action(context, WidgetActionService.ACTION_HEATER_TOGGLE, 0, 3))
-            views.setTextViewText(R.id.temp_target, if (heater.known) "${heater.targetTemp}°" else "--°")
-            views.setTextColor(R.id.temp_target, context.getColor(if (heater.on) R.color.crimson else R.color.dust))
-            views.setTextViewText(R.id.temp_room, "Room " + (heater.roomTemp?.let { formatTemp(it) } ?: "--"))
-            views.setOnClickPendingIntent(R.id.temp_down, action(context, WidgetActionService.ACTION_TEMP, -1, 4))
-            views.setOnClickPendingIntent(R.id.temp_up, action(context, WidgetActionService.ACTION_TEMP, 1, 5))
-        }
-
-        private fun formatTemp(value: Double): String =
-            if (value % 1.0 == 0.0) "${value.toInt()}°C" else String.format("%.1f°C", value)
 
         private fun action(context: Context, action: String, value: Int, requestCode: Int): PendingIntent =
             WidgetActionService.pendingIntent(context, action, value, requestCode)

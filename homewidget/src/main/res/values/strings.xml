@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Home Controls</string>
-    <string name="widget_description">Your Tapo light and Philips heater</string>
+    <string name="widget_description">Your Tapo light</string>
 </resources>

@@ -53,18 +53,8 @@ data class LightState(
     val error: String? = null,
 )
 
-data class HeaterState(
-    val known: Boolean = false,
-    val name: String = "Heater",
-    val on: Boolean = false,
-    val targetTemp: Int = 20,
-    val roomTemp: Double? = null,
-    val error: String? = null,
-)
-
-data class Config(val email: String, val password: String, val lightIp: String, val heaterIp: String) {
+data class Config(val email: String, val password: String, val lightIp: String) {
     val lightConfigured get() = email.isNotBlank() && password.isNotBlank() && lightIp.isNotBlank()
-    val heaterConfigured get() = heaterIp.isNotBlank()
 }
 
 /** Settings plus the last known device state, so the widget can draw instantly. */
@@ -77,7 +67,6 @@ object HomeStore {
             it.getString("tapo_email", "") ?: "",
             it.getString("tapo_password", "") ?: "",
             it.getString("light_ip", "") ?: "",
-            it.getString("heater_ip", "") ?: "",
         )
     }
 
@@ -86,7 +75,6 @@ object HomeStore {
             .putString("tapo_email", config.email.trim())
             .putString("tapo_password", config.password)
             .putString("light_ip", config.lightIp.trim())
-            .putString("heater_ip", config.heaterIp.trim())
             .apply()
     }
 
@@ -120,29 +108,6 @@ object HomeStore {
             .putInt("light_color_temp", s.colorTemp)
             .putString("light_presets", JSONArray(s.presets.map { it.toJson() }).toString())
             .putString("light_error", s.error)
-            .commit()
-    }
-
-    fun heater(context: Context): HeaterState {
-        val p = prefs(context)
-        return HeaterState(
-            known = p.getBoolean("heater_known", false),
-            name = p.getString("heater_name", null) ?: "Heater",
-            on = p.getBoolean("heater_on", false),
-            targetTemp = p.getInt("heater_target", 20),
-            roomTemp = if (p.contains("heater_room")) p.getFloat("heater_room", 0f).toDouble() else null,
-            error = p.getString("heater_error", null),
-        )
-    }
-
-    fun saveHeater(context: Context, s: HeaterState) {
-        prefs(context).edit()
-            .putBoolean("heater_known", s.known)
-            .putString("heater_name", s.name)
-            .putBoolean("heater_on", s.on)
-            .putInt("heater_target", s.targetTemp)
-            .apply { if (s.roomTemp != null) putFloat("heater_room", s.roomTemp.toFloat()) else remove("heater_room") }
-            .putString("heater_error", s.error)
             .commit()
     }
 }

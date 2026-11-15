@@ -15,7 +15,7 @@ import android.os.IBinder
  * Runs widget taps as a short foreground task.
  *
  * Android cuts network access for apps sitting in the background, so a plain broadcast
- * from the widget can't reach the bulb or heater ("sendto failed: EPERM"). Widget taps are
+ * from the widget can't reach the bulb ("sendto failed: EPERM"). Widget taps are
  * allowed to start a foreground service, which keeps network access for the second or two
  * the command takes. Android holds back the notification for short tasks like this,
  * so normally nothing appears.
@@ -34,8 +34,6 @@ class WidgetActionService : Service() {
                 ACTION_LIGHT_TOGGLE -> HomeController.toggleLight(ctx)
                 ACTION_BRIGHTNESS -> HomeController.setBrightness(ctx, value)
                 ACTION_PRESET -> HomeController.applyPreset(ctx, value)
-                ACTION_HEATER_TOGGLE -> HomeController.toggleHeater(ctx)
-                ACTION_TEMP -> HomeController.changeTargetTemp(ctx, value)
             }
         }
         return START_NOT_STICKY
@@ -52,7 +50,7 @@ class WidgetActionService : Service() {
         )
         val notification = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_power)
-            .setContentTitle("Updating your light and heater…")
+            .setContentTitle("Updating your light…")
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE)
@@ -67,8 +65,6 @@ class WidgetActionService : Service() {
         const val ACTION_LIGHT_TOGGLE = PREFIX + "LIGHT_TOGGLE"
         const val ACTION_BRIGHTNESS = PREFIX + "BRIGHTNESS"
         const val ACTION_PRESET = PREFIX + "PRESET"
-        const val ACTION_HEATER_TOGGLE = PREFIX + "HEATER_TOGGLE"
-        const val ACTION_TEMP = PREFIX + "TEMP"
         private const val EXTRA_VALUE = "value"
         private const val CHANNEL = "widget_actions"
         private const val NOTIFICATION_ID = 1

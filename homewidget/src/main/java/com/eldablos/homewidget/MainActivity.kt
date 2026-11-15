@@ -15,9 +15,7 @@ class MainActivity : Activity() {
     private lateinit var email: EditText
     private lateinit var password: EditText
     private lateinit var lightIp: EditText
-    private lateinit var heaterIp: EditText
     private lateinit var lightResult: TextView
-    private lateinit var heaterResult: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,21 +23,16 @@ class MainActivity : Activity() {
         email = findViewById(R.id.email)
         password = findViewById(R.id.password)
         lightIp = findViewById(R.id.light_ip)
-        heaterIp = findViewById(R.id.heater_ip)
         lightResult = findViewById(R.id.light_result)
-        heaterResult = findViewById(R.id.heater_result)
 
         HomeStore.config(this).let {
             email.setText(it.email)
             password.setText(it.password)
             lightIp.setText(it.lightIp)
-            heaterIp.setText(it.heaterIp)
         }
 
         findViewById<Button>(R.id.find_light).setOnClickListener { findLight() }
         findViewById<Button>(R.id.test_light).setOnClickListener { testLight() }
-        findViewById<Button>(R.id.find_heater).setOnClickListener { findHeater() }
-        findViewById<Button>(R.id.test_heater).setOnClickListener { testHeater() }
         findViewById<Button>(R.id.save).setOnClickListener {
             save()
             Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
@@ -61,7 +54,7 @@ class MainActivity : Activity() {
 
     private fun config() = Config(
         email.text.toString().trim(), password.text.toString(),
-        lightIp.text.toString().trim(), heaterIp.text.toString().trim(),
+        lightIp.text.toString().trim(),
     )
 
     private fun save() {
@@ -115,23 +108,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun findHeater() {
-        val hosts = neighboursOrNull(heaterResult) ?: return
-        background(heaterResult, "Searching your network for Philips devices…") {
-            val found = LanScanner.findHeaters(hosts)
-            if (found.isEmpty()) return@background "✗ No Philips devices found. Is the heater plugged in and on Wi-Fi?"
-            val labelled = found.map { ip ->
-                val name = runCatching {
-                    val s = PhilipsClient(ip).use { it.status() }
-                    "${s.optString(PhilipsClient.KEY_NAME, "Philips")} (${s.optString(PhilipsClient.KEY_MODEL, "?")})"
-                }.getOrNull()
-                ip to (name ?: "Philips device")
-            }
-            runOnUiThread { choose("Pick your heater", labelled, heaterIp) }
-            "Found ${found.size} Philips device(s)."
-        }
-    }
-
     private fun choose(title: String, options: List<Pair<String, String>>, target: EditText) {
         if (options.size == 1) {
             target.setText(options[0].first)
@@ -166,32 +142,6 @@ class MainActivity : Activity() {
                     "Presets found: ${presets ?: "none, using defaults"}"
             } catch (e: Exception) {
                 "✗ " + HomeController.friendlyError("light", e)
-            }
-        }
-    }
-
-    private fun testHeater() {
-        val cfg = config()
-        if (!cfg.heaterConfigured) {
-            heaterResult.text = "✗ Fill in the heater's IP first (or tap Find)."
-            return
-        }
-        save()
-        background(heaterResult, "Connecting to the heater… (it can take up to 25 seconds)") {
-            try {
-                val status = PhilipsClient(cfg.heaterIp).use { it.status(patient = true) }
-                HomeController.submit(this) { HomeController.refreshHeater(it) }
-                val summary = if (status.has(PhilipsClient.KEY_POWER)) {
-                    "✓ Connected to ${status.optString(PhilipsClient.KEY_NAME)} (${status.optString(PhilipsClient.KEY_MODEL)})\n" +
-                        "On: ${status.optInt(PhilipsClient.KEY_POWER) == 1} · Target: ${status.optInt(PhilipsClient.KEY_TARGET_TEMP)}°C · " +
-                        "Room: ${status.optInt(PhilipsClient.KEY_ROOM_TEMP) / 10.0}°C"
-                } else {
-                    "⚠ Connected, but the heater reports different settings than expected. " +
-                        "Copy the details below and paste them into your chat with Claude."
-                }
-                "$summary\n\nRaw status:\n${status.toString(1)}"
-            } catch (e: Exception) {
-                "✗ " + HomeController.friendlyError("heater", e) + "\n\nDetails: " + (e.message ?: e.javaClass.simpleName)
             }
         }
     }

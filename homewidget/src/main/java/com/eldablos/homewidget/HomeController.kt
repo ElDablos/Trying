@@ -9,7 +9,7 @@ import java.util.Base64
 import java.util.concurrent.Executors
 
 /**
- * Runs every device command on one background thread, in tap order.
+ * Runs every light command on one background thread, in tap order.
  * Each action updates the stored state straight away (so the widget reacts instantly),
  * sends the command, then reads the real state back.
  */
@@ -135,76 +135,8 @@ object HomeController {
         )
     }
 
-    // ---- Heater ----
-
-    fun refreshHeater(context: Context, quiet: Boolean = false) {
-        val config = HomeStore.config(context)
-        if (!config.heaterConfigured) return
-        val current = HomeStore.heater(context)
-        HomeStore.saveHeater(context, try {
-            PhilipsClient(config.heaterIp).use { readHeater(it, current) }
-        } catch (e: Exception) {
-            if (quiet) return
-            current.copy(error = friendlyError("heater", e))
-        })
-    }
-
-    private fun readHeater(client: PhilipsClient, previous: HeaterState): HeaterState {
-        val s = client.status()
-        if (!s.has(PhilipsClient.KEY_POWER)) {
-            throw IllegalStateException("Heater answered but uses different settings; open the app and tap Test for details")
-        }
-        return HeaterState(
-            known = true,
-            name = s.optString(PhilipsClient.KEY_NAME).ifBlank { previous.name },
-            on = s.optInt(PhilipsClient.KEY_POWER, 0) == 1,
-            targetTemp = s.optInt(PhilipsClient.KEY_TARGET_TEMP, previous.targetTemp),
-            roomTemp = if (s.has(PhilipsClient.KEY_ROOM_TEMP)) s.optInt(PhilipsClient.KEY_ROOM_TEMP) / 10.0 else previous.roomTemp,
-            error = null,
-        )
-    }
-
-    private fun changeHeater(context: Context, optimistic: (HeaterState) -> HeaterState, values: (HeaterState) -> Map<String, Any>) {
-        val config = HomeStore.config(context)
-        if (!config.heaterConfigured) return
-        val before = HomeStore.heater(context)
-        val after = optimistic(before).copy(error = null)
-        HomeStore.saveHeater(context, after)
-        HomeWidgetProvider.renderAll(context)
-        try {
-            PhilipsClient(config.heaterIp).use { client ->
-                client.control(values(before))
-                // The command went through, so show it even if the status read-back is slow.
-                val confirmed = after.copy(known = true)
-                HomeStore.saveHeater(context, confirmed)
-                HomeWidgetProvider.renderAll(context)
-                Thread.sleep(400) // give the heater a moment to report its new state
-                HomeStore.saveHeater(context, runCatching { readHeater(client, confirmed) }.getOrDefault(confirmed))
-            }
-        } catch (e: Exception) {
-            HomeStore.saveHeater(context, before.copy(error = friendlyError("heater", e)))
-        }
-    }
-
-    fun toggleHeater(context: Context) = changeHeater(
-        context,
-        optimistic = { it.copy(on = !it.on) },
-        values = { mapOf(PhilipsClient.KEY_POWER to if (it.on) 0 else 1) },
-    )
-
-    fun changeTargetTemp(context: Context, delta: Int) {
-        // Work from the optimistic value so quick repeated taps add up.
-        val target = (HomeStore.heater(context).targetTemp + delta).coerceIn(PhilipsClient.MIN_TEMP, PhilipsClient.MAX_TEMP)
-        changeHeater(
-            context,
-            optimistic = { it.copy(targetTemp = target) },
-            values = { mapOf(PhilipsClient.KEY_TARGET_TEMP to target) },
-        )
-    }
-
     fun refreshAll(context: Context, quiet: Boolean = false) {
         refreshLight(context, quiet)
-        refreshHeater(context, quiet)
     }
 
     fun friendlyError(device: String, e: Throwable): String {

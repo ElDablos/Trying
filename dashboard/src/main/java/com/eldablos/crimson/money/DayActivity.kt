@@ -119,15 +119,19 @@ class DayActivity : Activity() {
             Ui.button(this, if (planned != null) "Remove shift" else "Day off") { set(null) },
         ))
         if (!date.isAfter(today)) {
-            add(option("Clocked times", worked?.let { "${it.start.format(hm)} – ${it.end.format(hm)}" } ?: "Add", valueColor = if (worked != null) Ui.MUTED else Ui.accent) {
-                val from = worked ?: planned
-                pickTimes(from?.start ?: LocalTime.of(9, 0), from?.end ?: LocalTime.of(17, 0)) { a, b ->
-                    Shifts.setActual(this, date, Shifts.Shift(a, b, planned?.name ?: "SHIFT"))
-                    MoneyWidget.refresh(this)
-                    finish()
-                }
+            // The times you really worked: clock in and out separately, add or change either (today too, while you're at work).
+            val running = Shifts.clockedIn(this)?.takeIf { it.toLocalDate() == date }
+            val inAt = worked?.start ?: running?.toLocalTime()
+            val outAt = worked?.end
+            add(Ui.text(this, "CLOCKED", 11f, Ui.MUTED, Hud.MEDIUM).apply { letterSpacing = .14f }, 14)
+            add(option("Clocked in", inAt?.format(hm) ?: "Add", valueColor = if (inAt != null) Ui.TEXT else Ui.accent) {
+                pickTime("Clocked in at", inAt ?: planned?.start ?: LocalTime.of(9, 0)) { t -> amend(t, null) }
+            }, 6)
+            add(option("Clocked out", outAt?.format(hm) ?: if (running != null) "Still at work · add" else "Add", valueColor = if (outAt != null) Ui.TEXT else Ui.accent) {
+                pickTime("Clocked out at", outAt ?: planned?.end ?: LocalTime.now().withSecond(0).withNano(0)) { t -> amend(null, t) }
             })
-            if (worked != null) add(Ui.button(this, "Clear clocked times") { Shifts.setActual(this, date, null); MoneyWidget.refresh(this); finish() })
+            worked?.let { add(Ui.text(this, "Worked ${Work.hours(it.minutes)} · about ${Pay.money(Math.round(it.minutes / 60.0 * setup.hourly).toDouble())} before tax", 12.5f, Ui.MUTED).apply { gravity = Gravity.CENTER }, 6) }
+            if (worked != null || running != null) add(Ui.button(this, "Clear clocked times") { amend(null, null, clear = true) })
         }
         val can = Shifts.canWrite(this)
         val foot = Ui.text(this, if (can) "✓ Saved to your calendar" + (if (Shifts.reminder(this)) " with a reminder" else "") else "Tap here to let shifts save to your calendar", 12.5f, if (can) Ui.GOOD else Ui.WARN).apply {
@@ -162,6 +166,17 @@ class DayActivity : Activity() {
         if (shift == null) Shifts.setActual(this, date, null)
         Work.setShift(this, date, shift)
         finish()
+    }
+
+    /** Changes the clocked times (see [Work.amend]); says how it went and closes. */
+    private fun amend(inTime: LocalTime?, outTime: LocalTime?, clear: Boolean = false) {
+        val r = Work.amend(this, date, inTime, outTime, clear)
+        android.widget.Toast.makeText(this, r.said, android.widget.Toast.LENGTH_LONG).show()
+        if (r.ok) finish()
+    }
+
+    private fun pickTime(title: String, at: LocalTime, then: (LocalTime) -> Unit) {
+        TimePickerDialog(this, { _, h, m -> then(LocalTime.of(h, m)) }, at.hour, at.minute, true).apply { setTitle(title) }.show()
     }
 
     /** Start, then end. */

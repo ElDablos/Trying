@@ -263,6 +263,31 @@ class Tools(private val activity: android.content.Context, private val host: Hos
             Out(ok("done" to r.ok, "result" to r.said), said = r.said)
         },
 
+        Tool("set_clocked_times", "Adds or corrects the times the user really worked (clocked in and out) on a day: 'I clocked in at 8:08 today', 'I forgot to clock out yesterday, I left at 6', 'change Monday to 7:05 till 18:10'. Works for today while still at work (it just moves the clock-in). Always do it: never say clock times can't be changed. clear=true removes them.",
+            obj("date" to str("YYYY-MM-DD; omit for today"), "clock_in" to str("HH:MM, if they gave it"), "clock_out" to str("HH:MM, if they gave it"), "clear" to bool("Remove that day's clocked times"))) { a ->
+            val d = date(a.s("date")) ?: LocalDate.now()
+            val before = Shifts.actual(activity)[d]
+            val beforeIn = Shifts.clockedIn(activity)
+            val r = Work.amend(activity, d, time(a.s("clock_in")), time(a.s("clock_out")), a.optBoolean("clear"))
+            if (!r.ok) return@Tool fail(r.said)
+            val undo = undoable {
+                Shifts.setActual(activity, d, before)
+                Shifts.setClockedIn(activity, beforeIn)
+                Work.changed(activity)
+                "Put the clocked times back as they were."
+            }
+            val now = Shifts.actual(activity)[d]
+            val running = Shifts.clockedIn(activity)?.takeIf { it.toLocalDate() == d }
+            Out(ok("done" to true, "result" to r.said),
+                Card("✓ Clocked times · ${d.format(dayFmt)}", now?.let { "${it.start.format(hm)}–${it.end.format(hm)}" } ?: running?.let { "in ${it.toLocalTime().format(hm)}" },
+                    listOfNotNull(
+                        Card.Row("Clocked in", (now?.start ?: running?.toLocalTime())?.format(hm) ?: "—"),
+                        Card.Row("Clocked out", now?.end?.format(hm) ?: if (running != null) "still at work" else "—"),
+                        before?.let { Card.Row("Was", "${it.start.format(hm)}–${it.end.format(hm)}") },
+                    ), listOf(undo), good = true),
+                r.said)
+        },
+
         Tool("get_pay", "The user's pay, worked out exactly (basic, estimated TRONC, tax, NI, pension, take-home). With no dates: the payslip that's paid next. With dates: that stretch. extra_hours adds hypothetical hours ('what if I pick up Sunday').",
             obj("from" to str("YYYY-MM-DD"), "to" to str("YYYY-MM-DD"), "extra_hours" to num("Extra hours to add, for a what-if"))) { a ->
             val setup = Pay.setup(activity)

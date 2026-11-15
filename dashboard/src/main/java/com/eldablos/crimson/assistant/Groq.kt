@@ -127,7 +127,7 @@ object Groq {
     private val GROUPS = listOf(
         Regex("alarm|wake|snooze|ring") to setOf("set_alarm", "set_work_alarms", "skip_work_alarms", "list_alarms", "cancel_alarm", "show_alarms", "set_timer", "set_routine"),
         Regex("timer|countdown|minutes") to setOf("set_timer", "countdowns"),
-        Regex("shift|rota|work|off|clock|day off|nory") to setOf("get_shifts", "set_shifts", "remove_shifts", "clock", "set_work_alarms"),
+        Regex("shift|rota|work|off|clock|day off|nory|forgot|late|left at|finished") to setOf("get_shifts", "set_shifts", "remove_shifts", "clock", "set_clocked_times", "set_work_alarms"),
         Regex("pay|payslip|money|tronc|tax|earn|wage|£|salary") to setOf("get_pay", "save_payslip", "get_payslips", "set_balance"),
         Regex("spent|spend|bought|left|balance|budget|cost") to setOf("spending", "set_balance"),
         Regex("remind|reminder|don't forget|notify") to setOf("add_reminder", "list_reminders", "cancel_reminder"),

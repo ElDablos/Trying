@@ -106,6 +106,45 @@ object Work {
         return Clock(true, "Clocked out at ${at.toLocalTime().format(HM)}: ${start.toLocalTime().format(HM)}–${at.toLocalTime().format(HM)}, ${hours(minutes)}, about ${Pay.money(Math.round(minutes / 60.0 * rate).toDouble())} before tax.")
     }
 
+    /**
+     * Adds or changes the times you really worked on [date] (forgot to clock in, did it late, left at a
+     * different time): [inTime] and/or [outTime]; what isn't given stays as it was (or comes from the rota).
+     * Today with no clock-out yet just moves the clock-in, and you stay clocked in. [clear] removes them.
+     */
+    fun amend(context: Context, date: LocalDate, inTime: LocalTime?, outTime: LocalTime?, clear: Boolean = false): Clock {
+        val today = LocalDate.now()
+        val clocked = Shifts.clockedIn(context)?.takeIf { it.toLocalDate() == date }
+        if (clear) {
+            Shifts.setActual(context, date, null)
+            if (clocked != null) Shifts.setClockedIn(context, null)
+            changed(context)
+            return Clock(true, "Cleared the clocked times for ${if (date == today) "today" else date.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM"))}.")
+        }
+        if (date.isAfter(today)) return Clock(false, "That day hasn't happened yet: I can only change clocked times for today or before.")
+        val planned = Shifts.all(context)[date]
+        val worked = Shifts.actual(context)[date]
+        val start = inTime ?: worked?.start ?: clocked?.toLocalTime() ?: planned?.start
+            ?: return Clock(false, "What time did you clock in?")
+        val day = if (date == today) "today" else date.format(java.time.format.DateTimeFormatter.ofPattern("EEE d MMM"))
+        var end = outTime ?: worked?.end
+        if (end == null) {
+            // Still at work today: the clock-in moves, and the clock stays running.
+            if (date == today && (clocked != null || inTime != null) && (planned == null || LocalTime.now().isBefore(planned.end) || clocked != null)) {
+                Shifts.setClockedIn(context, date.atTime(start))
+                changed(context)
+                return Clock(true, "Clock-in for today is now ${start.format(HM)}. You're still clocked in.")
+            }
+            end = planned?.end ?: return Clock(false, "What time did you clock out?")
+        }
+        val minutes = java.time.Duration.between(start, end).toMinutes().let { if (it <= 0) it + 24 * 60 else it }
+        if (minutes < 15 || minutes > 16 * 60) return Clock(false, "${start.format(HM)}–${end.format(HM)} would be ${hours(minutes)}, which can't be right. Check the times?")
+        Shifts.setActual(context, date, Shifts.Shift(start, end, planned?.name ?: worked?.name ?: "SHIFT"))
+        if (clocked != null) Shifts.setClockedIn(context, null)
+        changed(context)
+        val rate = Pay.setup(context).hourly
+        return Clock(true, "Clocked times for $day are now ${start.format(HM)}–${end.format(HM)}: ${hours(minutes)}, about ${Pay.money(Math.round(minutes / 60.0 * rate).toDouble())} before tax.")
+    }
+
     /** Copies the [days] days before [from] onto the [days] days from [from]; how many shifts were set. */
     fun copyPrevious(context: Context, from: LocalDate, days: Int): Int {
         val all = Shifts.all(context)

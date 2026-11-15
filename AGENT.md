@@ -78,6 +78,10 @@ lead, count, gap) kept; reminders are notifications, not calendar; it must remem
 
 ## Release log (newest first)
 
+### 2.6.1 (code 95) — clock times can always be changed
+- Jarvis (GPT-OSS on Groq) told the owner a clock-in "can't be edited". New `Work.amend(date, in?, out?, clear)`: what isn't given stays (or comes from the rota); today with no clock-out just moves the running clock-in; validates 15 min–16 h (overnight allowed). Tool `set_clocked_times` (today by default, Undo, card with in/out/was), system prompt says never refuse, Groq routes words like clock/forgot/left at to it.
+- Day sheet (today and past): "CLOCKED" section with separate Clocked in / Clocked out rows (single time pickers, "Still at work · add"), worked hours and pay, Clear.
+
 ### 2.6 (code 94) — Arcade "Spotlight" redesign (replaces the 2.5.1 console panel)
 - Owner rejected a restyle; picked concept A (Spotlight) from two mock-ups (A Spotlight / B Orbit) and asked for it improved.
 - `ArcadeHero.draw` (same contract): header "Arcade" + "N games · N new" (or "Turn on play stats ›" → UsageAccess); a banner in the selected game's own colour (`Arcade.vivid` of its accent → `Arcade.shade`), top-left light, the icon huge and faint tilted off the right edge, a diagonal sheen and a dark fade; icon in a glass frame, "CONTINUE/READY TO PLAY" chip, bold name, "3h 23m this fortnight · #1 · played 23h ago" with a playtime bar; white PLAY pill (label in the game's dark shade) and a glass "Surprise me" (Random). Then "JUMP BACK IN": four more of the most played (selected excluded) as cards in their colours with name, time played and a bar (Scene.playtimes, new). Proportional to the panel size.

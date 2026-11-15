@@ -55,8 +55,13 @@ Every push to GitHub builds the APK automatically (`.github/workflows/build.yml`
 
 A second app in this repo: a home-screen widget for a **Tapo colour bulb**, styled to match Crimson.
 
-- On/off, a 10-step brightness bar (tap a step to jump to it), and your colour presets read
-  from the bulb itself, with a ring round the one that's on
+- A big reactor-style power dial that glows in the bulb's current colour, with a brightness gauge round it
+- A 10-step brightness bar (tap a step to jump to it) and your colour presets ("scenes") read from the
+  bulb itself, with target brackets round the one that's on
+- A small **TAPO ↗** button that opens the Tapo app
+
+Like the Crimson Money widget, it's drawn as one picture (`LightArt`) with see-through tap areas laid
+over it in the same proportions.
 
 It talks to the bulb directly over your home Wi-Fi. There's no cloud and no hub, so it only works
 while your phone is on that Wi-Fi.

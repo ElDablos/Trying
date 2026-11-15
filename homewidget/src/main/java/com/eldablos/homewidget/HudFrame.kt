@@ -1,6 +1,5 @@
 package com.eldablos.homewidget
 
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -21,14 +20,6 @@ object HudFrame {
 
     private fun a(color: Int, alpha: Float) = (color and 0xFFFFFF) or ((alpha * 255).toInt().coerceIn(0, 255) shl 24)
 
-    /** A [wDp]×[hDp] frame at [scale] pixels per dp. */
-    fun render(wDp: Int, hDp: Int, scale: Float): Bitmap {
-        val w = (wDp * scale).toInt().coerceAtLeast(64)
-        val h = (hDp * scale).toInt().coerceAtLeast(64)
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        draw(Canvas(bmp), w.toFloat(), h.toFloat(), scale)
-        return bmp
-    }
 
     private fun framePath(w: Float, h: Float, u: Float): Path {
         val c = 14 * u
@@ -43,14 +34,15 @@ object HudFrame {
         }
     }
 
-    private fun draw(c: Canvas, w: Float, h: Float, u: Float) {
+    /** Draws the frame filling [w]×[h] pixels; [u] is pixels per dp; the glow centres on [glowX],[glowY]. */
+    fun draw(c: Canvas, w: Float, h: Float, u: Float, glowX: Float = w * .22f, glowY: Float = h * .12f) {
         val path = framePath(w, h, u)
         c.save()
         c.clipPath(path)
         // Translucent, so the wallpaper shows through like the other Crimson widgets.
         c.drawColor((0xC8 shl 24) or 0x0A0708)
         c.drawPaint(Paint().apply {
-            shader = RadialGradient(w * .22f, h * .12f, maxOf(w, h) * .6f, a(CRIMSON, .30f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            shader = RadialGradient(glowX, glowY, maxOf(w, h) * .6f, a(CRIMSON, .22f), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         })
         c.drawPaint(Paint().apply {
             shader = RadialGradient(w * .8f, h * .95f, maxOf(w, h) * .55f, a(DEEP, .28f), Color.TRANSPARENT, Shader.TileMode.CLAMP)

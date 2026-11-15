@@ -1,402 +1,186 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Crimson Home Controls. Rows use weights so the widget fills whatever size it's given. -->
+<!-- The light widget: one picture (LightArt) with see-through tap areas over it. The weights are the
+     picture's design units out of 440 (see LightArt), so each tap area sits on what's drawn. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- The Crimson console frame, drawn in code (HudFrame) at the widget's size. -->
     <ImageView
-        android:id="@+id/widget_bg"
+        android:id="@+id/widget_image"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:importantForAccessibility="no"
+        android:contentDescription="Light controls"
         android:scaleType="fitXY"
         android:src="@drawable/widget_background" />
 
-<LinearLayout
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:paddingHorizontal="18dp"
-    android:paddingTop="20dp"
-    android:paddingBottom="16dp">
-
-    <TextView
-        android:id="@+id/setup_text"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:gravity="center"
-        android:text="Tap to set up your light"
-        android:textColor="@color/bone"
-        android:textSize="15sp"
-        android:visibility="gone" />
+        android:orientation="vertical"
+        android:weightSum="440">
 
-    <!-- Light -->
-    <LinearLayout
-        android:id="@+id/light_section"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <LinearLayout
-                android:id="@+id/light_header"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="monospace"
-                    android:letterSpacing="0.22"
-                    android:text="◆ LIGHT"
-                    android:textColor="@color/bone"
-                    android:textStyle="bold"
-                    android:textSize="11sp" />
-
-                <TextView
-                    android:id="@+id/light_name"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:ellipsize="end"
-                    android:fontFamily="sans-serif-medium"
-                    android:singleLine="true"
-                    android:text="Light"
-                    android:textColor="@color/bone"
-                    android:textSize="22sp" />
-
-                <TextView
-                    android:id="@+id/light_status"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:singleLine="true"
-                    android:text="--"
-                    android:textColor="@color/dust"
-                    android:textSize="13sp" />
-            </LinearLayout>
-
-            <ImageView
-                android:id="@+id/light_power"
-                android:layout_width="64dp"
-                android:layout_height="64dp"
-                android:background="@drawable/circle_off"
-                android:contentDescription="Light on/off"
-                android:padding="15dp"
-                android:src="@drawable/ic_power" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.22"
-                android:text="// BRIGHTNESS"
-                android:textColor="@color/hot"
-                android:textSize="11sp" />
-
-            <TextView
-                android:id="@+id/brightness_value"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:fontFamily="sans-serif-medium"
-                android:text="--"
-                android:textColor="@color/bone"
-                android:textSize="11sp" />
-        </LinearLayout>
-
+        <!-- 0–60: header. Left refreshes, right opens Tapo. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_marginTop="6dp"
-            android:layout_weight="1.2"
+            android:layout_weight="60"
             android:orientation="horizontal">
 
-            <TextView
+            <FrameLayout
+                android:id="@+id/tap_header"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+
+            <FrameLayout
+                android:id="@+id/tap_tapo"
+                android:layout_width="96dp"
+                android:layout_height="match_parent"
+                android:contentDescription="Open the Tapo app" />
+        </LinearLayout>
+
+        <!-- 60–270: the power dial. -->
+        <FrameLayout
+            android:id="@+id/tap_power"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="210"
+            android:contentDescription="Light on/off" />
+
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="30" />
+
+        <!-- 300–336: brightness bars. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="36"
+            android:orientation="horizontal"
+            android:paddingHorizontal="18dp">
+
+            <FrameLayout
                 android:id="@+id/seg_1"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="2.5dp"
-                android:background="@drawable/segment_off" />
-            <TextView
+                android:layout_weight="1" />
+            <FrameLayout
                 android:id="@+id/seg_2"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="2.5dp"
-                android:background="@drawable/segment_off" />
-            <TextView
+                android:layout_weight="1" />
+            <FrameLayout
                 android:id="@+id/seg_3"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="2.5dp"
-                android:background="@drawable/segment_off" />
-            <TextView
+                android:layout_weight="1" />
+            <FrameLayout
                 android:id="@+id/seg_4"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="2.5dp"
-                android:background="@drawable/segment_off" />
-            <TextView
+                android:layout_weight="1" />
+            <FrameLayout
                 android:id="@+id/seg_5"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="2.5dp"
-                android:background="@drawable/segment_off" />
-            <TextView
+                android:layout_weight="1" />
+            <FrameLayout
                 android:id="@+id/seg_6"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="2.5dp"
-                android:background="@drawable/segment_off" />
-            <TextView
+                android:layout_weight="1" />
+            <FrameLayout
                 android:id="@+id/seg_7"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="2.5dp"
-                android:background="@drawable/segment_off" />
-            <TextView
+                android:layout_weight="1" />
+            <FrameLayout
                 android:id="@+id/seg_8"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="2.5dp"
-                android:background="@drawable/segment_off" />
-            <TextView
+                android:layout_weight="1" />
+            <FrameLayout
                 android:id="@+id/seg_9"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="2.5dp"
-                android:background="@drawable/segment_off" />
-            <TextView
+                android:layout_weight="1" />
+            <FrameLayout
                 android:id="@+id/seg_10"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginHorizontal="2.5dp"
-                android:background="@drawable/segment_off" />
+                android:layout_weight="1" />
         </LinearLayout>
 
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="16" />
+
+        <!-- 352–410: scenes. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_marginTop="6dp"
-            android:layout_weight="1"
-            android:orientation="horizontal">
+            android:layout_weight="58"
+            android:orientation="horizontal"
+            android:paddingHorizontal="18dp">
 
             <FrameLayout
                 android:id="@+id/preset_1"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1">
-
-                <ImageView
-                    android:id="@+id/preset_ring_1"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
-                    android:layout_gravity="center"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/swatch_ring"
-                    android:visibility="invisible" />
-
-                <ImageView
-                    android:id="@+id/preset_dot_1"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
-                    android:layout_gravity="center"
-                    android:contentDescription="Preset 1"
-                    android:src="@drawable/swatch" />
-            </FrameLayout>
+                android:layout_weight="1" />
             <FrameLayout
                 android:id="@+id/preset_2"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1">
-
-                <ImageView
-                    android:id="@+id/preset_ring_2"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
-                    android:layout_gravity="center"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/swatch_ring"
-                    android:visibility="invisible" />
-
-                <ImageView
-                    android:id="@+id/preset_dot_2"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
-                    android:layout_gravity="center"
-                    android:contentDescription="Preset 2"
-                    android:src="@drawable/swatch" />
-            </FrameLayout>
+                android:layout_weight="1" />
             <FrameLayout
                 android:id="@+id/preset_3"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1">
-
-                <ImageView
-                    android:id="@+id/preset_ring_3"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
-                    android:layout_gravity="center"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/swatch_ring"
-                    android:visibility="invisible" />
-
-                <ImageView
-                    android:id="@+id/preset_dot_3"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
-                    android:layout_gravity="center"
-                    android:contentDescription="Preset 3"
-                    android:src="@drawable/swatch" />
-            </FrameLayout>
+                android:layout_weight="1" />
             <FrameLayout
                 android:id="@+id/preset_4"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1">
-
-                <ImageView
-                    android:id="@+id/preset_ring_4"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
-                    android:layout_gravity="center"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/swatch_ring"
-                    android:visibility="invisible" />
-
-                <ImageView
-                    android:id="@+id/preset_dot_4"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
-                    android:layout_gravity="center"
-                    android:contentDescription="Preset 4"
-                    android:src="@drawable/swatch" />
-            </FrameLayout>
+                android:layout_weight="1" />
             <FrameLayout
                 android:id="@+id/preset_5"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1">
-
-                <ImageView
-                    android:id="@+id/preset_ring_5"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
-                    android:layout_gravity="center"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/swatch_ring"
-                    android:visibility="invisible" />
-
-                <ImageView
-                    android:id="@+id/preset_dot_5"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
-                    android:layout_gravity="center"
-                    android:contentDescription="Preset 5"
-                    android:src="@drawable/swatch" />
-            </FrameLayout>
+                android:layout_weight="1" />
             <FrameLayout
                 android:id="@+id/preset_6"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1">
-
-                <ImageView
-                    android:id="@+id/preset_ring_6"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
-                    android:layout_gravity="center"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/swatch_ring"
-                    android:visibility="invisible" />
-
-                <ImageView
-                    android:id="@+id/preset_dot_6"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
-                    android:layout_gravity="center"
-                    android:contentDescription="Preset 6"
-                    android:src="@drawable/swatch" />
-            </FrameLayout>
+                android:layout_weight="1" />
             <FrameLayout
                 android:id="@+id/preset_7"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_weight="1">
+                android:layout_weight="1" />
+        </LinearLayout>
 
-                <ImageView
-                    android:id="@+id/preset_ring_7"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
-                    android:layout_gravity="center"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/swatch_ring"
-                    android:visibility="invisible" />
+        <!-- 410–440: footer. Left refreshes, the gear opens settings. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="30"
+            android:orientation="horizontal">
 
-                <ImageView
-                    android:id="@+id/preset_dot_7"
-                    android:layout_width="46dp"
-                    android:layout_height="46dp"
-                    android:layout_gravity="center"
-                    android:contentDescription="Preset 7"
-                    android:src="@drawable/swatch" />
-            </FrameLayout>
+            <FrameLayout
+                android:id="@+id/tap_footer"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+
+            <FrameLayout
+                android:id="@+id/settings"
+                android:layout_width="48dp"
+                android:layout_height="match_parent"
+                android:contentDescription="Settings" />
         </LinearLayout>
     </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/footer"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <TextView
-            android:id="@+id/footer_text"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="2"
-            android:text="Tap to refresh"
-            android:textColor="@color/dust"
-            android:textSize="11sp" />
-
-        <ImageView
-            android:id="@+id/settings"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:contentDescription="Settings"
-            android:padding="3dp"
-            android:src="@drawable/ic_settings" />
-    </LinearLayout>
-</LinearLayout>
 </FrameLayout>
